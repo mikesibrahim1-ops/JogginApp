@@ -1,0 +1,17 @@
+rules_version = '2';
+
+// Firebase Storage rules for Joggin.
+//   - /public/**  : world-readable (the app APK download). No public writes.
+//   - everything else: locked down.
+// Paste into Firebase console → Storage → Rules, or deploy via the CLI.
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /public/{allPaths=**} {
+      allow read: if true;
+      allow write: if false;
+    }
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

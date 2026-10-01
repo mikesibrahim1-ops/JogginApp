@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Joggin — Buddy Link Invite</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: linear-gradient(135deg, #1b5e20 0%, #2e7d32 50%, #43a047 100%);
+    color: #fff;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+  .card {
+    background: rgba(255,255,255,0.12);
+    backdrop-filter: blur(12px);
+    border-radius: 20px;
+    padding: 40px 32px;
+    max-width: 380px;
+    width: 100%;
+    text-align: center;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+  }
+  .emoji { font-size: 48px; margin-bottom: 16px; }
+  h1 { font-size: 22px; font-weight: 700; margin-bottom: 8px; }
+  .sub { font-size: 14px; opacity: 0.85; line-height: 1.5; margin-bottom: 28px; }
+  .btn {
+    display: inline-block;
+    background: #fff;
+    color: #2e7d32;
+    font-size: 16px;
+    font-weight: 600;
+    padding: 14px 36px;
+    border-radius: 50px;
+    text-decoration: none;
+    transition: transform 0.15s, box-shadow 0.15s;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+  }
+  .btn:active { transform: scale(0.97); }
+  .note {
+    margin-top: 24px;
+    font-size: 12px;
+    opacity: 0.65;
+    line-height: 1.4;
+  }
+  .expire-warn {
+    margin-top: 16px;
+    padding: 10px 16px;
+    background: rgba(255,152,0,0.25);
+    border-radius: 10px;
+    font-size: 13px;
+  }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+
+<div class="card">
+  <div class="emoji">🏃‍♂️🛰️</div>
+  <h1>Buddy Link Invite</h1>
+  <p class="sub" id="msg">Someone wants to connect with you as a safety buddy on Joggin.</p>
+
+  <div id="expire-warn" class="expire-warn hidden">
+    ⚠️ This invite has expired. Ask your buddy to send a new one.
+  </div>
+
+  <a id="open-btn" class="btn" href="#">Open in Joggin</a>
+
+  <p class="note">
+    If the app doesn't open, you may need to install Joggin first.<br>
+    Then tap the link again from your chat.
+  </p>
+</div>
+
+<script>
+(function() {
+  // Read the invite params from the URL
+  var params = new URLSearchParams(window.location.search);
+  var id  = params.get('id');
+  var exp = params.get('exp');
+
+  if (!id) {
+    document.getElementById('msg').textContent =
+      'This link doesn\u2019t look like a valid Buddy Link invite.';
+    document.getElementById('open-btn').classList.add('hidden');
+    return;
+  }
+
+  // Check expiry
+  if (exp && Date.now() > parseInt(exp, 10)) {
+    document.getElementById('expire-warn').classList.remove('hidden');
+    document.getElementById('open-btn').classList.add('hidden');
+    return;
+  }
+
+  // Build the custom-scheme deep link
+  var deepLink = 'joggin://buddy/v1/' + encodeURIComponent(id);
+  if (exp) deepLink += '?exp=' + encodeURIComponent(exp);
+
+  var btn = document.getElementById('open-btn');
+  btn.href = deepLink;
+
+  // Auto-try the deep link after a brief delay (gives the page time to render
+  // so the user sees something if the redirect fails)
+  setTimeout(function() {
+    window.location.href = deepLink;
+  }, 600);
+})();
+</script>
+
+</body>
+</html>

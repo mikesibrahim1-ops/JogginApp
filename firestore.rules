@@ -1,0 +1,115 @@
+rules_version = '2';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Buddy Link — Firestore security rules (design §9)
+//
+// Identity model: documents are keyed by our own App ID (a stable UUID), while the
+// caller authenticates with a Firebase anonymous uid. The `authMap/{uid}` resolver
+// doc maps a caller's uid → their App ID so these rules can authorize App-ID-keyed
+// documents. `users/{appId}.authUid` is the reverse mapping used for write checks.
+//
+// Enforces:
+//  - only the owner writes their own user doc / location / blocked / trail;
+//  - a location (and its trail) is readable ONLY when an ACCEPTED link exists,
+//    BOTH users are `sharing == true`, and NEITHER has blocked the other
+//    (CONDITION-1, three-layer enforcement — this is layer 3, tamper-resistant);
+//  - link create requires the caller to be side `a` and not blocked by `b`.
+//
+// NOTE: paste into Firebase console → Firestore Database → Rules → Publish.
+// ─────────────────────────────────────────────────────────────────────────────
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Caller's App ID, resolved from their auth uid.
+    function myAppId() {
+      return get(/databases/$(database)/documents/authMap/$(request.auth.uid)).data.appId;
+    }
+    function signedIn() { return request.auth != null; }
+
+    function userDoc(appId) {
+      return get(/databases/$(database)/documents/users/$(appId)).data;
+    }
+    // Does `ownerAppId` currently own docs as this caller? (write authorization)
+    function ownsUser(appId) {
+      return signedIn() && userDoc(appId).authUid == request.auth.uid;
+    }
+    // Is there an ACCEPTED link between appIdX and appIdY? linkId = sorted pair.
+    function linkId(x, y) {
+      return x < y ? (x + '_' + y) : (y + '_' + x);
+    }
+    function acceptedLink(x, y) {
+      return exists(/databases/$(database)/documents/links/$(linkId(x, y)))
+        && get(/databases/$(database)/documents/links/$(linkId(x, y))).data.state == 'accepted';
+    }
+    function hasBlocked(ownerAppId, otherAppId) {
+      return exists(/databases/$(database)/documents/users/$(ownerAppId)/blocked/$(otherAppId));
+    }
+
+    // authMap: a caller may only create/read the mapping for their own uid.
+    match /authMap/{uid} {
+      allow read: if signedIn() && request.auth.uid == uid;
+      allow write: if signedIn() && request.auth.uid == uid
+                   && request.resource.data.appId is string;
+    }
+
+    // Has the caller already registered authMap/{uid} → this appId? (Written FIRST by
+    // ensureSession, so a caller can only claim/own the App ID their session maps to.)
+    function mappedToMe(appId) {
+      return signedIn()
+        && exists(/databases/$(database)/documents/authMap/$(request.auth.uid))
+        && get(/databases/$(database)/documents/authMap/$(request.auth.uid)).data.appId == appId;
+    }
+
+    // users/{appId}
+    match /users/{appId} {
+      // Readable by the owner or by an accepted buddy (needed to show name/status).
+      allow read: if ownsUser(appId)
+                  || (signedIn() && acceptedLink(myAppId(), appId));
+      // Create/own only the App ID that the caller's authMap points to, and the doc
+      // must carry the caller's own authUid so ownsUser() works thereafter.
+      allow create: if mappedToMe(appId)
+                    && request.resource.data.authUid == request.auth.uid;
+      // Updates require existing ownership; authUid must not be reassigned to someone else.
+      allow update: if ownsUser(appId)
+                    && request.resource.data.authUid == request.auth.uid;
+      allow delete: if ownsUser(appId);
+
+      match /blocked/{otherId} {
+        allow read, write: if ownsUser(appId);
+      }
+    }
+
+    // links/{linkId}: either party may read/update; creator must be side `a` and not blocked.
+    match /links/{linkId} {
+      allow read, update: if signedIn()
+        && (myAppId() == resource.data.a || myAppId() == resource.data.b);
+      allow create: if signedIn()
+        && request.resource.data.a == myAppId()
+        && !hasBlocked(request.resource.data.b, myAppId());
+      allow delete: if signedIn()
+        && (myAppId() == resource.data.a || myAppId() == resource.data.b);
+    }
+
+    // locations/{appId}: owner writes; accepted+mutually-sharing+unblocked buddies read.
+    match /locations/{appId} {
+      allow write: if ownsUser(appId);
+      allow read: if signedIn()
+        && acceptedLink(myAppId(), appId)
+        && userDoc(appId).sharing == true
+        && userDoc(myAppId()).sharing == true
+        && !hasBlocked(appId, myAppId())
+        && !hasBlocked(myAppId(), appId);
+
+      match /trail/{point} {
+        allow write: if ownsUser(appId);
+        allow read: if signedIn()
+          && acceptedLink(myAppId(), appId)
+          && userDoc(appId).sharing == true
+          && userDoc(myAppId()).sharing == true
+          && !hasBlocked(appId, myAppId())
+          && !hasBlocked(myAppId(), appId);
+      }
+    }
+  }
+}

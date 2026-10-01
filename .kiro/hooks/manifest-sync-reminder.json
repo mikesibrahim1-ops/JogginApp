@@ -1,0 +1,15 @@
+{
+  "version": "v1",
+  "hooks": [
+    {
+      "name": "Manifest sync reminder",
+      "trigger": "PostFileSave",
+      "description": "Reminds to keep the base and Firebase-overlay AndroidManifest.xml files in sync when either is edited.",
+      "matcher": "AndroidManifest\\.xml$",
+      "action": {
+        "type": "agent",
+        "prompt": "A file named AndroidManifest.xml was just saved. This project keeps TWO manifests that must stay in sync: the base `app/src/main/AndroidManifest.xml` (used when Firebase is compiled out) and the Firebase overlay `app/src/firebase/AndroidManifest.xml` (a full copy of the base PLUS the BuddyFirebaseMessagingService, swapped in by build.gradle when google-services.json is present). If the edit changed permissions, the application element, activities, providers, or services, verify the same change is mirrored in the OTHER manifest. The overlay must equal the base plus exactly the FCM `<service>` block. Report any drift."
+      }
+    }
+  ]
+}

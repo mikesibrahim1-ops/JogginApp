@@ -1,0 +1,31 @@
+{
+  "firestore": {
+    "rules": "../firestore.rules"
+  },
+  "storage": {
+    "rules": "storage.rules"
+  },
+  "functions": {
+    "source": "functions",
+    "runtime": "nodejs20"
+  },
+  "hosting": {
+    "public": "public",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**",
+      "**/*.apk"
+    ],
+    "rewrites": [
+      {
+        "source": "/buddy",
+        "destination": "/buddy/index.html"
+      },
+      {
+        "source": "/get",
+        "destination": "/get/index.html"
+      }
+    ]
+  }
+}

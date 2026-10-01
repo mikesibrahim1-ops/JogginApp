@@ -1,0 +1,53 @@
+# Built application files
+*.apk
+*.ap_
+*.aab
+
+# Files for the ART/Dalvik VM
+*.dex
+
+# Java class files
+*.class
+
+# Generated files
+bin/
+gen/
+out/
+
+# Gradle files
+.gradle/
+build/
+gradle-8.1/
+
+# Local configuration file (sdk path, etc)
+local.properties
+
+# Log files
+*.log
+build-logs/
+
+# Android Studio / IntelliJ
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# VS Code
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Firebase config (per-project config, not a secret, but don't publish it)
+app/google-services.json
+
+# Signing keystores & secrets — NEVER commit these
+*.jks
+*.keystore
+keystore.properties
+*.p12
+*.pem
+
+# Cloud Functions deps
+firebase-hosting/functions/node_modules/

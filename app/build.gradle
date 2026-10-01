@@ -1,0 +1,135 @@
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+}
+
+// ── Firebase / Buddy Link backend gating ──────────────────────────────────────
+// The Google Services plugin FAILS the build if google-services.json is missing, and
+// the Firebase deps / FirebaseBuddyRepository only make sense once the project is
+// configured. So everything Firebase is gated on the presence of the config file:
+//   - no google-services.json  → no plugin, no Firebase deps, Firebase source excluded
+//                                 → app builds fine and uses NoOpBuddyRepository.
+//   - google-services.json     → plugin applied, deps added, Firebase source compiled
+//                                 → BuddyRepositoryProvider returns FirebaseBuddyRepository.
+// This means activating Firebase is a zero-code-change step: just drop in the JSON.
+def googleServicesFile = file('google-services.json')
+def firebaseEnabled = googleServicesFile.exists()
+if (firebaseEnabled) {
+    apply plugin: 'com.google.gms.google-services'
+}
+
+android {
+    compileSdk 34
+    namespace 'com.example.joggingapp'
+
+    defaultConfig {
+        applicationId "com.example.joggingapp"
+        minSdk 24
+        targetSdk 34
+        versionCode 41
+        versionName "1.41"
+        // Runtime flag so app code (BuddyRepositoryProvider) knows whether the
+        // Firebase backend is compiled in, without hard-referencing Firebase classes.
+        buildConfigField "boolean", "FIREBASE_ENABLED", "${firebaseEnabled}"
+    }
+
+    // The FirebaseBuddyRepository lives in a separate source root that is ONLY added
+    // to the build when google-services.json is present. Without it, the file is not
+    // compiled, so its Firebase imports never break the build.
+    sourceSets {
+        if (firebaseEnabled) {
+            main.java.srcDirs += 'src/firebase/java'
+            // Use the Firebase-enabled manifest overlay (adds the FCM messaging service,
+            // which needs the gated firebase source + firebase-messaging dep). Without
+            // google-services.json we keep the base src/main/AndroidManifest.xml, which
+            // has no reference to any Firebase class.
+            main.manifest.srcFile 'src/firebase/AndroidManifest.xml'
+        }
+    }
+
+    signingConfigs {
+        debug {
+            // Explicitly enable v1 (JAR) signing alongside v2/v3. Newer build-tools
+            // default the debug APK to v2-only, which some devices reject at install
+            // time with a bare "App not installed" (Play Protect scans OK, then the
+            // package installer refuses it). v1 makes sideloaded installs work broadly.
+            enableV1Signing true
+            enableV2Signing true
+            enableV3Signing true
+        }
+        release {
+            storeFile file(System.getenv("JOGGIN_KEYSTORE_PATH") ?: "../joggin-release.jks")
+            storePassword System.getenv("JOGGIN_KEYSTORE_PASSWORD") ?: ""
+            keyAlias System.getenv("JOGGIN_KEY_ALIAS") ?: "joggin"
+            keyPassword System.getenv("JOGGIN_KEY_PASSWORD") ?: ""
+            enableV1Signing true
+            enableV2Signing true
+            enableV3Signing true
+        }
+    }
+
+    buildTypes {
+        debug {
+            signingConfig signingConfigs.debug
+        }
+        release {
+            signingConfig signingConfigs.release
+            minifyEnabled false
+        }
+    }
+
+    // Produce a single universal APK (not split by ABI)
+    splits {
+        abi {
+            enable false
+        }
+    }
+
+    buildFeatures {
+        compose true
+        buildConfig true
+    }
+
+    composeOptions {
+        kotlinCompilerExtensionVersion '1.5.10'
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = '17'
+    }
+}
+
+dependencies {
+    implementation 'androidx.core:core-ktx:1.9.0'
+    implementation 'androidx.activity:activity-compose:1.7.0'
+    implementation 'androidx.compose.ui:ui:1.4.3'
+    implementation 'androidx.compose.material:material:1.4.3'
+    implementation 'androidx.compose.ui:ui-tooling-preview:1.4.3'
+    implementation 'androidx.compose.animation:animation:1.4.3'
+    implementation 'androidx.compose.foundation:foundation:1.4.3'
+    implementation 'com.google.android.gms:play-services-location:21.0.1'
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.0'
+    implementation 'com.google.code.gson:gson:2.10.1'
+    // Offline map support (osmdroid)
+    implementation 'org.osmdroid:osmdroid-android:6.1.14'
+
+    // Firebase (Buddy Link backend) — only pulled in once google-services.json exists,
+    // so the app builds without any Firebase account configured. BoM keeps versions aligned.
+    if (firebaseEnabled) {
+        implementation platform('com.google.firebase:firebase-bom:33.1.2')
+        implementation 'com.google.firebase:firebase-auth'
+        implementation 'com.google.firebase:firebase-firestore'
+        implementation 'com.google.firebase:firebase-messaging'
+        implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.7.0'
+    }
+
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'androidx.test:core:1.5.0'
+    testImplementation 'org.robolectric:robolectric:4.11.1'
+}
+
