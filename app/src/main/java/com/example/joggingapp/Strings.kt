@@ -198,6 +198,32 @@ data class AppStrings(
     val buddyChannelName: String,          // notification channel name for broadcast service
     val buddyJustNow: String,              // "updated just now" (fresh fix)
     val buddyMinutesAgo: (Int) -> String,  // "updated N min ago"
+    // ── Exercise Targets ──────────────────────────────────────────────────────
+    val exerciseTargets: String,           // section / screen title
+    val exerciseTargetsSubtitle: String,   // options-pane row subtitle
+    val exerciseTargetsEmpty: String,      // empty-state message
+    val exTypeSitups: String,
+    val exTypePushups: String,
+    val exTypeSquats: String,
+    val exTypeWalking: String,
+    val exTypeRunning: String,
+    val exPeriodDaily: String,
+    val exPeriodWeekly: String,
+    val exPeriodMonthly: String,
+    val exAddTarget: String,               // "Add target" button
+    val exNewTarget: String,               // add-form heading
+    val exExerciseLabel: String,           // "Exercise"
+    val exPeriodLabel: String,             // "Period"
+    val exAmountReps: String,              // amount field label for manual types
+    val exAmountKm: String,                // amount field label for distance types
+    val exLogReps: String,                 // "Log" button on a manual target
+    val exLogRepsTitle: (String) -> String,// dialog title "Log {exercise}"
+    val exProgressReps: (Int, Int) -> String,   // "{cur} / {goal} reps"
+    val exProgressKm: (String, String) -> String,// "{cur} / {goal} km"
+    val exDone: String,                    // "Goal met!" badge
+    val exDelete: String,                  // delete a target
+    val exAdd: String,                     // confirm add in the form
+    val exAutoTracked: String,             // note under distance targets
 )
 
 // ── English ───────────────────────────────────────────────────────────────────
@@ -371,6 +397,31 @@ val EnglishStrings = AppStrings(
     buddyChannelName = "Buddy Link",
     buddyJustNow = "updated just now",
     buddyMinutesAgo = { min -> "updated $min min ago" },
+    exerciseTargets = "Exercise Targets",
+    exerciseTargetsSubtitle = "Set at-home goals and track your progress",
+    exerciseTargetsEmpty = "No targets yet. Add one to start tracking your at-home exercises and distance goals.",
+    exTypeSitups = "Sit-ups",
+    exTypePushups = "Push-ups",
+    exTypeSquats = "Squats",
+    exTypeWalking = "Walking",
+    exTypeRunning = "Running",
+    exPeriodDaily = "Daily",
+    exPeriodWeekly = "Weekly",
+    exPeriodMonthly = "Monthly",
+    exAddTarget = "Add target",
+    exNewTarget = "New target",
+    exExerciseLabel = "Exercise",
+    exPeriodLabel = "Period",
+    exAmountReps = "Target reps",
+    exAmountKm = "Target distance (km)",
+    exLogReps = "Log",
+    exLogRepsTitle = { ex -> "Log $ex" },
+    exProgressReps = { cur, goal -> "$cur / $goal reps" },
+    exProgressKm = { cur, goal -> "$cur / $goal km" },
+    exDone = "Goal met! 🎉",
+    exDelete = "Delete",
+    exAdd = "Add",
+    exAutoTracked = "Auto-tracked from your runs",
 )
 
 // ── Greek (formal Modern Greek, monotonic) ─────────────────────────────────────
@@ -544,6 +595,31 @@ val GreekStrings = AppStrings(
     buddyChannelName = "Σύνδεσμος Φίλου",
     buddyJustNow = "ενημερώθηκε μόλις τώρα",
     buddyMinutesAgo = { min -> "ενημερώθηκε πριν $min λεπτά" },
+    exerciseTargets = "Στόχοι Άσκησης",
+    exerciseTargetsSubtitle = "Ορίστε στόχους στο σπίτι και παρακολουθήστε την πρόοδό σας",
+    exerciseTargetsEmpty = "Δεν υπάρχουν στόχοι ακόμη. Προσθέστε έναν για να παρακολουθείτε τις ασκήσεις σας και τους στόχους απόστασης.",
+    exTypeSitups = "Κοιλιακοί",
+    exTypePushups = "Κάμψεις",
+    exTypeSquats = "Καθίσματα",
+    exTypeWalking = "Περπάτημα",
+    exTypeRunning = "Τρέξιμο",
+    exPeriodDaily = "Ημερήσιο",
+    exPeriodWeekly = "Εβδομαδιαίο",
+    exPeriodMonthly = "Μηνιαίο",
+    exAddTarget = "Προσθήκη στόχου",
+    exNewTarget = "Νέος στόχος",
+    exExerciseLabel = "Άσκηση",
+    exPeriodLabel = "Περίοδος",
+    exAmountReps = "Στόχος επαναλήψεων",
+    exAmountKm = "Στόχος απόστασης (χλμ)",
+    exLogReps = "Καταγραφή",
+    exLogRepsTitle = { ex -> "Καταγραφή: $ex" },
+    exProgressReps = { cur, goal -> "$cur / $goal επαν." },
+    exProgressKm = { cur, goal -> "$cur / $goal χλμ" },
+    exDone = "Ο στόχος επιτεύχθηκε! 🎉",
+    exDelete = "Διαγραφή",
+    exAdd = "Προσθήκη",
+    exAutoTracked = "Αυτόματη παρακολούθηση από τις δραστηριότητές σας",
 )
 
 // ── Resolver ──────────────────────────────────────────────────────────────────
@@ -568,6 +644,20 @@ fun tierLabel(s: AppStrings, tier: AchievementTier): String = when (tier) {
     AchievementTier.SILVER  -> s.tierSilver
     AchievementTier.GOLD    -> s.tierGold
     AchievementTier.SPECIAL -> s.tierSpecial
+}
+
+fun exerciseTypeLabel(s: AppStrings, type: ExerciseType): String = when (type) {
+    ExerciseType.SITUPS  -> s.exTypeSitups
+    ExerciseType.PUSHUPS -> s.exTypePushups
+    ExerciseType.SQUATS  -> s.exTypeSquats
+    ExerciseType.WALKING -> s.exTypeWalking
+    ExerciseType.RUNNING -> s.exTypeRunning
+}
+
+fun periodLabel(s: AppStrings, period: TargetPeriod): String = when (period) {
+    TargetPeriod.DAILY   -> s.exPeriodDaily
+    TargetPeriod.WEEKLY  -> s.exPeriodWeekly
+    TargetPeriod.MONTHLY -> s.exPeriodMonthly
 }
 
 // CompositionLocal so any composable can read the current language's strings

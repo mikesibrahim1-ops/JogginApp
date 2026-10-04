@@ -223,6 +223,7 @@ fun JogApp(context: Context) {
     var summaryRoute     by remember { mutableStateOf<SavedRoute?>(null) }
     var summarySteps     by remember { mutableStateOf(0) }
     var showAchievements by remember { mutableStateOf(false) }
+    var showExerciseTargets by remember { mutableStateOf(false) }
     var savedRoutes      by remember { mutableStateOf(RouteStorage.loadRoutes(context)) }
     var optionsPaneOpen  by remember { mutableStateOf(false) }
     var colorIdx         by remember { mutableStateOf(0) }
@@ -614,6 +615,8 @@ fun JogApp(context: Context) {
                 // BackHandler allows system back gesture/button to dismiss
                 androidx.activity.compose.BackHandler { showAchievements = false }
                 AchievementsScreen(routes = savedRoutes, onBack = { showAchievements = false })
+            } else if (showExerciseTargets) {
+                ExerciseTargetsScreen(routes = savedRoutes, onBack = { showExerciseTargets = false })
             } else if (showSummary && summaryRoute != null) {
                 SummaryScreen(route = summaryRoute!!, steps = summarySteps, activityLabel = activityLabel, onDone = {
                     showSummary = false
@@ -781,7 +784,7 @@ fun JogApp(context: Context) {
                 }
             }
 
-            if (!showSummary && !showAchievements) {
+            if (!showSummary && !showAchievements && !showExerciseTargets) {
                 if (optionsPaneOpen) { Box(modifier = Modifier.fillMaxSize().background(Color(0x66000000)).clickable { optionsPaneOpen = false }) }
                 Box(modifier = Modifier.width(paneWidth).fillMaxHeight().align(Alignment.CenterEnd).offset(x = paneOffset).shadow(16.dp).background(c.secondary)) {
                     OptionsPaneContent(colorIdx = colorIdx, savedRoutes = savedRoutes, onColorSelected = { colorIdx = it }, onClose = { optionsPaneOpen = false },
@@ -797,7 +800,8 @@ fun JogApp(context: Context) {
                         currentTheme = appTheme, onThemeChanged = { appTheme = it; com.example.joggingapp.ui.theme.saveTheme(context, it) },
                         buddyController = buddyController,
                         buddyInviteMessage = buddyInviteMessage,
-                        onBuddyInviteMessageShown = { buddyInviteMessage = null })
+                        onBuddyInviteMessageShown = { buddyInviteMessage = null },
+                        onOpenExerciseTargets = { optionsPaneOpen = false; showExerciseTargets = true })
                 }
             }
 
@@ -809,7 +813,7 @@ fun JogApp(context: Context) {
             LaunchedEffect(Unit) {
                 if (showWelcome) { delay(3000L); showWelcome = false }
             }
-            if (showWelcome && !showNameEntry && !showAchievements && !showSummary) {
+            if (showWelcome && !showNameEntry && !showAchievements && !showSummary && !showExerciseTargets) {
                 Box(modifier = Modifier.align(Alignment.TopCenter).padding(top = 48.dp)
                     .clip(RoundedCornerShape(50))
                     .background(c.primary)
@@ -1271,7 +1275,7 @@ fun ProfileSection(userName: String, onUserNameChanged: (String) -> Unit) {
 }
 
 @Composable
-fun OptionsPaneContent(colorIdx: Int, savedRoutes: List<SavedRoute>, onColorSelected: (Int) -> Unit, onClose: () -> Unit, onClearRuns: () -> Unit, onRoutesChanged: () -> Unit = {}, userName: String = "", onUserNameChanged: (String) -> Unit = {}, currentTheme: com.example.joggingapp.ui.theme.AppTheme = com.example.joggingapp.ui.theme.AppTheme.SUNRISE, onThemeChanged: (com.example.joggingapp.ui.theme.AppTheme) -> Unit = {}, currentLanguage: Language = Language.ENGLISH, onLanguageChanged: (Language) -> Unit = {}, buddyController: BuddyLinkController? = null, buddyInviteMessage: String? = null, onBuddyInviteMessageShown: () -> Unit = {}) {
+fun OptionsPaneContent(colorIdx: Int, savedRoutes: List<SavedRoute>, onColorSelected: (Int) -> Unit, onClose: () -> Unit, onClearRuns: () -> Unit, onRoutesChanged: () -> Unit = {}, userName: String = "", onUserNameChanged: (String) -> Unit = {}, currentTheme: com.example.joggingapp.ui.theme.AppTheme = com.example.joggingapp.ui.theme.AppTheme.SUNRISE, onThemeChanged: (com.example.joggingapp.ui.theme.AppTheme) -> Unit = {}, currentLanguage: Language = Language.ENGLISH, onLanguageChanged: (Language) -> Unit = {}, buddyController: BuddyLinkController? = null, buddyInviteMessage: String? = null, onBuddyInviteMessageShown: () -> Unit = {}, onOpenExerciseTargets: () -> Unit = {}) {
     val c = JogginTheme.colors
     val S = LocalStrings.current
     val context = LocalContext.current
@@ -1379,6 +1383,21 @@ fun OptionsPaneContent(colorIdx: Int, savedRoutes: List<SavedRoute>, onColorSele
             }; Spacer(Modifier.height(4.dp))
         }
         } // end Route Colour
+
+        // ── Exercise Targets (opens a full screen) ────────────────────────────
+        Spacer(Modifier.height(20.dp)); Divider(color = c.onSecondary.copy(alpha = 0.2f)); Spacer(Modifier.height(16.dp))
+        Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+            .background(c.primary.copy(alpha = 0.15f))
+            .clickable { AppLogger.log(context, LogCategory.UI, "Exercise Targets opened"); onOpenExerciseTargets() }
+            .padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("🎯", fontSize = 20.sp)
+            Column(modifier = Modifier.weight(1f)) {
+                Text(S.exerciseTargets, fontSize = 13.sp, color = c.onSecondary, fontWeight = FontWeight.SemiBold)
+                Text(S.exerciseTargetsSubtitle, fontSize = 10.sp, color = c.onSecondary.copy(alpha = 0.7f))
+            }
+            Text("›", fontSize = 20.sp, color = c.onSecondary.copy(alpha = 0.7f))
+        }
 
         // ── Sharing ───────────────────────────────────────────────────────────
         CollapsibleSection(title = S.sharing, leadingEmoji = "📤") {
