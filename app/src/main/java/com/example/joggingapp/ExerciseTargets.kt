@@ -74,6 +74,28 @@ data class TargetProgress(
     val isMet: Boolean get() = goal > 0f && current >= goal
 }
 
+/**
+ * A target the user has achieved — recorded for the "Personal Targets" (achievements)
+ * list. One entry is created the first time a target is met within a given period
+ * (keyed by [targetId] + [periodKey] so completing a daily target again on a later day
+ * records a fresh achievement, but logging more reps the same day does not duplicate it).
+ */
+data class CompletedTarget(
+    val id: String = UUID.randomUUID().toString(),
+    val targetId: String = "",
+    val periodKey: String = "",
+    val type: ExerciseType = ExerciseType.SITUPS,
+    val period: TargetPeriod = TargetPeriod.DAILY,
+    val amount: Float = 0f,
+    val achievedAt: Long = System.currentTimeMillis()
+)
+
+/** Stable key identifying the period instance a target was completed in. */
+fun periodKeyFor(period: TargetPeriod, now: Long = System.currentTimeMillis()): String {
+    val start = periodStart(period, now)
+    return "${period.name}:$start"
+}
+
 // ── Period boundary helpers ─────────────────────────────────────────────────────
 
 /** Start-of-period epoch millis for the period containing [now]. */
@@ -196,5 +218,44 @@ object ExerciseTargetStorage {
 
     fun clearRepLog(context: Context) {
         prefs(context).edit().remove(KEY_REPLOG).apply()
+    }
+
+    // ── Completed / achieved targets (Personal Targets list) ──
+    private const val KEY_COMPLETED = "exercise_completed"
+
+    fun loadCompleted(context: Context): List<CompletedTarget> {
+        val json = prefs(context).getString(KEY_COMPLETED, null) ?: return emptyList()
+        val type = object : TypeToken<List<CompletedTarget>>() {}.type
+        return try { Gson().fromJson(json, type) ?: emptyList() } catch (_: Exception) { emptyList() }
+    }
+
+    private fun saveCompleted(context: Context, list: List<CompletedTarget>) {
+        prefs(context).edit().putString(KEY_COMPLETED, Gson().toJson(list)).apply()
+    }
+
+    /**
+     * Record [target] as achieved for the current period, if not already recorded for
+     * that same period instance. Returns the newly-created [CompletedTarget] (so the UI
+     * can congratulate), or null if this completion was already recorded.
+     */
+    fun recordCompletionIfNew(
+        context: Context,
+        target: ExerciseTarget,
+        now: Long = System.currentTimeMillis()
+    ): CompletedTarget? {
+        val key = periodKeyFor(target.period, now)
+        val list = loadCompleted(context).toMutableList()
+        if (list.any { it.targetId == target.id && it.periodKey == key }) return null
+        val entry = CompletedTarget(
+            targetId = target.id, periodKey = key, type = target.type,
+            period = target.period, amount = target.amount, achievedAt = now
+        )
+        list.add(0, entry)
+        saveCompleted(context, list)
+        return entry
+    }
+
+    fun clearCompleted(context: Context) {
+        prefs(context).edit().remove(KEY_COMPLETED).apply()
     }
 }

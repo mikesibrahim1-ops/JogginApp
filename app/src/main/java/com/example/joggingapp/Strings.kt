@@ -224,6 +224,13 @@ data class AppStrings(
     val exDelete: String,                  // delete a target
     val exAdd: String,                     // confirm add in the form
     val exAutoTracked: String,             // note under distance targets
+    val exLogAmountHint: String,           // placeholder in the log dialog ("Reps done")
+    val exCongratsTitle: String,           // completion celebration title
+    val exCongratsBody: (String) -> String,// "You hit your {exercise} target!"
+    val exPersonalTargets: String,         // "Personal Targets" tab/section title
+    val exPersonalTargetsEmpty: String,    // empty state for achieved list
+    val exAchievedOn: (String) -> String,  // "Achieved {date}"
+    val exTargetSummary: (String, String, String) -> String, // "{amount} {type} · {period}"
 )
 
 // ── English ───────────────────────────────────────────────────────────────────
@@ -422,6 +429,13 @@ val EnglishStrings = AppStrings(
     exDelete = "Delete",
     exAdd = "Add",
     exAutoTracked = "Auto-tracked from your runs",
+    exLogAmountHint = "How many did you do?",
+    exCongratsTitle = "🎉 Target smashed!",
+    exCongratsBody = { ex -> "You completed your $ex target. Nice work!" },
+    exPersonalTargets = "Personal Targets",
+    exPersonalTargetsEmpty = "No completed targets yet. Hit a target and it'll be recorded here with the date.",
+    exAchievedOn = { date -> "Achieved $date" },
+    exTargetSummary = { amount, type, period -> "$amount $type · $period" },
 )
 
 // ── Greek (formal Modern Greek, monotonic) ─────────────────────────────────────
@@ -620,6 +634,13 @@ val GreekStrings = AppStrings(
     exDelete = "Διαγραφή",
     exAdd = "Προσθήκη",
     exAutoTracked = "Αυτόματη παρακολούθηση από τις δραστηριότητές σας",
+    exLogAmountHint = "Πόσες έκανες;",
+    exCongratsTitle = "🎉 Ο στόχος κατακτήθηκε!",
+    exCongratsBody = { ex -> "Ολοκλήρωσες τον στόχο σου: $ex. Μπράβο!" },
+    exPersonalTargets = "Προσωπικοί Στόχοι",
+    exPersonalTargetsEmpty = "Δεν υπάρχουν ολοκληρωμένοι στόχοι ακόμη. Πέτυχε έναν στόχο και θα καταγραφεί εδώ με την ημερομηνία.",
+    exAchievedOn = { date -> "Επιτεύχθηκε $date" },
+    exTargetSummary = { amount, type, period -> "$amount $type · $period" },
 )
 
 // ── Resolver ──────────────────────────────────────────────────────────────────

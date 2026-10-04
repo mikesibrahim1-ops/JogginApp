@@ -20,14 +20,20 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import com.example.joggingapp.ui.theme.JogginColorTokens
 import com.example.joggingapp.ui.theme.JogginTheme
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 // Colour for a target type: distance types reuse the activity tokens; manual types use accent/primary.
 private fun targetColor(type: ExerciseType, c: JogginColorTokens): Color = when (type) {
@@ -51,9 +57,24 @@ fun ExerciseTargetsScreen(routes: List<SavedRoute>, onBack: () -> Unit) {
     var showAddForm by remember { mutableStateOf(false) }
     // Which target currently has its "log reps" dialog open (manual types only).
     var logFor by remember { mutableStateOf<ExerciseTarget?>(null) }
+    // A target just completed → show a congratulations dialog.
+    var congratsFor by remember { mutableStateOf<ExerciseTarget?>(null) }
 
     // Recomputed whenever targets/repLog/routes change.
     val progress = remember(targets, repLog, routes) { evaluateTargets(targets, routes, repLog) }
+
+    // Detect completions: any met target not yet recorded for its current period gets a
+    // CompletedTarget entry (for the Personal Targets list) and triggers the congrats dialog.
+    // Distance targets complete passively here too (e.g. a run pushed them over).
+    LaunchedEffect(progress) {
+        progress.filter { it.isMet }.forEach { tp ->
+            val recorded = ExerciseTargetStorage.recordCompletionIfNew(context, tp.target)
+            if (recorded != null) {
+                AppLogger.log(context, LogCategory.UI, "Target completed: ${tp.target.type} ${tp.target.period}")
+                if (congratsFor == null) congratsFor = tp.target
+            }
+        }
+    }
 
     Column(
         modifier = Modifier.fillMaxSize().background(c.background)
@@ -88,12 +109,15 @@ fun ExerciseTargetsScreen(routes: List<SavedRoute>, onBack: () -> Unit) {
                 }
             } else {
                 AddTargetForm(
-                    onAdd = { type, period, amount ->
-                        targets = ExerciseTargetStorage.addTarget(
-                            context, ExerciseTarget(type = type, period = period, amount = amount)
-                        )
+                    onAdd = { types, period, amount ->
+                        // Multi-select: create one target per chosen exercise type.
+                        types.forEach { type ->
+                            targets = ExerciseTargetStorage.addTarget(
+                                context, ExerciseTarget(type = type, period = period, amount = amount)
+                            )
+                        }
                         showAddForm = false
-                        AppLogger.log(context, LogCategory.UI, "Exercise target added: $type $period $amount")
+                        AppLogger.log(context, LogCategory.UI, "Exercise targets added: ${types.joinToString()} $period $amount")
                     },
                     onCancel = { showAddForm = false }
                 )
@@ -120,7 +144,7 @@ fun ExerciseTargetsScreen(routes: List<SavedRoute>, onBack: () -> Unit) {
         }
     }
 
-    // ── Log-reps dialog (manual types) ──
+    // ── Log-reps dialog (manual types) — real Dialog so IME + focus work reliably ──
     logFor?.let { target ->
         LogRepsDialog(
             type = target.type,
@@ -131,6 +155,11 @@ fun ExerciseTargetsScreen(routes: List<SavedRoute>, onBack: () -> Unit) {
             },
             onDismiss = { logFor = null }
         )
+    }
+
+    // ── Congratulations dialog on completion ──
+    congratsFor?.let { target ->
+        CongratsDialog(type = target.type, onDismiss = { congratsFor = null })
     }
 }
 
@@ -161,7 +190,6 @@ private fun TargetCard(tp: TargetProgress, onLog: () -> Unit, onDelete: () -> Un
 
         Spacer(Modifier.height(12.dp))
 
-        // Progress bar.
         LinearProgressIndicator(
             progress = tp.fraction,
             color = if (tp.isMet) c.success else col,
@@ -185,7 +213,7 @@ private fun TargetCard(tp: TargetProgress, onLog: () -> Unit, onDelete: () -> Un
             } else if (t.type.isDistance) {
                 Text(S.exAutoTracked, fontSize = 10.sp, color = c.textSecondary)
             } else {
-                // Manual type → "Log" button to add reps.
+                // Manual type → "Log" button to add reps (even when met, so users can keep logging).
                 Row(
                     modifier = Modifier.clip(RoundedCornerShape(50)).background(col)
                         .clickable { onLog() }.padding(horizontal = 14.dp, vertical = 6.dp),
@@ -202,15 +230,20 @@ private fun TargetCard(tp: TargetProgress, onLog: () -> Unit, onDelete: () -> Un
 
 @Composable
 private fun AddTargetForm(
-    onAdd: (ExerciseType, TargetPeriod, Float) -> Unit,
+    onAdd: (Set<ExerciseType>, TargetPeriod, Float) -> Unit,
     onCancel: () -> Unit
 ) {
     val c = JogginTheme.colors
     val S = LocalStrings.current
 
-    var selectedType by remember { mutableStateOf(ExerciseType.SITUPS) }
+    // Multi-select: a set of chosen exercise types.
+    val selectedTypes = remember { mutableStateListOf(ExerciseType.SITUPS) }
     var selectedPeriod by remember { mutableStateOf(TargetPeriod.DAILY) }
     var amountText by remember { mutableStateOf("") }
+
+    // Amount label: if ALL selected types are distance → km; otherwise reps. (Mixing
+    // distance + manual is allowed; the number applies to each as its natural unit.)
+    val allDistance = selectedTypes.isNotEmpty() && selectedTypes.all { it.isDistance }
 
     Column(
         modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
@@ -219,23 +252,26 @@ private fun AddTargetForm(
         Text(S.exNewTarget, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = c.onBackground)
         Spacer(Modifier.height(14.dp))
 
-        // Exercise type chips.
+        // Exercise type chips — MULTI-select (tap to toggle).
         Text(S.exExerciseLabel, fontSize = 12.sp, color = c.textSecondary)
         Spacer(Modifier.height(6.dp))
         ChipFlowRow {
             ExerciseType.values().forEach { type ->
+                val isSel = type in selectedTypes
                 SelectChip(
                     label = "${type.defaultEmoji} ${exerciseTypeLabel(S, type)}",
-                    selected = type == selectedType,
+                    selected = isSel,
                     color = targetColor(type, c),
-                    onClick = { selectedType = type }
+                    onClick = {
+                        if (isSel) selectedTypes.remove(type) else selectedTypes.add(type)
+                    }
                 )
             }
         }
 
         Spacer(Modifier.height(14.dp))
 
-        // Period chips.
+        // Period chips (single-select).
         Text(S.exPeriodLabel, fontSize = 12.sp, color = c.textSecondary)
         Spacer(Modifier.height(6.dp))
         ChipFlowRow {
@@ -251,8 +287,8 @@ private fun AddTargetForm(
 
         Spacer(Modifier.height(14.dp))
 
-        // Amount field (reps or km depending on type).
-        Text(if (selectedType.isDistance) S.exAmountKm else S.exAmountReps, fontSize = 12.sp, color = c.textSecondary)
+        // Amount field.
+        Text(if (allDistance) S.exAmountKm else S.exAmountReps, fontSize = 12.sp, color = c.textSecondary)
         Spacer(Modifier.height(6.dp))
         TextField(
             value = amountText,
@@ -280,11 +316,11 @@ private fun AddTargetForm(
             ) { Text(S.cancel, fontSize = 13.sp, color = c.onBackground) }
 
             val amount = amountText.toFloatOrNull() ?: 0f
-            val enabled = amount > 0f
+            val enabled = amount > 0f && selectedTypes.isNotEmpty()
             Box(
                 modifier = Modifier.weight(1f).clip(RoundedCornerShape(10.dp))
                     .background(if (enabled) c.primary else c.divider)
-                    .clickable(enabled = enabled) { onAdd(selectedType, selectedPeriod, amount) }
+                    .clickable(enabled = enabled) { onAdd(selectedTypes.toSet(), selectedPeriod, amount) }
                     .padding(vertical = 12.dp),
                 contentAlignment = Alignment.Center
             ) { Text(S.exAdd, fontSize = 13.sp, color = Color.White, fontWeight = FontWeight.SemiBold) }
@@ -297,16 +333,14 @@ private fun LogRepsDialog(type: ExerciseType, onConfirm: (Int) -> Unit, onDismis
     val c = JogginTheme.colors
     val S = LocalStrings.current
     var text by remember { mutableStateOf("") }
+    val focus = remember { FocusRequester() }
 
-    // Simple overlay dialog (matches BuddyDialog idiom: dim scrim + centered card).
-    Box(
-        modifier = Modifier.fillMaxSize().background(Color(0x99000000)).clickable { onDismiss() },
-        contentAlignment = Alignment.Center
-    ) {
+    // A real Dialog renders in its own window above the scrolling screen, so focus and
+    // the soft keyboard behave correctly (the previous hand-rolled overlay blocked input).
+    Dialog(onDismissRequest = onDismiss) {
         Column(
-            modifier = Modifier.fillMaxWidth(0.82f).clip(RoundedCornerShape(16.dp))
+            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
                 .background(c.surface).padding(20.dp)
-                .clickable(enabled = false) {}
         ) {
             Text(S.exLogRepsTitle(exerciseTypeLabel(S, type)), fontSize = 16.sp,
                 fontWeight = FontWeight.Bold, color = c.onSurface)
@@ -315,6 +349,7 @@ private fun LogRepsDialog(type: ExerciseType, onConfirm: (Int) -> Unit, onDismis
                 value = text,
                 onValueChange = { new -> text = new.filter { it.isDigit() }.take(5) },
                 singleLine = true,
+                placeholder = { Text(S.exLogAmountHint, color = c.textSecondary) },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 colors = TextFieldDefaults.textFieldColors(
                     backgroundColor = c.surfaceVariant,
@@ -323,7 +358,7 @@ private fun LogRepsDialog(type: ExerciseType, onConfirm: (Int) -> Unit, onDismis
                     focusedIndicatorColor = c.primary,
                     unfocusedIndicatorColor = c.divider
                 ),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth().focusRequester(focus)
             )
             Spacer(Modifier.height(18.dp))
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -346,11 +381,42 @@ private fun LogRepsDialog(type: ExerciseType, onConfirm: (Int) -> Unit, onDismis
             }
         }
     }
+
+    // Auto-focus the field so the keyboard pops up immediately.
+    LaunchedEffect(Unit) {
+        try { focus.requestFocus() } catch (_: Exception) {}
+    }
+}
+
+@Composable
+private fun CongratsDialog(type: ExerciseType, onDismiss: () -> Unit) {
+    val c = JogginTheme.colors
+    val S = LocalStrings.current
+    Dialog(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
+                .background(c.surface).padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text("🏆", fontSize = 48.sp)
+            Spacer(Modifier.height(12.dp))
+            Text(S.exCongratsTitle, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = c.onSurface)
+            Spacer(Modifier.height(8.dp))
+            Text(S.exCongratsBody(exerciseTypeLabel(S, type)), fontSize = 13.sp,
+                color = c.textSecondary, lineHeight = 18.sp)
+            Spacer(Modifier.height(20.dp))
+            Box(
+                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+                    .background(c.primary).clickable { onDismiss() }.padding(vertical = 12.dp),
+                contentAlignment = Alignment.Center
+            ) { Text(S.done, fontSize = 14.sp, color = Color.White, fontWeight = FontWeight.SemiBold) }
+        }
+    }
 }
 
 // ── Small layout helpers ─────────────────────────────────────────────────────────
 
-/** A single row of chips that scrolls horizontally if they overflow (chips are few). */
+/** A single row of chips that scrolls horizontally if they overflow. */
 @Composable
 private fun ChipFlowRow(content: @Composable () -> Unit) {
     Row(
@@ -375,5 +441,41 @@ private fun SelectChip(label: String, selected: Boolean, color: Color, onClick: 
         Text(label, fontSize = 12.sp,
             color = if (selected) Color.White else c.onBackground,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1)
+    }
+}
+
+// ── Personal Targets (achieved) list — rendered inside the options pane ─────────────
+
+/**
+ * The list of completed/achieved targets with their achievement dates. Shown in a new
+ * "Personal Targets" section of the options pane (host passes the loaded list).
+ */
+@Composable
+fun PersonalTargetsContent(completed: List<CompletedTarget>) {
+    val c = JogginTheme.colors
+    val S = LocalStrings.current
+    if (completed.isEmpty()) {
+        Text(S.exPersonalTargetsEmpty, fontSize = 12.sp, color = c.onSecondary.copy(alpha = 0.6f), lineHeight = 18.sp)
+        return
+    }
+    val fmt = remember { SimpleDateFormat("dd MMM yyyy", Locale.getDefault()) }
+    completed.forEach { ct ->
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text(ct.type.defaultEmoji, fontSize = 18.sp)
+            Column(modifier = Modifier.weight(1f)) {
+                val amount = if (ct.type.isDistance) String.format("%.0f km", ct.amount) else "${ct.amount.toInt()}"
+                Text(
+                    S.exTargetSummary(amount, exerciseTypeLabel(S, ct.type), periodLabel(S, ct.period)),
+                    fontSize = 12.sp, color = c.onSecondary, fontWeight = FontWeight.Medium
+                )
+                Text(S.exAchievedOn(fmt.format(Date(ct.achievedAt))), fontSize = 10.sp, color = c.onSecondary.copy(alpha = 0.6f))
+            }
+            Text("🏅", fontSize = 16.sp)
+        }
+        Divider(color = c.onSecondary.copy(alpha = 0.12f))
     }
 }
