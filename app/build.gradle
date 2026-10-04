@@ -26,8 +26,8 @@ android {
         applicationId "com.example.joggingapp"
         minSdk 24
         targetSdk 34
-        versionCode 41
-        versionName "1.41"
+        versionCode 42
+        versionName "1.42"
         // Runtime flag so app code (BuddyRepositoryProvider) knows whether the
         // Firebase backend is compiled in, without hard-referencing Firebase classes.
         buildConfigField "boolean", "FIREBASE_ENABLED", "${firebaseEnabled}"

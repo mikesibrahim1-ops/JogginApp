@@ -1703,8 +1703,9 @@ fun OptionsPaneContent(colorIdx: Int, savedRoutes: List<SavedRoute>, onColorSele
 
         // ── Build number — pinned at the very bottom of the options pane ──────
         // SECRET: triple-tapping this within 1.5s toggles the hidden debug console.
+        // Read dynamically from BuildConfig so it never drifts from the real version.
         Text(
-            "V1.40",
+            "V${BuildConfig.VERSION_NAME}",
             fontSize = 11.sp,
             color = c.onSecondary.copy(alpha = 0.4f),
             textAlign = TextAlign.Center,
