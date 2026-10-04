@@ -1,0 +1,57 @@
+# End-to-end: open Exercise Targets, add a push-ups target, log reps, see progress.
+appId: com.example.joggingapp
+---
+- launchApp
+
+# Skip name entry if it shows (idempotent — safe whether or not a name is saved).
+- runFlow:
+    when:
+      visible: "Let's go!"
+    commands:
+      - inputText: "Tester"
+      - tapOn: "Let's go!"
+
+# Open options pane and enter the Exercise Targets screen.
+- swipe:
+    direction: LEFT
+- tapOn: "Exercise Targets"
+- assertVisible: "Exercise Targets"      # screen header
+
+# Add a new target.
+- tapOn: "Add target"
+- assertVisible: "New target"
+
+# Choose exercise type (Push-ups) and period (Daily is the default).
+- tapOn:
+    text: "Push-ups"
+- tapOn:
+    text: "Daily"
+
+# Enter a target amount of reps, then confirm.
+- tapOn:
+    below: "Target reps"
+    optional: true
+- inputText: "50"
+- hideKeyboard
+- tapOn: "Add"
+
+# The target card now shows the "0 / 50 reps" progress and a Log button.
+- assertVisible:
+    text: ".*/ 50 reps"
+- assertVisible: "Log"
+
+# Log 20 reps via the dialog.
+- tapOn: "Log"
+- assertVisible:
+    text: "Log Push-ups"
+- inputText: "20"
+- hideKeyboard
+- tapOn: "Log"
+
+# Progress should now reflect the logged reps (20 of 50).
+- assertVisible:
+    text: "20 / 50 reps"
+
+# Back out to the home screen.
+- back
+- assertVisible: "Time"

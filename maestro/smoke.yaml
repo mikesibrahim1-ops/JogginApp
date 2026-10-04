@@ -1,0 +1,31 @@
+# Smoke test: app launches, gets past name entry, home screen is up, options pane opens.
+appId: com.example.joggingapp
+---
+- launchApp:
+    clearState: true   # start fresh so the name-entry path is deterministic
+
+# First-run name entry (only appears when no name is saved).
+- runFlow:
+    when:
+      visible: "What's your name?"
+    commands:
+      - tapOn:
+          id: ".*"           # the name TextField; fallback to the visible field
+          optional: true
+      - inputText: "Tester"
+      - tapOn: "Let's go!"
+
+# Home / map screen is up — the activity label + stat labels are visible.
+- assertVisible: "Time"
+- assertVisible: "Dist (km)"
+
+# Open the options pane (swipe left on the bottom stats card).
+- swipe:
+    direction: LEFT
+- assertVisible: "Options"
+
+# The new Exercise Targets entry row is present in the pane.
+- assertVisible: "Exercise Targets"
+
+# Close the pane.
+- tapOn: "✕"
