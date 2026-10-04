@@ -51,8 +51,8 @@ enum class AppTheme(val displayName: String, val emoji: String) {
 // ── Theme 1: Sunrise Energy 🌅 ───────────────────────────────────────────────
 
 private val SunriseLight = JogginColorTokens(
-    // TEST (theme colour switch): swapped primary <-> secondary (see ForestLight note).
-    primary = Color(0xFF7A2E12), primaryDark = Color(0xFFE05520),
+    // Main theme colour on both pane (secondary) and start button (primary); avatar uses primaryDark (~3 tones darker).
+    primary = Color(0xFFFF6B35), primaryDark = Color(0xFFC24A1E),
     secondary = Color(0xFFFF6B35), accent = Color(0xFF00B4D8),
     background = Color(0xFFF8F9FA), surface = Color(0xFFFFFFFF), surfaceVariant = Color(0xFFF0F2F5),
     onPrimary = Color.White, onSecondary = Color.White,
@@ -73,10 +73,8 @@ private val SunriseDark = SunriseLight.copy(
 // ── Theme 2: Forest Trail 🌲 ─────────────────────────────────────────────────
 
 private val ForestLight = JogginColorTokens(
-    // TEST (theme colour switch): swapped primary <-> secondary so the options pane
-    // (painted with `secondary`) shows the lighter inner green, and the middle theme
-    // preview circle (also `secondary` via getPreviewColors) shows the old dark pane green.
-    primary = Color(0xFF1B3A2D), primaryDark = Color(0xFF1B5038),
+    // Main theme colour on both pane (secondary) and start button (primary); avatar uses primaryDark (~3 tones darker).
+    primary = Color(0xFF2D6A4F), primaryDark = Color(0xFF1E4A37),
     secondary = Color(0xFF2D6A4F), accent = Color(0xFFE9C46A),
     background = Color(0xFFF1FAEE), surface = Color(0xFFFFFFFF), surfaceVariant = Color(0xFFE8F5E3),
     onPrimary = Color.White, onSecondary = Color.White,
@@ -96,8 +94,8 @@ private val ForestDark = ForestLight.copy(
 // ── Theme 3: Midnight Pulse 💜 ───────────────────────────────────────────────
 
 private val MidnightLight = JogginColorTokens(
-    // TEST (theme colour switch): swapped primary <-> secondary (see ForestLight note).
-    primary = Color(0xFF1A0B2E), primaryDark = Color(0xFF5E1F96),
+    // Main theme colour on both pane (secondary) and start button (primary); avatar uses primaryDark (~3 tones darker).
+    primary = Color(0xFF7B2FBE), primaryDark = Color(0xFF5A2290),
     secondary = Color(0xFF7B2FBE), accent = Color(0xFF00F5D4),
     background = Color(0xFFF5F3FF), surface = Color(0xFFFFFFFF), surfaceVariant = Color(0xFFEDE8FF),
     onPrimary = Color.White, onSecondary = Color.White,
@@ -117,8 +115,8 @@ private val MidnightDark = MidnightLight.copy(
 // ── Theme 4: Ocean Breeze 🌊 ─────────────────────────────────────────────────
 
 private val OceanLight = JogginColorTokens(
-    // TEST (theme colour switch): swapped primary <-> secondary (see ForestLight note).
-    primary = Color(0xFF023E8A), primaryDark = Color(0xFF005A8C),
+    // Main theme colour on both pane (secondary) and start button (primary); avatar uses primaryDark (~3 tones darker).
+    primary = Color(0xFF0077B6), primaryDark = Color(0xFF005684),
     secondary = Color(0xFF0077B6), accent = Color(0xFF90E0EF),
     background = Color(0xFFF0F9FF), surface = Color(0xFFFFFFFF), surfaceVariant = Color(0xFFE4F4FD),
     onPrimary = Color.White, onSecondary = Color.White,
@@ -145,11 +143,11 @@ fun getTokens(theme: AppTheme, dark: Boolean): JogginColorTokens = when (theme) 
 }
 
 fun getPreviewColors(theme: AppTheme): Triple<Color, Color, Color> = when (theme) {
-    // TEST: all four themes have primary<->secondary swapped (see ForestLight note).
-    AppTheme.SUNRISE  -> Triple(Color(0xFF7A2E12), Color(0xFFFF6B35), Color(0xFF00B4D8))
-    AppTheme.FOREST   -> Triple(Color(0xFF1B3A2D), Color(0xFF2D6A4F), Color(0xFFE9C46A))
-    AppTheme.MIDNIGHT -> Triple(Color(0xFF1A0B2E), Color(0xFF7B2FBE), Color(0xFF00F5D4))
-    AppTheme.OCEAN    -> Triple(Color(0xFF023E8A), Color(0xFF0077B6), Color(0xFF90E0EF))
+    // Preview dots: main theme colour, the darker avatar shade (primaryDark), accent.
+    AppTheme.SUNRISE  -> Triple(Color(0xFFFF6B35), Color(0xFFC24A1E), Color(0xFF00B4D8))
+    AppTheme.FOREST   -> Triple(Color(0xFF2D6A4F), Color(0xFF1E4A37), Color(0xFFE9C46A))
+    AppTheme.MIDNIGHT -> Triple(Color(0xFF7B2FBE), Color(0xFF5A2290), Color(0xFF00F5D4))
+    AppTheme.OCEAN    -> Triple(Color(0xFF0077B6), Color(0xFF005684), Color(0xFF90E0EF))
 }
 
 // ── CompositionLocal ──────────────────────────────────────────────────────────

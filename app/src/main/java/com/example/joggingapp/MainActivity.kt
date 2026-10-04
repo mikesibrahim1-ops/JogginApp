@@ -1196,8 +1196,8 @@ fun ProfileSection(userName: String, onUserNameChanged: (String) -> Unit) {
         // ── Avatar circle ─────────────────────────────────────────────────
         Box(
             modifier = Modifier.size(88.dp).clip(CircleShape)
-                .background(c.primary.copy(alpha = 0.15f))
-                .border(3.dp, c.primary, CircleShape)
+                .background(c.primaryDark.copy(alpha = 0.15f))
+                .border(3.dp, c.primaryDark, CircleShape)
                 .clickable { pickerLauncher.launch("image/*") },
             contentAlignment = Alignment.Center
         ) {
@@ -1210,7 +1210,7 @@ fun ProfileSection(userName: String, onUserNameChanged: (String) -> Unit) {
             } else {
                 val initials = userName.trim().split(" ")
                     .mapNotNull { it.firstOrNull()?.uppercaseChar()?.toString() }.take(2).joinToString("")
-                if (initials.isNotEmpty()) Text(initials, fontSize = 28.sp, fontWeight = FontWeight.Bold, color = c.primary)
+                if (initials.isNotEmpty()) Text(initials, fontSize = 28.sp, fontWeight = FontWeight.Bold, color = c.primaryDark)
                 else Text("📷", fontSize = 28.sp)
             }
         }
@@ -1350,11 +1350,12 @@ fun OptionsPaneContent(colorIdx: Int, savedRoutes: List<SavedRoute>, onColorSele
                 .background(if (selected) c.primary.copy(alpha = 0.25f) else Color.Transparent)
                 .clickable { AppLogger.log(context, LogCategory.UI, "Theme changed to ${theme.displayName}"); onThemeChanged(theme) }.padding(10.dp),
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                // Color strip preview
-                Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Box(Modifier.size(16.dp).clip(CircleShape).background(p))
-                    Box(Modifier.size(16.dp).clip(CircleShape).background(s))
-                    Box(Modifier.size(16.dp).clip(CircleShape).background(a))
+                // Color strip preview — thin white ring around each dot so they stand
+                // out against the pane and don't bleed into each other.
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Box(Modifier.size(16.dp).clip(CircleShape).background(p).border(1.dp, Color.White, CircleShape))
+                    Box(Modifier.size(16.dp).clip(CircleShape).background(s).border(1.dp, Color.White, CircleShape))
+                    Box(Modifier.size(16.dp).clip(CircleShape).background(a).border(1.dp, Color.White, CircleShape))
                 }
                 Text("${theme.emoji} ${theme.displayName}", fontSize = 13.sp,
                     color = c.onSecondary, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal)
