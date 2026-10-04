@@ -118,6 +118,43 @@ fun periodStart(period: TargetPeriod, now: Long = System.currentTimeMillis()): L
     return cal.timeInMillis
 }
 
+// ── Grouping completed targets (Personal Targets list) ───────────────────────────
+
+/** Granularity for grouping achieved targets on the Personal Targets screen. */
+enum class CompletionGrouping { DAY, WEEK, MONTH }
+
+/**
+ * A bucket of [CompletedTarget]s that were achieved within the same day / week / month,
+ * identified by [bucketStart] (start-of-period epoch millis) for ordering & header text.
+ */
+data class CompletedGroup(
+    val bucketStart: Long,
+    val items: List<CompletedTarget>
+)
+
+/** Map a [CompletionGrouping] to the matching [TargetPeriod] boundary. */
+private fun CompletionGrouping.asPeriod(): TargetPeriod = when (this) {
+    CompletionGrouping.DAY -> TargetPeriod.DAILY
+    CompletionGrouping.WEEK -> TargetPeriod.WEEKLY
+    CompletionGrouping.MONTH -> TargetPeriod.MONTHLY
+}
+
+/**
+ * Group [completed] targets into day/week/month buckets by their [CompletedTarget.achievedAt]
+ * timestamp. Buckets are ordered newest-first, and the items within each bucket keep their
+ * incoming order (callers pass newest-first).
+ */
+fun groupCompleted(
+    completed: List<CompletedTarget>,
+    grouping: CompletionGrouping
+): List<CompletedGroup> {
+    val period = grouping.asPeriod()
+    return completed
+        .groupBy { periodStart(period, it.achievedAt) }
+        .map { (start, items) -> CompletedGroup(bucketStart = start, items = items) }
+        .sortedByDescending { it.bucketStart }
+}
+
 // ── Progress computation ─────────────────────────────────────────────────────────
 
 /**
@@ -132,7 +169,11 @@ fun evaluateTargets(
     repLog: List<RepLogEntry>,
     now: Long = System.currentTimeMillis()
 ): List<TargetProgress> = targets.map { t ->
-    val start = periodStart(t.period, now)
+    // Only count activity from the current period AND from after the target was created,
+    // so a brand-new target starts at 0 progress (pre-existing reps/routes logged earlier
+    // in the same period must NOT auto-complete it). The effective window start is the
+    // later of the period start and the target's creation time.
+    val start = maxOf(periodStart(t.period, now), t.createdAt)
     val current: Float = if (t.type.isDistance) {
         val mode = t.type.activityMode
         routes.asSequence()

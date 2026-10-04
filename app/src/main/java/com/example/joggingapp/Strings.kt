@@ -236,6 +236,11 @@ data class AppStrings(
     val exStagedCount: (Int) -> String,    // "N target(s) to add"
     val exBadgePersonal: String,           // Achievements badge → personal targets view
     val exBadgeAchievements: String,       // badge back to achievements view
+    val exGroupBy: String,                 // "Group by" label on the personal-targets sort control
+    val exGroupDay: String,                // group-by option: Day
+    val exGroupWeek: String,               // group-by option: Week
+    val exGroupMonth: String,              // group-by option: Month
+    val exWeekOf: (String) -> String,      // weekly bucket header, "Week of {date}"
 )
 
 // ── English ───────────────────────────────────────────────────────────────────
@@ -446,6 +451,11 @@ val EnglishStrings = AppStrings(
     exStagedCount = { n -> if (n == 1) "1 target to add" else "$n targets to add" },
     exBadgePersonal = "🎯 Personal",
     exBadgeAchievements = "🏆 Medals",
+    exGroupBy = "Group by",
+    exGroupDay = "Day",
+    exGroupWeek = "Week",
+    exGroupMonth = "Month",
+    exWeekOf = { date -> "Week of $date" },
 )
 
 // ── Greek (formal Modern Greek, monotonic) ─────────────────────────────────────
@@ -656,6 +666,11 @@ val GreekStrings = AppStrings(
     exStagedCount = { n -> if (n == 1) "1 στόχος προς προσθήκη" else "$n στόχοι προς προσθήκη" },
     exBadgePersonal = "🎯 Προσωπικοί",
     exBadgeAchievements = "🏆 Μετάλλια",
+    exGroupBy = "Ομαδοποίηση",
+    exGroupDay = "Ημέρα",
+    exGroupWeek = "Εβδομάδα",
+    exGroupMonth = "Μήνας",
+    exWeekOf = { date -> "Εβδομάδα $date" },
 )
 
 // ── Resolver ──────────────────────────────────────────────────────────────────

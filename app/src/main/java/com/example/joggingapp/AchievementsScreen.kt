@@ -134,7 +134,7 @@ fun AchievementsScreen(routes: List<SavedRoute>, onBack: () -> Unit) {
                         fontWeight = FontWeight.Bold, color = Color.White)
                 }
                 Spacer(Modifier.height(4.dp))
-                Text(motivation, fontSize = 13.sp, color = c.textSecondary)
+                Text(motivation, fontSize = 13.sp, color = c.onSecondary)
                 Spacer(Modifier.height(16.dp))
 
                 // Progress bar
@@ -154,15 +154,19 @@ fun AchievementsScreen(routes: List<SavedRoute>, onBack: () -> Unit) {
                 }
                 Spacer(Modifier.height(4.dp))
                 Text(S.percentComplete((pct * 100).toInt()),
-                    fontSize = 11.sp, color = c.textSecondary)
+                    fontSize = 11.sp, color = c.onSecondary)
             }
         }
 
+        // NOTE: do NOT early-return out of this Column content lambda (e.g. `return@Column`).
+        // The Compose compiler wraps the lambda body in balanced start/end group calls; an
+        // early return skips the trailing endGroup calls and corrupts the composer's group
+        // stack, which later throws IndexOutOfBoundsException in Stack.pop on recomposition.
+        // Use a plain if/else so both branches are structurally balanced.
         if (showPersonal) {
             // ── Personal Targets section (user's completed exercise targets) ──
             PersonalTargetsSection(completed = completedTargets)
-            return@Column
-        }
+        } else {
 
         // ── Completed medals showcase ─────────────────────────────────────────
         val earned = progressList.filter { it.earnedDate != null }
@@ -286,6 +290,7 @@ fun AchievementsScreen(routes: List<SavedRoute>, onBack: () -> Unit) {
                 }
             }
         }
+        } // end else (medals view)
     }
 }
 
@@ -324,34 +329,82 @@ private fun FilterTab(
 private fun PersonalTargetsSection(completed: List<CompletedTarget>) {
     val c = JogginTheme.colors
     val S = LocalStrings.current
+
+    // Group-by granularity (Day / Week / Month), defaulting to Day. Buckets the achieved
+    // targets by when they were completed (achievedAt), newest group first.
+    var grouping by remember { mutableStateOf(CompletionGrouping.DAY) }
+
+    // Date formatters per granularity for the group headers.
+    val dayFmt = remember { java.text.SimpleDateFormat("dd MMM yyyy", java.util.Locale.getDefault()) }
+    val monthFmt = remember { java.text.SimpleDateFormat("MMMM yyyy", java.util.Locale.getDefault()) }
+    val itemDateFmt = remember { java.text.SimpleDateFormat("dd MMM yyyy", java.util.Locale.getDefault()) }
+
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())
         .padding(horizontal = 16.dp, vertical = 16.dp)) {
         Text("🎯 ${S.exPersonalTargets}", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = c.onBackground)
         Spacer(Modifier.height(12.dp))
+
         if (completed.isEmpty()) {
             Text(S.exPersonalTargetsEmpty, fontSize = 13.sp, color = c.textSecondary, lineHeight = 20.sp)
-            return@Column
-        }
-        val fmt = remember { java.text.SimpleDateFormat("dd MMM yyyy", java.util.Locale.getDefault()) }
-        completed.forEach { ct ->
-            Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
-                .background(c.surfaceVariant).padding(14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Box(modifier = Modifier.size(40.dp).clip(CircleShape)
-                    .background(c.success.copy(alpha = 0.2f)), contentAlignment = Alignment.Center) {
-                    Text(ct.type.defaultEmoji, fontSize = 20.sp)
+        } else {
+            // ── Group-by control ──
+            Row(verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(S.exGroupBy, fontSize = 11.sp, color = c.textSecondary)
+                val options = listOf(
+                    CompletionGrouping.DAY to S.exGroupDay,
+                    CompletionGrouping.WEEK to S.exGroupWeek,
+                    CompletionGrouping.MONTH to S.exGroupMonth
+                )
+                options.forEach { (g, label) ->
+                    val selected = grouping == g
+                    Box(modifier = Modifier.clip(RoundedCornerShape(50))
+                        .background(if (selected) c.primary.copy(alpha = 0.18f) else Color.Transparent)
+                        .then(if (!selected) Modifier.border(1.dp, c.divider, RoundedCornerShape(50)) else Modifier)
+                        .clickable { grouping = g }
+                        .padding(horizontal = 12.dp, vertical = 5.dp)) {
+                        Text(label, fontSize = 11.sp,
+                            color = if (selected) c.primary else c.textSecondary,
+                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal)
+                    }
                 }
-                Column(modifier = Modifier.weight(1f)) {
-                    val amount = if (ct.type.isDistance) String.format("%.0f km", ct.amount) else "${ct.amount.toInt()}"
-                    Text(S.exTargetSummary(amount, exerciseTypeLabel(S, ct.type), periodLabel(S, ct.period)),
-                        fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = c.onBackground)
-                    Text(S.exAchievedOn(fmt.format(java.util.Date(ct.achievedAt))),
-                        fontSize = 11.sp, color = c.success)
-                }
-                Text("🏅", fontSize = 20.sp)
             }
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(14.dp))
+
+            // ── Grouped buckets (newest first) ──
+            val groups = groupCompleted(completed, grouping)
+            groups.forEach { group ->
+                val headerDate = java.util.Date(group.bucketStart)
+                val header = when (grouping) {
+                    CompletionGrouping.DAY -> dayFmt.format(headerDate)
+                    CompletionGrouping.WEEK -> S.exWeekOf(dayFmt.format(headerDate))
+                    CompletionGrouping.MONTH -> monthFmt.format(headerDate)
+                }
+                Text(header, fontSize = 12.sp, fontWeight = FontWeight.Bold,
+                    color = c.onBackground, modifier = Modifier.padding(bottom = 8.dp, top = 4.dp))
+
+                group.items.forEach { ct ->
+                    Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+                        .background(c.surfaceVariant).padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Box(modifier = Modifier.size(40.dp).clip(CircleShape)
+                            .background(c.success.copy(alpha = 0.2f)), contentAlignment = Alignment.Center) {
+                            Text(ct.type.defaultEmoji, fontSize = 20.sp)
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            val amount = if (ct.type.isDistance) String.format("%.0f km", ct.amount) else "${ct.amount.toInt()}"
+                            Text(S.exTargetSummary(amount, exerciseTypeLabel(S, ct.type), periodLabel(S, ct.period)),
+                                fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = c.onBackground)
+                            Text(S.exAchievedOn(itemDateFmt.format(java.util.Date(ct.achievedAt))),
+                                fontSize = 11.sp, color = c.success)
+                        }
+                        Text("🏅", fontSize = 20.sp)
+                    }
+                    Spacer(Modifier.height(10.dp))
+                }
+                Spacer(Modifier.height(6.dp))
+            }
         }
     }
 }

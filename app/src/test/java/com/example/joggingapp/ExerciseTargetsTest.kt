@@ -71,7 +71,7 @@ class ExerciseTargetsTest {
     @Test
     fun manual_daily_sumsOnlyTodaysReps() {
         val n = now()
-        val target = ExerciseTarget(type = ExerciseType.PUSHUPS, period = TargetPeriod.DAILY, amount = 50f)
+        val target = ExerciseTarget(type = ExerciseType.PUSHUPS, period = TargetPeriod.DAILY, amount = 50f, createdAt = daysBefore(n, 30))
         val log = listOf(
             rep(ExerciseType.PUSHUPS, 20, hoursBefore(n, 2)),   // today
             rep(ExerciseType.PUSHUPS, 15, hoursBefore(n, 5)),   // today
@@ -87,7 +87,7 @@ class ExerciseTargetsTest {
     @Test
     fun manual_weekly_includesEarlierThisWeek() {
         val n = now()
-        val target = ExerciseTarget(type = ExerciseType.SITUPS, period = TargetPeriod.WEEKLY, amount = 100f)
+        val target = ExerciseTarget(type = ExerciseType.SITUPS, period = TargetPeriod.WEEKLY, amount = 100f, createdAt = daysBefore(n, 30))
         // 1 day ago is within the same week (week starts <7 days back from Wed).
         val log = listOf(
             rep(ExerciseType.SITUPS, 60, hoursBefore(n, 3)),
@@ -102,7 +102,7 @@ class ExerciseTargetsTest {
     @Test
     fun manual_ignoresOtherExerciseTypes() {
         val n = now()
-        val target = ExerciseTarget(type = ExerciseType.SQUATS, period = TargetPeriod.DAILY, amount = 30f)
+        val target = ExerciseTarget(type = ExerciseType.SQUATS, period = TargetPeriod.DAILY, amount = 30f, createdAt = daysBefore(n, 30))
         val log = listOf(
             rep(ExerciseType.SQUATS, 10, hoursBefore(n, 1)),
             rep(ExerciseType.PUSHUPS, 99, hoursBefore(n, 1)),  // different type → ignored
@@ -111,12 +111,30 @@ class ExerciseTargetsTest {
         assertEquals(10f, tp.current, 0.001f)
     }
 
+    @Test
+    fun manual_ignoresRepsLoggedBeforeTargetCreated() {
+        // Regression guard: a brand-new target must not auto-complete from reps logged
+        // earlier in the same period, before the target existed (bug: instant completion).
+        val n = now()
+        val target = ExerciseTarget(
+            type = ExerciseType.SITUPS, period = TargetPeriod.DAILY, amount = 100f,
+            createdAt = hoursBefore(n, 1)   // created an hour ago
+        )
+        val log = listOf(
+            rep(ExerciseType.SITUPS, 500, hoursBefore(n, 3)),  // logged BEFORE creation → ignored
+            rep(ExerciseType.SITUPS, 40, hoursBefore(n, 0)),   // logged after creation → counts
+        )
+        val tp = evaluateTargets(listOf(target), emptyList(), log, n).single()
+        assertEquals(40f, tp.current, 0.001f)
+        assertFalse(tp.isMet)
+    }
+
     // ── Distance targets (auto from routes) ──────────────────────────────────────
 
     @Test
     fun distance_daily_sumsTodaysMatchingRoutes() {
         val n = now()
-        val target = ExerciseTarget(type = ExerciseType.RUNNING, period = TargetPeriod.DAILY, amount = 5f)
+        val target = ExerciseTarget(type = ExerciseType.RUNNING, period = TargetPeriod.DAILY, amount = 5f, createdAt = daysBefore(n, 30))
         val routes = listOf(
             routeKm(1, hoursBefore(n, 2), 3.0),   // run today
             routeKm(1, hoursBefore(n, 4), 1.0),   // run today
@@ -132,7 +150,7 @@ class ExerciseTargetsTest {
     @Test
     fun distance_walkingSeparateFromRunning() {
         val n = now()
-        val walkTarget = ExerciseTarget(type = ExerciseType.WALKING, period = TargetPeriod.DAILY, amount = 2f)
+        val walkTarget = ExerciseTarget(type = ExerciseType.WALKING, period = TargetPeriod.DAILY, amount = 2f, createdAt = daysBefore(n, 30))
         val routes = listOf(
             routeKm(0, hoursBefore(n, 1), 2.5),   // walk
             routeKm(1, hoursBefore(n, 1), 9.0),   // run → ignored for walking target
@@ -145,7 +163,7 @@ class ExerciseTargetsTest {
     @Test
     fun distance_blendedRoute_countsForEachContainedType() {
         val n = now()
-        val target = ExerciseTarget(type = ExerciseType.RUNNING, period = TargetPeriod.DAILY, amount = 1f)
+        val target = ExerciseTarget(type = ExerciseType.RUNNING, period = TargetPeriod.DAILY, amount = 1f, createdAt = daysBefore(n, 30))
         // A blended walk+run route: activityTypes contains both 0 and 1.
         val blended = routeKm(0, hoursBefore(n, 1), 3.0).copy(activityTypes = listOf(0, 1))
         val tp = evaluateTargets(listOf(target), listOf(blended), emptyList(), n).single()
