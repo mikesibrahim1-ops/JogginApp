@@ -31,9 +31,6 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.example.joggingapp.ui.theme.JogginColorTokens
 import com.example.joggingapp.ui.theme.JogginTheme
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 // Colour for a target type: distance types reuse the activity tokens; manual types use accent/primary.
 private fun targetColor(type: ExerciseType, c: JogginColorTokens): Color = when (type) {
@@ -109,15 +106,11 @@ fun ExerciseTargetsScreen(routes: List<SavedRoute>, onBack: () -> Unit) {
                 }
             } else {
                 AddTargetForm(
-                    onAdd = { types, period, amount ->
-                        // Multi-select: create one target per chosen exercise type.
-                        types.forEach { type ->
-                            targets = ExerciseTargetStorage.addTarget(
-                                context, ExerciseTarget(type = type, period = period, amount = amount)
-                            )
-                        }
+                    onSaveAll = { staged ->
+                        // Batch add: each staged row is its own distinct target.
+                        staged.forEach { t -> targets = ExerciseTargetStorage.addTarget(context, t) }
                         showAddForm = false
-                        AppLogger.log(context, LogCategory.UI, "Exercise targets added: ${types.joinToString()} $period $amount")
+                        AppLogger.log(context, LogCategory.UI, "Exercise targets added: ${staged.size} target(s)")
                     },
                     onCancel = { showAddForm = false }
                 )
@@ -228,22 +221,33 @@ private fun TargetCard(tp: TargetProgress, onLog: () -> Unit, onDelete: () -> Un
     }
 }
 
+/**
+ * Batch add-target form. The user composes one row at a time (type + period + amount),
+ * taps "Add another" to stage it, and repeats to queue several distinct targets, then
+ * "Save N targets" commits them all at once. "Save" also commits the current in-progress
+ * row if it's valid, so a single target doesn't require the extra "Add another" tap.
+ */
 @Composable
 private fun AddTargetForm(
-    onAdd: (Set<ExerciseType>, TargetPeriod, Float) -> Unit,
+    onSaveAll: (List<ExerciseTarget>) -> Unit,
     onCancel: () -> Unit
 ) {
     val c = JogginTheme.colors
     val S = LocalStrings.current
 
-    // Multi-select: a set of chosen exercise types.
-    val selectedTypes = remember { mutableStateListOf(ExerciseType.SITUPS) }
+    val staged = remember { mutableStateListOf<ExerciseTarget>() }
+    var selectedType by remember { mutableStateOf(ExerciseType.SITUPS) }
     var selectedPeriod by remember { mutableStateOf(TargetPeriod.DAILY) }
     var amountText by remember { mutableStateOf("") }
 
-    // Amount label: if ALL selected types are distance → km; otherwise reps. (Mixing
-    // distance + manual is allowed; the number applies to each as its natural unit.)
-    val allDistance = selectedTypes.isNotEmpty() && selectedTypes.all { it.isDistance }
+    fun currentValidAmount(): Float = amountText.toFloatOrNull()?.takeIf { it > 0f } ?: 0f
+    fun stageCurrent() {
+        val amt = currentValidAmount()
+        if (amt > 0f) {
+            staged.add(ExerciseTarget(type = selectedType, period = selectedPeriod, amount = amt))
+            amountText = ""   // reset amount for the next row; keep type/period as a sensible default
+        }
+    }
 
     Column(
         modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
@@ -252,26 +256,46 @@ private fun AddTargetForm(
         Text(S.exNewTarget, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = c.onBackground)
         Spacer(Modifier.height(14.dp))
 
-        // Exercise type chips — MULTI-select (tap to toggle).
+        // ── Staged rows (already-added targets in this batch) ──
+        if (staged.isNotEmpty()) {
+            staged.forEachIndexed { idx, t ->
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(t.type.defaultEmoji, fontSize = 16.sp)
+                    val amount = if (t.type.isDistance) String.format("%.0f km", t.amount) else "${t.amount.toInt()}"
+                    Text(
+                        S.exTargetSummary(amount, exerciseTypeLabel(S, t.type), periodLabel(S, t.period)),
+                        fontSize = 12.sp, color = c.onBackground, modifier = Modifier.weight(1f)
+                    )
+                    Text("✕", fontSize = 14.sp, color = c.textSecondary,
+                        modifier = Modifier.clickable { staged.removeAt(idx) })
+                }
+            }
+            Text(S.exStagedCount(staged.size), fontSize = 11.sp, color = c.textSecondary)
+            Spacer(Modifier.height(10.dp))
+            Divider(color = c.divider)
+            Spacer(Modifier.height(10.dp))
+        }
+
+        // ── Current row editor ──
         Text(S.exExerciseLabel, fontSize = 12.sp, color = c.textSecondary)
         Spacer(Modifier.height(6.dp))
         ChipFlowRow {
             ExerciseType.values().forEach { type ->
-                val isSel = type in selectedTypes
                 SelectChip(
                     label = "${type.defaultEmoji} ${exerciseTypeLabel(S, type)}",
-                    selected = isSel,
+                    selected = type == selectedType,
                     color = targetColor(type, c),
-                    onClick = {
-                        if (isSel) selectedTypes.remove(type) else selectedTypes.add(type)
-                    }
+                    onClick = { selectedType = type }
                 )
             }
         }
 
         Spacer(Modifier.height(14.dp))
 
-        // Period chips (single-select).
         Text(S.exPeriodLabel, fontSize = 12.sp, color = c.textSecondary)
         Spacer(Modifier.height(6.dp))
         ChipFlowRow {
@@ -287,8 +311,7 @@ private fun AddTargetForm(
 
         Spacer(Modifier.height(14.dp))
 
-        // Amount field.
-        Text(if (allDistance) S.exAmountKm else S.exAmountReps, fontSize = 12.sp, color = c.textSecondary)
+        Text(if (selectedType.isDistance) S.exAmountKm else S.exAmountReps, fontSize = 12.sp, color = c.textSecondary)
         Spacer(Modifier.height(6.dp))
         TextField(
             value = amountText,
@@ -305,8 +328,24 @@ private fun AddTargetForm(
             modifier = Modifier.fillMaxWidth()
         )
 
+        Spacer(Modifier.height(10.dp))
+
+        // "Add another" stages the current row and clears the amount for the next.
+        val canStage = currentValidAmount() > 0f
+        Box(
+            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+                .border(1.dp, if (canStage) c.primary else c.divider, RoundedCornerShape(10.dp))
+                .clickable(enabled = canStage) { stageCurrent() }
+                .padding(vertical = 10.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text("➕ ${S.exAddAnother}", fontSize = 13.sp,
+                color = if (canStage) c.primary else c.textSecondary, fontWeight = FontWeight.SemiBold)
+        }
+
         Spacer(Modifier.height(16.dp))
 
+        // ── Cancel / Save-all ──
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Box(
                 modifier = Modifier.weight(1f).clip(RoundedCornerShape(10.dp))
@@ -315,15 +354,19 @@ private fun AddTargetForm(
                 contentAlignment = Alignment.Center
             ) { Text(S.cancel, fontSize = 13.sp, color = c.onBackground) }
 
-            val amount = amountText.toFloatOrNull() ?: 0f
-            val enabled = amount > 0f && selectedTypes.isNotEmpty()
+            // Save count = staged + (1 if the current row is valid and will be auto-staged).
+            val pending = staged.size + (if (currentValidAmount() > 0f) 1 else 0)
+            val enabled = pending > 0
             Box(
                 modifier = Modifier.weight(1f).clip(RoundedCornerShape(10.dp))
                     .background(if (enabled) c.primary else c.divider)
-                    .clickable(enabled = enabled) { onAdd(selectedTypes.toSet(), selectedPeriod, amount) }
+                    .clickable(enabled = enabled) {
+                        stageCurrent()                 // fold in the in-progress row if valid
+                        if (staged.isNotEmpty()) onSaveAll(staged.toList())
+                    }
                     .padding(vertical = 12.dp),
                 contentAlignment = Alignment.Center
-            ) { Text(S.exAdd, fontSize = 13.sp, color = Color.White, fontWeight = FontWeight.SemiBold) }
+            ) { Text(S.exSaveAll(pending.coerceAtLeast(1)), fontSize = 13.sp, color = Color.White, fontWeight = FontWeight.SemiBold) }
         }
     }
 }
@@ -444,38 +487,4 @@ private fun SelectChip(label: String, selected: Boolean, color: Color, onClick: 
     }
 }
 
-// ── Personal Targets (achieved) list — rendered inside the options pane ─────────────
 
-/**
- * The list of completed/achieved targets with their achievement dates. Shown in a new
- * "Personal Targets" section of the options pane (host passes the loaded list).
- */
-@Composable
-fun PersonalTargetsContent(completed: List<CompletedTarget>) {
-    val c = JogginTheme.colors
-    val S = LocalStrings.current
-    if (completed.isEmpty()) {
-        Text(S.exPersonalTargetsEmpty, fontSize = 12.sp, color = c.onSecondary.copy(alpha = 0.6f), lineHeight = 18.sp)
-        return
-    }
-    val fmt = remember { SimpleDateFormat("dd MMM yyyy", Locale.getDefault()) }
-    completed.forEach { ct ->
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Text(ct.type.defaultEmoji, fontSize = 18.sp)
-            Column(modifier = Modifier.weight(1f)) {
-                val amount = if (ct.type.isDistance) String.format("%.0f km", ct.amount) else "${ct.amount.toInt()}"
-                Text(
-                    S.exTargetSummary(amount, exerciseTypeLabel(S, ct.type), periodLabel(S, ct.period)),
-                    fontSize = 12.sp, color = c.onSecondary, fontWeight = FontWeight.Medium
-                )
-                Text(S.exAchievedOn(fmt.format(Date(ct.achievedAt))), fontSize = 10.sp, color = c.onSecondary.copy(alpha = 0.6f))
-            }
-            Text("🏅", fontSize = 16.sp)
-        }
-        Divider(color = c.onSecondary.copy(alpha = 0.12f))
-    }
-}

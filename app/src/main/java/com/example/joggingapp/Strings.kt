@@ -231,6 +231,11 @@ data class AppStrings(
     val exPersonalTargetsEmpty: String,    // empty state for achieved list
     val exAchievedOn: (String) -> String,  // "Achieved {date}"
     val exTargetSummary: (String, String, String) -> String, // "{amount} {type} · {period}"
+    val exAddAnother: String,              // batch form: stage this row + start another
+    val exSaveAll: (Int) -> String,        // "Save N targets"
+    val exStagedCount: (Int) -> String,    // "N target(s) to add"
+    val exBadgePersonal: String,           // Achievements badge → personal targets view
+    val exBadgeAchievements: String,       // badge back to achievements view
 )
 
 // ── English ───────────────────────────────────────────────────────────────────
@@ -436,6 +441,11 @@ val EnglishStrings = AppStrings(
     exPersonalTargetsEmpty = "No completed targets yet. Hit a target and it'll be recorded here with the date.",
     exAchievedOn = { date -> "Achieved $date" },
     exTargetSummary = { amount, type, period -> "$amount $type · $period" },
+    exAddAnother = "Add another",
+    exSaveAll = { n -> if (n == 1) "Save 1 target" else "Save $n targets" },
+    exStagedCount = { n -> if (n == 1) "1 target to add" else "$n targets to add" },
+    exBadgePersonal = "🎯 Personal",
+    exBadgeAchievements = "🏆 Medals",
 )
 
 // ── Greek (formal Modern Greek, monotonic) ─────────────────────────────────────
@@ -641,6 +651,11 @@ val GreekStrings = AppStrings(
     exPersonalTargetsEmpty = "Δεν υπάρχουν ολοκληρωμένοι στόχοι ακόμη. Πέτυχε έναν στόχο και θα καταγραφεί εδώ με την ημερομηνία.",
     exAchievedOn = { date -> "Επιτεύχθηκε $date" },
     exTargetSummary = { amount, type, period -> "$amount $type · $period" },
+    exAddAnother = "Προσθήκη άλλου",
+    exSaveAll = { n -> if (n == 1) "Αποθήκευση 1 στόχου" else "Αποθήκευση $n στόχων" },
+    exStagedCount = { n -> if (n == 1) "1 στόχος προς προσθήκη" else "$n στόχοι προς προσθήκη" },
+    exBadgePersonal = "🎯 Προσωπικοί",
+    exBadgeAchievements = "🏆 Μετάλλια",
 )
 
 // ── Resolver ──────────────────────────────────────────────────────────────────

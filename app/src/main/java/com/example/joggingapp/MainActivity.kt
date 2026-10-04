@@ -1399,12 +1399,6 @@ fun OptionsPaneContent(colorIdx: Int, savedRoutes: List<SavedRoute>, onColorSele
             Text("›", fontSize = 20.sp, color = c.onSecondary.copy(alpha = 0.7f))
         }
 
-        // ── Personal Targets (achieved targets, like a mini-achievements list) ─
-        CollapsibleSection(title = S.exPersonalTargets, leadingEmoji = "🏅") {
-            val completed = remember { ExerciseTargetStorage.loadCompleted(context) }
-            PersonalTargetsContent(completed = completed)
-        }
-
         // ── Sharing ───────────────────────────────────────────────────────────
         CollapsibleSection(title = S.sharing, leadingEmoji = "📤") {
         Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(c.primary.copy(alpha = 0.15f)).padding(12.dp),

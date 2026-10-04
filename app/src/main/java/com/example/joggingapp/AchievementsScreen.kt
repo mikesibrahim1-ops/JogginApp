@@ -12,6 +12,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.Card
@@ -81,6 +82,11 @@ fun AchievementsScreen(routes: List<SavedRoute>, onBack: () -> Unit) {
     var sortMode by remember { mutableStateOf(0) } // 0=Default, 1=Almost Complete, 2=Newest Earned, 3=Longest Outstanding
     var sortAscending by remember { mutableStateOf(false) } // false=descending (default), true=ascending
 
+    // Personal Targets view: a separate section toggled by the top-right badge.
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var showPersonal by remember { mutableStateOf(false) }
+    val completedTargets = remember(showPersonal) { ExerciseTargetStorage.loadCompleted(context) }
+
     val filtered = remember(selectedCategory, sortMode, sortAscending) {
         val base = if (selectedCategory == null) progressList
             else progressList.filter { it.achievement.category == selectedCategory }
@@ -105,6 +111,18 @@ fun AchievementsScreen(routes: List<SavedRoute>, onBack: () -> Unit) {
         Box(modifier = Modifier.fillMaxWidth()
             .background(c.heroGradient)
             .padding(top = 48.dp, bottom = 24.dp, start = 20.dp, end = 20.dp)) {
+
+            // Top-right badge: toggle between Medals (achievements) and Personal Targets.
+            Box(
+                modifier = Modifier.align(Alignment.TopEnd)
+                    .clip(RoundedCornerShape(50))
+                    .background(Color.White.copy(alpha = 0.22f))
+                    .clickable { showPersonal = !showPersonal }
+                    .padding(horizontal = 12.dp, vertical = 6.dp)
+            ) {
+                Text(if (showPersonal) S.exBadgeAchievements else S.exBadgePersonal,
+                    fontSize = 12.sp, color = Color.White, fontWeight = FontWeight.SemiBold)
+            }
 
             Column {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -138,6 +156,12 @@ fun AchievementsScreen(routes: List<SavedRoute>, onBack: () -> Unit) {
                 Text(S.percentComplete((pct * 100).toInt()),
                     fontSize = 11.sp, color = c.textSecondary)
             }
+        }
+
+        if (showPersonal) {
+            // ── Personal Targets section (user's completed exercise targets) ──
+            PersonalTargetsSection(completed = completedTargets)
+            return@Column
         }
 
         // ── Completed medals showcase ─────────────────────────────────────────
@@ -291,6 +315,44 @@ private fun FilterTab(
         Text(label, fontSize = 13.sp,
             color = if (isSelected) Color.White else c.textSecondary,
             fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal)
+    }
+}
+
+// ── Personal Targets section (shown on the Achievements page via the badge) ─────
+
+@Composable
+private fun PersonalTargetsSection(completed: List<CompletedTarget>) {
+    val c = JogginTheme.colors
+    val S = LocalStrings.current
+    Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+        .padding(horizontal = 16.dp, vertical = 16.dp)) {
+        Text("🎯 ${S.exPersonalTargets}", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = c.onBackground)
+        Spacer(Modifier.height(12.dp))
+        if (completed.isEmpty()) {
+            Text(S.exPersonalTargetsEmpty, fontSize = 13.sp, color = c.textSecondary, lineHeight = 20.sp)
+            return@Column
+        }
+        val fmt = remember { java.text.SimpleDateFormat("dd MMM yyyy", java.util.Locale.getDefault()) }
+        completed.forEach { ct ->
+            Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+                .background(c.surfaceVariant).padding(14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Box(modifier = Modifier.size(40.dp).clip(CircleShape)
+                    .background(c.success.copy(alpha = 0.2f)), contentAlignment = Alignment.Center) {
+                    Text(ct.type.defaultEmoji, fontSize = 20.sp)
+                }
+                Column(modifier = Modifier.weight(1f)) {
+                    val amount = if (ct.type.isDistance) String.format("%.0f km", ct.amount) else "${ct.amount.toInt()}"
+                    Text(S.exTargetSummary(amount, exerciseTypeLabel(S, ct.type), periodLabel(S, ct.period)),
+                        fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = c.onBackground)
+                    Text(S.exAchievedOn(fmt.format(java.util.Date(ct.achievedAt))),
+                        fontSize = 11.sp, color = c.success)
+                }
+                Text("🏅", fontSize = 20.sp)
+            }
+            Spacer(Modifier.height(10.dp))
+        }
     }
 }
 
