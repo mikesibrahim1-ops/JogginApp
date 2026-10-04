@@ -51,8 +51,9 @@ enum class AppTheme(val displayName: String, val emoji: String) {
 // ── Theme 1: Sunrise Energy 🌅 ───────────────────────────────────────────────
 
 private val SunriseLight = JogginColorTokens(
-    primary = Color(0xFFFF6B35), primaryDark = Color(0xFFE05520),
-    secondary = Color(0xFF7A2E12), accent = Color(0xFF00B4D8),
+    // TEST (theme colour switch): swapped primary <-> secondary (see ForestLight note).
+    primary = Color(0xFF7A2E12), primaryDark = Color(0xFFE05520),
+    secondary = Color(0xFFFF6B35), accent = Color(0xFF00B4D8),
     background = Color(0xFFF8F9FA), surface = Color(0xFFFFFFFF), surfaceVariant = Color(0xFFF0F2F5),
     onPrimary = Color.White, onSecondary = Color.White,
     onBackground = Color(0xFF212529), onSurface = Color(0xFF212529), textSecondary = Color(0xFF6C757D),
@@ -63,7 +64,7 @@ private val SunriseLight = JogginColorTokens(
     heroGradient = Brush.linearGradient(listOf(Color(0xFFFF6B35), Color(0xFF00B4D8)))
 )
 private val SunriseDark = SunriseLight.copy(
-    secondary = Color(0xFF5C2110),
+    // (secondary override removed so the swapped bright pane colour applies in dark too)
     background = Color(0xFF0D1B2A), surface = Color(0xFF1B263B), surfaceVariant = Color(0xFF243447),
     onBackground = Color(0xFFF8F9FA), onSurface = Color(0xFFF8F9FA), textSecondary = Color(0xFFADB5BD),
     divider = Color(0xFF2D3E52)
@@ -72,8 +73,11 @@ private val SunriseDark = SunriseLight.copy(
 // ── Theme 2: Forest Trail 🌲 ─────────────────────────────────────────────────
 
 private val ForestLight = JogginColorTokens(
-    primary = Color(0xFF2D6A4F), primaryDark = Color(0xFF1B5038),
-    secondary = Color(0xFF1B3A2D), accent = Color(0xFFE9C46A),
+    // TEST (theme colour switch): swapped primary <-> secondary so the options pane
+    // (painted with `secondary`) shows the lighter inner green, and the middle theme
+    // preview circle (also `secondary` via getPreviewColors) shows the old dark pane green.
+    primary = Color(0xFF1B3A2D), primaryDark = Color(0xFF1B5038),
+    secondary = Color(0xFF2D6A4F), accent = Color(0xFFE9C46A),
     background = Color(0xFFF1FAEE), surface = Color(0xFFFFFFFF), surfaceVariant = Color(0xFFE8F5E3),
     onPrimary = Color.White, onSecondary = Color.White,
     onBackground = Color(0xFF1B2F1B), onSurface = Color(0xFF1B2F1B), textSecondary = Color(0xFF5F7A61),
@@ -92,8 +96,9 @@ private val ForestDark = ForestLight.copy(
 // ── Theme 3: Midnight Pulse 💜 ───────────────────────────────────────────────
 
 private val MidnightLight = JogginColorTokens(
-    primary = Color(0xFF7B2FBE), primaryDark = Color(0xFF5E1F96),
-    secondary = Color(0xFF1A0B2E), accent = Color(0xFF00F5D4),
+    // TEST (theme colour switch): swapped primary <-> secondary (see ForestLight note).
+    primary = Color(0xFF1A0B2E), primaryDark = Color(0xFF5E1F96),
+    secondary = Color(0xFF7B2FBE), accent = Color(0xFF00F5D4),
     background = Color(0xFFF5F3FF), surface = Color(0xFFFFFFFF), surfaceVariant = Color(0xFFEDE8FF),
     onPrimary = Color.White, onSecondary = Color.White,
     onBackground = Color(0xFF1E1B2E), onSurface = Color(0xFF1E1B2E), textSecondary = Color(0xFF6E6A8A),
@@ -112,8 +117,9 @@ private val MidnightDark = MidnightLight.copy(
 // ── Theme 4: Ocean Breeze 🌊 ─────────────────────────────────────────────────
 
 private val OceanLight = JogginColorTokens(
-    primary = Color(0xFF0077B6), primaryDark = Color(0xFF005A8C),
-    secondary = Color(0xFF023E8A), accent = Color(0xFF90E0EF),
+    // TEST (theme colour switch): swapped primary <-> secondary (see ForestLight note).
+    primary = Color(0xFF023E8A), primaryDark = Color(0xFF005A8C),
+    secondary = Color(0xFF0077B6), accent = Color(0xFF90E0EF),
     background = Color(0xFFF0F9FF), surface = Color(0xFFFFFFFF), surfaceVariant = Color(0xFFE4F4FD),
     onPrimary = Color.White, onSecondary = Color.White,
     onBackground = Color(0xFF0A2540), onSurface = Color(0xFF0A2540), textSecondary = Color(0xFF5B7A99),
@@ -139,10 +145,11 @@ fun getTokens(theme: AppTheme, dark: Boolean): JogginColorTokens = when (theme) 
 }
 
 fun getPreviewColors(theme: AppTheme): Triple<Color, Color, Color> = when (theme) {
-    AppTheme.SUNRISE  -> Triple(Color(0xFFFF6B35), Color(0xFF7A2E12), Color(0xFF00B4D8))
-    AppTheme.FOREST   -> Triple(Color(0xFF2D6A4F), Color(0xFF1B3A2D), Color(0xFFE9C46A))
-    AppTheme.MIDNIGHT -> Triple(Color(0xFF7B2FBE), Color(0xFF1A0B2E), Color(0xFF00F5D4))
-    AppTheme.OCEAN    -> Triple(Color(0xFF0077B6), Color(0xFF023E8A), Color(0xFF90E0EF))
+    // TEST: all four themes have primary<->secondary swapped (see ForestLight note).
+    AppTheme.SUNRISE  -> Triple(Color(0xFF7A2E12), Color(0xFFFF6B35), Color(0xFF00B4D8))
+    AppTheme.FOREST   -> Triple(Color(0xFF1B3A2D), Color(0xFF2D6A4F), Color(0xFFE9C46A))
+    AppTheme.MIDNIGHT -> Triple(Color(0xFF1A0B2E), Color(0xFF7B2FBE), Color(0xFF00F5D4))
+    AppTheme.OCEAN    -> Triple(Color(0xFF023E8A), Color(0xFF0077B6), Color(0xFF90E0EF))
 }
 
 // ── CompositionLocal ──────────────────────────────────────────────────────────
