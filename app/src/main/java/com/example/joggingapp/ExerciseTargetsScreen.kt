@@ -376,10 +376,20 @@ private fun LogRepsDialog(type: ExerciseType, onConfirm: (Int) -> Unit, onDismis
     val c = JogginTheme.colors
     val S = LocalStrings.current
     var text by remember { mutableStateOf("") }
-    val focus = remember { FocusRequester() }
 
-    // A real Dialog renders in its own window above the scrolling screen, so focus and
-    // the soft keyboard behave correctly (the previous hand-rolled overlay blocked input).
+    fun append(ch: Char) {
+        if (ch == '-') {
+            // Toggle minus: add it if absent, remove if present.
+            text = if (text.startsWith("-")) text.removePrefix("-") else "-${text}"
+        } else if (text.replace("-", "").length < 5) {
+            // Append digit (max 5 digits).
+            text += ch
+        }
+    }
+    fun backspace() {
+        if (text.isNotEmpty()) text = text.dropLast(1)
+    }
+
     Dialog(onDismissRequest = onDismiss) {
         Column(
             modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
@@ -388,22 +398,71 @@ private fun LogRepsDialog(type: ExerciseType, onConfirm: (Int) -> Unit, onDismis
             Text(S.exLogRepsTitle(exerciseTypeLabel(S, type)), fontSize = 16.sp,
                 fontWeight = FontWeight.Bold, color = c.onSurface)
             Spacer(Modifier.height(14.dp))
-            TextField(
-                value = text,
-                onValueChange = { new -> text = new.filter { it.isDigit() }.take(5) },
-                singleLine = true,
-                placeholder = { Text(S.exLogAmountHint, color = c.textSecondary) },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                colors = TextFieldDefaults.textFieldColors(
-                    backgroundColor = c.surfaceVariant,
-                    textColor = c.onSurface,
-                    cursorColor = c.primary,
-                    focusedIndicatorColor = c.primary,
-                    unfocusedIndicatorColor = c.divider
-                ),
-                modifier = Modifier.fillMaxWidth().focusRequester(focus)
+
+            // ── Display field ──
+            val count = text.toIntOrNull() ?: 0
+            val isDeduction = count < 0
+            Box(
+                modifier = Modifier.fillMaxWidth().height(52.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(c.surfaceVariant),
+                contentAlignment = Alignment.Center
+            ) {
+                if (text.isEmpty()) {
+                    Text(S.exLogAmountHint, fontSize = 18.sp, color = c.textSecondary)
+                } else {
+                    Text(text, fontSize = 24.sp, fontWeight = FontWeight.Bold,
+                        color = if (isDeduction) c.error else c.onSurface)
+                }
+            }
+
+            Spacer(Modifier.height(14.dp))
+
+            // ── Custom number pad: 0–9, minus, backspace ──
+            val padRows = listOf(
+                listOf('1', '2', '3'),
+                listOf('4', '5', '6'),
+                listOf('7', '8', '9'),
+                listOf('-', '0', '⌫')
             )
-            Spacer(Modifier.height(18.dp))
+            padRows.forEach { row ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    row.forEach { key ->
+                        val keyColor = when (key) {
+                            '-' -> c.error.copy(alpha = 0.15f)
+                            '⌫' -> c.divider.copy(alpha = 0.5f)
+                            else -> c.surfaceVariant
+                        }
+                        Box(
+                            modifier = Modifier.weight(1f).height(52.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(keyColor)
+                                .clickable {
+                                    if (key == '⌫') backspace() else append(key)
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = if (key == '⌫') "⌫" else key.toString(),
+                                fontSize = if (key == '⌫') 20.sp else 22.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = when (key) {
+                                    '-' -> c.error
+                                    else -> c.onSurface
+                                }
+                            )
+                        }
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+            }
+
+            Spacer(Modifier.height(10.dp))
+
+            // ── Cancel / Confirm buttons ──
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Box(
                     modifier = Modifier.weight(1f).clip(RoundedCornerShape(10.dp))
@@ -412,22 +471,16 @@ private fun LogRepsDialog(type: ExerciseType, onConfirm: (Int) -> Unit, onDismis
                     contentAlignment = Alignment.Center
                 ) { Text(S.cancel, fontSize = 13.sp, color = c.onSurface) }
 
-                val count = text.toIntOrNull() ?: 0
-                val enabled = count > 0
+                val enabled = count != 0
                 Box(
                     modifier = Modifier.weight(1f).clip(RoundedCornerShape(10.dp))
-                        .background(if (enabled) c.primary else c.divider)
+                        .background(if (enabled) (if (isDeduction) c.error else c.primary) else c.divider)
                         .clickable(enabled = enabled) { onConfirm(count) }
                         .padding(vertical = 12.dp),
                     contentAlignment = Alignment.Center
-                ) { Text(S.exLogReps, fontSize = 13.sp, color = Color.White, fontWeight = FontWeight.SemiBold) }
+                ) { Text(if (isDeduction) S.exDeductReps else S.exLogReps, fontSize = 13.sp, color = Color.White, fontWeight = FontWeight.SemiBold) }
             }
         }
-    }
-
-    // Auto-focus the field so the keyboard pops up immediately.
-    LaunchedEffect(Unit) {
-        try { focus.requestFocus() } catch (_: Exception) {}
     }
 }
 

@@ -190,7 +190,9 @@ fun evaluateTargets(
             .sumOf { it.count }
             .toFloat()
     }
-    TargetProgress(target = t, current = current, goal = t.amount)
+    // Deductions (negative rep-log entries) can push the raw sum below zero; clamp to 0
+    // so progress never shows a negative value.
+    TargetProgress(target = t, current = current.coerceAtLeast(0f), goal = t.amount)
 }
 
 // ── Storage (SharedPreferences + Gson), mirroring RouteStorage ───────────────────
@@ -244,9 +246,9 @@ object ExerciseTargetStorage {
         prefs(context).edit().putString(KEY_REPLOG, Gson().toJson(list)).apply()
     }
 
-    /** Logs [count] reps of [type] now. Returns the updated log. */
+    /** Logs [count] reps of [type] now. Positive adds, negative deducts. Returns the updated log. */
     fun logReps(context: Context, type: ExerciseType, count: Int): List<RepLogEntry> {
-        if (count <= 0) return loadRepLog(context)
+        if (count == 0) return loadRepLog(context)
         val list = loadRepLog(context).toMutableList()
         list.add(0, RepLogEntry(type = type, count = count))
         // Prune entries older than ~400 days so the log can't grow without bound; period

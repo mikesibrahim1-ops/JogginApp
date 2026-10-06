@@ -217,6 +217,7 @@ data class AppStrings(
     val exAmountReps: String,              // amount field label for manual types
     val exAmountKm: String,                // amount field label for distance types
     val exLogReps: String,                 // "Log" button on a manual target
+    val exDeductReps: String,              // "Deduct" button when entering a negative value
     val exLogRepsTitle: (String) -> String,// dialog title "Log {exercise}"
     val exProgressReps: (Int, Int) -> String,   // "{cur} / {goal} reps"
     val exProgressKm: (String, String) -> String,// "{cur} / {goal} km"
@@ -432,6 +433,7 @@ val EnglishStrings = AppStrings(
     exAmountReps = "Target reps",
     exAmountKm = "Target distance (km)",
     exLogReps = "Log",
+    exDeductReps = "Deduct",
     exLogRepsTitle = { ex -> "Log $ex" },
     exProgressReps = { cur, goal -> "$cur / $goal reps" },
     exProgressKm = { cur, goal -> "$cur / $goal km" },
@@ -439,7 +441,7 @@ val EnglishStrings = AppStrings(
     exDelete = "Delete",
     exAdd = "Add",
     exAutoTracked = "Auto-tracked from your runs",
-    exLogAmountHint = "How many did you do?",
+    exLogAmountHint = "Reps done (use - to deduct)",
     exCongratsTitle = "🎉 Target smashed!",
     exCongratsBody = { ex -> "You completed your $ex target. Nice work!" },
     exPersonalTargets = "Personal Targets",
@@ -647,6 +649,7 @@ val GreekStrings = AppStrings(
     exAmountReps = "Στόχος επαναλήψεων",
     exAmountKm = "Στόχος απόστασης (χλμ)",
     exLogReps = "Καταγραφή",
+    exDeductReps = "Αφαίρεση",
     exLogRepsTitle = { ex -> "Καταγραφή: $ex" },
     exProgressReps = { cur, goal -> "$cur / $goal επαν." },
     exProgressKm = { cur, goal -> "$cur / $goal χλμ" },
@@ -654,7 +657,7 @@ val GreekStrings = AppStrings(
     exDelete = "Διαγραφή",
     exAdd = "Προσθήκη",
     exAutoTracked = "Αυτόματη παρακολούθηση από τις δραστηριότητές σας",
-    exLogAmountHint = "Πόσες έκανες;",
+    exLogAmountHint = "Επαναλήψεις (χρήση - για αφαίρεση)",
     exCongratsTitle = "🎉 Ο στόχος κατακτήθηκε!",
     exCongratsBody = { ex -> "Ολοκλήρωσες τον στόχο σου: $ex. Μπράβο!" },
     exPersonalTargets = "Προσωπικοί Στόχοι",
