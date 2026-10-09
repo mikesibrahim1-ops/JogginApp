@@ -1,128 +1,124 @@
 # HANDOVERSESSION — JogginApp
 
-> Auto-generated hand-off summary. A new session should read this FIRST and align to
-> this state before doing work. Regenerated on demand when the user sends `#HookStart`
-> (HANDOVERSESSION hook, trigger: UserPromptSubmit).
+> Hand-off summary. A new session should read this FIRST and align to this state before
+> doing work. (The old auto-regeneration hook `.kiro/hooks/handoversession.json` was removed
+> by the user — this file is now maintained manually.)
 
 ## 1. Project
 Android GPS fitness tracker (walk/run/cycle) at `c:\Users\INFINITI\Documents\Kiro\JogginApp`.
-100% Kotlin, Jetpack Compose UI, osmdroid maps, foreground GPS service, SharedPreferences +
-Gson storage, English/Greek i18n via `Strings.kt`. Has a **Firebase backend** (live) powering
-the in-progress **Buddy Link** safety-buddy location-sharing feature. Distributed as a
-sideloaded APK (not on Play Store).
+100% Kotlin, Jetpack Compose UI, osmdroid maps, foreground GPS service, SharedPreferences
+("jog_prefs") + Gson storage, English/Greek i18n via `Strings.kt`. Live Firebase backend
+(project `joggin-a69a7`) powers **Buddy Link** (opt-in 1:1 live-location sharing). Distributed
+as a sideloaded APK: GitHub Releases hosts the APK; a Firebase Hosting install page links to it.
 
 ## 2. Current version / build state
-- **V1.40** — `versionCode 40`, `versionName "1.40"`, footer label "V1.40" in MainActivity.
-- `minSdk 24`, `targetSdk 34`, `compileSdk 34`.
-- Last build: **BUILD SUCCESSFUL** (assembleDebug, debug-signed). Archived at
-  `builds/joggin-v1.40.apk` and staged as `builds/joggin.apk` (lowercase, for GitHub upload).
+- **V1.45** — `versionCode 45`, `versionName "1.45"` (`app/build.gradle`).
+- Git: HEAD `8421dd5` on `main`, pushed to `origin/main` (in sync). Tag **`V1.45`** pushed
+  (annotated tag object `d105d77`). Earlier tags V1.40–V1.44 also exist.
+- `minSdk 24`, `targetSdk 34`, `compileSdk 34`, Java/Kotlin 17, Compose compiler 1.5.10.
+- Last build: `assembleDebug` + `testDebugUnitTest` → **BUILD SUCCESSFUL** (debug-signed; full
+  unit suite green incl. ExerciseTargetsTest).
+- **V1.45 is PUBLISHED on GitHub** (not draft) with `joggin.apk` asset; `/releases/latest/
+  download/joggin.apk` returns 200; install page `https://joggin-a69a7.web.app/get` serves it.
+- Installed + verified on the user's device (versionCode 45 / versionName 1.45).
+- APKs in `builds/`: `joggin-v1.45.apk` (archived; keeps newest 4 → v1.42–v1.45) and
+  `joggin.apk` (lowercase release copy = V1.45, SHA-256 `3D93C292…F520F21`).
 
 ## 3. Environment notes (IMPORTANT — avoids wasted time)
-- **Terminal is very flaky.** PowerShell echoes char-by-char; foreground shells wedge often;
-  background terminals sometimes swallow commands or cross-feed stdin (a `Start-Sleep` from one
-  call leaks into another terminal). Interactive `[Y/N]` prompts can wedge the whole session.
-- **Reliable BUILD pattern:** fresh background terminal running
-  `cmd /c ".\gradlew.bat assembleDebug --console=plain > FILE.txt 2>&1 & echo DONE_%errorlevel% >> FILE.txt"`,
-  then poll `FILE.txt` with the read tool. Success = `BUILD SUCCESSFUL` + `DONE_0`.
-- **Reliable COPY/archive pattern:** direct `Copy-Item` with **absolute paths** (relative paths
-  fail — shell cwd drifts after `cd`). Verify with list_directory/file_search, NOT stdout (garbled).
-- **`firebase deploy` works from here** now that the user has run `firebase login` (stored on
-  machine). Run via a fresh background terminal → file; confirm "Deploy complete!" in the file.
-- Cannot reach the phone or run `adb` from this environment — **device testing is user-side.**
-- After tasks: stop stray background terminals and delete temp `.txt` logs.
+- **Terminal is very flaky.** PowerShell echoes commands char-by-char and reports **exit -1
+  even on success**. Do NOT trust stdout/exit code — redirect to a file (`*> file.txt 2>&1`)
+  and read it with the file tools. The shell also WEDGES entirely at times (no output, no file
+  written even for `Out-File`); when that happens, wait and retry, or use a fresh background
+  process. `list_directory`/`file_search`/`read_file` still work when the shell is wedged.
+- **Build pattern:** background process running
+  `.\gradlew.bat assembleDebug [testDebugUnitTest] --console=plain *> LOG.txt; "DONE_$LASTEXITCODE" | Out-File -Append LOG.txt`,
+  then poll LOG.txt. Success = `BUILD SUCCESSFUL` + `DONE_0`. The log is UTF-16-ish; the file
+  reader shows it fine.
+- **Gradle stalls** at `processDebugResources` for 1–4 min before breaking through — be patient.
+  Cold daemon starts add ~1 min. Incremental builds after a warm daemon are ~7–30s.
+- **⚠ Stop the build terminal before copying/installing the APK** (file lock on
+  `app/build/outputs/apk/debug/app-debug.apk`). Run ONE gradle build at a time.
+- **adb IS available** (`adb.exe` in `C:\Users\INFINITI\Downloads\platform-tools...`). A real
+  device (`R5CR100AY2V`, Samsung SM-G991B, Android 15) connects intermittently — the user plugs
+  it in on request; verify with `adb devices` (empty list = disconnected). Install:
+  `adb install -r app\build\outputs\apk\debug\app-debug.apk` → look for `Success`.
+- **gh (GitHub CLI) IS installed** (v2.102.0 at `"$env:ProgramFiles\GitHub CLI\gh.exe"`, not on
+  PATH — call by full path) and **authenticated via the OS keyring** as `mikesibrahim1-ops`
+  (scopes incl. `repo`, `workflow`). **No token file needed anymore** — releases publish directly.
+  Earlier `.ghtoken` file approaches are obsolete; a prior token hit 401 (expired). gh stores
+  creds in the keyring, so `Test-Path "$APPDATA\GitHub CLI\hosts.yml"` is False even when logged in.
+- `firebase deploy` works (user logged in) but is NOT needed for releases — the install page
+  points at GitHub `releases/latest`.
+- **⚠ Two manifests stay in sync:** `app/src/main/AndroidManifest.xml` + `app/src/firebase/AndroidManifest.xml`.
+- **⚠ Do NOT use `return@Column`/early-return inside a Compose content lambda** — it corrupts the
+  composer group stack → `IndexOutOfBoundsException` in `Stack.pop`. Use if/else. (Caused a real
+  crash earlier this project; now fixed. See AchievementsScreen.kt comment.)
 
-## 4. What was accomplished (across recent sessions)
-### Buddy Link (spec in `.kiro/specs/buddy-link/`) — Phases 3–6 built + Firebase live
-- **Phase 3–4:** `BuddyLinkSection.kt` UI (master toggle, G3 consent→ensureId→bg-permission→
-  activate/revert, invite share, buddy/pending/blocked lists). Controller in `JogApp`; invite
-  deep-link intent-filter + `BuddyInviteBus` in `MainActivity`; GPS-on → `updateGpsState`.
-- **Phase 5:** `BuddyLocationService.kt` (foreground, ~5-min broadcast + on-demand, broadcast-on
-  notification); controller starts/stops it on CONDITION-1 (`enabled && gpsOn`).
-- **Phase 6:** `makeBuddyAvatarDrawable` (amber marker), buddy avatar + dashed trail in `JogMap`
-  (only when `isLiveNow()`), eye "eyes-on-you" indicator (bottom-center, tap→options),
-  broadcast-on badge; controller exposes `primaryBuddyView` + `buddyTrail`.
-- **Firebase prep:** gated so app builds WITHOUT `google-services.json` — `firebaseEnabled =
-  file('google-services.json').exists()` in `app/build.gradle` controls plugin, deps
-  (BoM 33.1.2 auth/firestore/messaging + coroutines-play-services), `src/firebase/java` sourceSet,
-  and `BuildConfig.FIREBASE_ENABLED`. `BuddyRepositoryProvider` loads `FirebaseBuddyRepository`
-  via **reflection** (main source never hard-refs Firebase). `.gitignore` ignores the JSON.
-- `FirebaseBuddyRepository.kt` (in `app/src/firebase/java/...`): App-ID-keyed docs (own UUID),
-  anon uid stored as `authUid` + `authMap/{uid}→appId` resolver; full interface via callbackFlow.
-- `firestore.rules`: owner-only writes + CONDITION-1 (accepted link + both sharing + not blocked)
-  for location reads. Hardened with `mappedToMe()` (anti App-ID squat); `ensureSession` writes
-  `authMap` first.
+## 4. What was accomplished across recent sessions (all committed + pushed)
+Newest first on `main`:
+- `8421dd5` — **Bump to V1.45** (versionCode 45) + release notes. Published to GitHub, tag V1.45.
+- `c61acb3` — **New exercise types** (BICEP_CURLS, TRICEP_DIPS, LUNGES, CRUNCHES, BURPEES,
+  JUMPING_JACKS, PLANK_SECONDS — manual/rep-counted); **Activity row in the end-of-activity
+  summary** (emoji + localized label from the route, handles blends); **"Past Runs" → "Activity
+  History"** rename.
+- `178e539` — Bump to V1.44 (versionCode 44). NOTE: V1.44 was tagged but **never published** to
+  GitHub; its changes are rolled into the published V1.45.
+- `bac7252` — **Rep-log deduction**: custom in-app number pad (0–9, minus, backspace; no system
+  keyboard) in `LogRepsDialog`; minus toggles negative (button turns red / "Deduct"); `logReps`
+  accepts negatives; `evaluateTargets` clamps progress to ≥0.
+- `706a5f2` — Bump to V1.43 (published earlier).
+- `07a3cb4` — Personal Targets crash fix (removed `return@Column`), dim-header-text colour fix
+  (→ `onSecondary`), instant-completion fix (`evaluateTargets` only counts activity at/after a
+  target's `createdAt`), and **Day/Week/Month grouping** of completed targets.
 
-### Firebase configured & working (user did console steps)
-- Project `joggin-a69a7`, package `com.example.joggingapp`; Anonymous Auth + Firestore (prod mode).
-- `google-services.json` in `app/`. Security rules **published**.
-- **Verified:** enabling Buddy Link created `authMap/{uid}` + `users/{appId}` docs in Firestore.
-- TTL **skipped** (needs Blaze; free Spark can't) — harmless at this scale.
-
-### App distribution — SOLVED
-- Original problem: APK shared via WhatsApp → fresh phone "App not installed" after passing scan.
-- Root causes: WhatsApp corrupts attached APKs; old `minSdk 26` rejected older phones.
-- Fixes: `minSdk`→24; `shareApp()` now shares a **download link** (not the APK file).
-- **Firebase Hosting** (`firebase-hosting/`) serves pages: `/` landing, `/get` install page,
-  `/buddy` invite fallback (fixes old 404). Deployed & live at `https://joggin-a69a7.web.app`.
-- APK **cannot** go on Firebase Hosting (Spark bans executables) and Firebase Storage needs Blaze
-  → APK hosted on **GitHub Releases**: `github.com/mikesibrahim1-ops/JogginApp` (public). Download
-  page links to `.../releases/latest/download/joggin.apk` (lowercase, redeployed).
-- **CONFIRMED:** user installed on a fresh phone from `…/get` — installed fine. Distribution works.
-- Firebase CLI v15.32.0 installed, user logged in. Node v24.19.0 / npm 11.17.0.
-
-### HANDOVERSESSION hook
-- `.kiro/hooks/handoversession.json` — trigger `UserPromptSubmit`, matcher `#HookStart`, agent
-  action. Only regenerates this file when the user's message contains `#HookStart` (the real gate
-  is a condition inside the prompt, since matchers aren't reliably applied to UserPromptSubmit).
-
-### Housekeeping
-- Bumped to V1.40, built, archived (`builds/` = joggin-v1.40/1.39/1.38/1.36 + staged joggin.apk).
-- Standardized on lowercase `joggin.apk` everywhere. Deleted stray temp `.txt` files + unused
-  `docs/` folder. Background terminals stopped.
+This session specifically: added the 7 exercise types, the summary Activity row, the history
+rename; bumped/built/archived/committed/tagged/pushed **V1.45**; **published V1.45 to GitHub via
+gh (keyring auth)**; installed V1.45 on the device; and (pending in this final step) committing
+the removal of the handover hook.
 
 ## 5. Current working state (verified vs. untested)
-- **Verified working:** app builds V1.40; Firebase enable creates Firestore docs on one device;
-  distribution chain (`/get` → GitHub APK → install on fresh phone).
-- **Compiled but NOT exercised:** `FirebaseBuddyRepository` + `firestore.rules` for the two-party
-  flows (linking, mutual sharing, map avatar, eye indicator, on-demand, unlink/block). Expect
-  iteration once a 2nd device is available. Buddy Link map/eye overlays never rendered live yet
-  (no live buddy data until 2 devices link).
+- **Verified:** everything compiles; unit suite green; V1.45 published + live (asset present,
+  /latest returns 200); V1.45 installed on-device (version confirmed).
+- **Compiled, lightly/you-tested on device:** the 7 new exercise types, number-pad deduction,
+  the summary Activity row, the history rename. User has been smoke-testing on-device each round.
+- **Buddy Link** two-party flows + push still need 2 devices + Firebase config (unchanged).
 
 ## 6. Immediate next step(s)
-- **PENDING USER ACTION:** update the GitHub **v1.40** release to serve the real V1.40 — the
-  published release currently has a relabeled V1.39 APK named `Joggin.apk` (capital J). User must:
-  edit v1.40 release → remove old asset → upload `builds/joggin.apk` (lowercase, as-is) → save.
-  Then `…/get` serves real V1.40 (footer reads V1.40).
-- After that: to continue Buddy Link, need a **2nd test device** for two-party verification
-  (Phase 9), then Phase 7 (FCM notifications) and Phase 8 (privacy/compliance).
+- **This step:** commit the handover-hook removal (`D .kiro/hooks/handoversession.json`) plus
+  this updated `.kiro/HANDOVERSESSION.md`. Then push.
+- Nothing else pending. V1.45 is fully shipped.
 
 ## 7. Known caveats / open items / blockers
-- APK is **debug-signed** (debug key). Fine for sideloading, but switching to release signing
-  later forces users to uninstall first (signature mismatch → "App not installed"). Release
-  keystore `joggin-release.jks` exists but signing env vars (`JOGGIN_KEYSTORE_PASSWORD` etc.)
-  are NOT set.
-- `com.example.joggingapp` cannot be published to Play Store (reserved namespace) — irrelevant
-  for link distribution.
-- Firebase Storage / TTL blocked on Blaze (paid) — deferred.
-- Buddy Link Phases 7–8 not started; two-device testing blocked on hardware.
+- **History "Run" vs "Walk" heuristic LEFT AS-IS by user decision:** in the history card
+  (`MainActivity.kt` ~line 852), a route stored as walk (`activityType == 0`) with
+  `avgSpeed*3.6 > 5 km/h` is displayed as "Run". This misfires on brisk walks and on
+  runs-that-end-on-a-walk. A one-line gate (`route.activityTypes == null && …`) would limit it to
+  genuinely legacy routes if the user ever wants it fixed.
+- Exercise Targets not folded into backup/restore (`BackupData` v2); no "undo last rep log" beyond
+  the new deduction entry; PLANK_SECONDS reuses the integer rep machinery (value = seconds).
+- The old auto-handover hook is removed; keep this file updated manually.
+- Buddy Link backend blocked on Blaze + the DEPLOY-GUIDE.md ops; APK debug-signed.
 
-## 8. Release recipe (going forward)
-1. Bump version + build → produces `builds/joggin.apk`.
-2. User creates a new GitHub release (tag `vX.Y`), uploads `joggin.apk` (lowercase, SAME filename
-   every time). Repo now has a `main` branch/README, so no "invalid target_commitish" error.
-3. Done — `/get` auto-serves newest via the `/latest/` URL. No page edit, no redeploy.
-
-## 9. Key files
-- `app/build.gradle` — version, `minSdk 24`, `firebaseEnabled` gating, buildConfig flag.
-- `app/src/main/java/com/example/joggingapp/` — `MainActivity.kt` (JogApp, shareApp, options pane,
-  deep-link), `BuddyLinkController.kt`, `BuddyLinkSection.kt`, `BuddyLocationService.kt`,
-  `Buddy*.kt` (models/constants/identity/invite/repository/provider/noop), `JogMap.kt`,
-  `MarkerBitmaps.kt`, `ForegroundLocationService.kt`, `Strings.kt`.
-- `app/src/firebase/java/com/example/joggingapp/FirebaseBuddyRepository.kt` — gated; compiles only
-  when `app/google-services.json` present.
-- `firestore.rules` — Firestore security rules (paste into console when changed).
-- `firebase-hosting/` — `firebase.json`, `.firebaserc` (→joggin-a69a7), `public/{index,get,buddy}`.
-- `.kiro/specs/buddy-link/` — requirements.md, design.md, tasks.md, firebase-setup.md.
-- `.kiro/hooks/handoversession.json` — hook that regenerates this file when user sends `#HookStart`.
-- `archive-build.ps1` — archives debug APK to `builds/` (kept newest 4); direct Copy-Item is the
-  more reliable path given shell flakiness.
+## 8. Key files
+- `app/build.gradle` — version (45 / 1.45), minSdk 24, Firebase gating, signing.
+- `app/src/main/java/com/example/joggingapp/`
+  - `MainActivity.kt` — JogApp, tracking, screen booleans, `SummaryScreen` (now has Activity
+    row), route save (`activityType`/`activityTypes`), `labelForMode`/`emojiForMode`/`blend*`.
+  - `ExerciseTargets.kt` — `ExerciseType` enum (now 12 values), models/storage, `evaluateTargets`
+    (clamps ≥0, honours `createdAt`), `logReps` (accepts negatives), `groupCompleted`.
+  - `ExerciseTargetsScreen.kt` — targets screen, batch add, `LogRepsDialog` (custom number pad),
+    `targetColor` (exhaustive when — update when adding ExerciseType values).
+  - `AchievementsScreen.kt` — achievements + Personal Targets (Day/Week/Month grouping); has the
+    "no return@Column" warning comment.
+  - `Strings.kt` — EN/EL strings; `exerciseTypeLabel` + `periodLabel` (exhaustive whens — update
+    when adding enum values); `activity`, `exType*`, `exDeductReps`, `exGroup*` keys.
+  - `ui/theme/Theme.kt` — tokens + 4 themes.
+- `app/src/test/java/.../ExerciseTargetsTest.kt` — pure-JVM tests (period boundaries, rep/distance
+  aggregation, createdAt gating, deduction).
+- `.kiro/specs/release-notes-v1.4X.md` — per-version GitHub release bodies (latest: v1.45).
+- `firebase-hosting/` — `firebase.json`, `.firebaserc` (joggin-a69a7), rules, `functions/`,
+  `public/{index,get,buddy}` install pages.
+- `builds/joggin.apk` (+ `joggin-v1.45.apk`); `archive-build.ps1` archives + prunes to newest 4
+  (does NOT make the lowercase `joggin.apk` — copy that separately after archiving).
+- Publish command (gh keyring auth, no token):
+  `& "$env:ProgramFiles\GitHub CLI\gh.exe" release create V1.XX builds\joggin.apk -t "<title>" -F .kiro\specs\release-notes-v1.XX.md`
