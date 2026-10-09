@@ -34,11 +34,18 @@ import com.example.joggingapp.ui.theme.JogginTheme
 
 // Colour for a target type: distance types reuse the activity tokens; manual types use accent/primary.
 private fun targetColor(type: ExerciseType, c: JogginColorTokens): Color = when (type) {
-    ExerciseType.WALKING -> c.walking
-    ExerciseType.RUNNING -> c.running
-    ExerciseType.SITUPS  -> c.primary
-    ExerciseType.PUSHUPS -> c.accent
-    ExerciseType.SQUATS  -> c.gold
+    ExerciseType.WALKING       -> c.walking
+    ExerciseType.RUNNING       -> c.running
+    ExerciseType.SITUPS        -> c.primary
+    ExerciseType.PUSHUPS       -> c.accent
+    ExerciseType.SQUATS        -> c.gold
+    ExerciseType.BICEP_CURLS   -> c.primary
+    ExerciseType.TRICEP_DIPS   -> c.accent
+    ExerciseType.LUNGES        -> c.gold
+    ExerciseType.CRUNCHES      -> c.primary
+    ExerciseType.BURPEES       -> c.accent
+    ExerciseType.JUMPING_JACKS -> c.gold
+    ExerciseType.PLANK_SECONDS -> c.primary
 }
 
 @Composable

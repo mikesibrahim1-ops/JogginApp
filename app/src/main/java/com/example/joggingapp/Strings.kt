@@ -63,6 +63,7 @@ data class AppStrings(
     val titlePlaceholder: String,          // TextField placeholder
     // Summary screen
     val complete: (String) -> String,      // "Run Complete"
+    val activity: String,                   // summary stat row label: "Activity"
     val time: String,
     val distance: String,
     val avgSpeed: String,
@@ -205,6 +206,13 @@ data class AppStrings(
     val exTypeSitups: String,
     val exTypePushups: String,
     val exTypeSquats: String,
+    val exTypeBicepCurls: String,
+    val exTypeTricepDips: String,
+    val exTypeLunges: String,
+    val exTypeCrunches: String,
+    val exTypeBurpees: String,
+    val exTypeJumpingJacks: String,
+    val exTypePlank: String,
     val exTypeWalking: String,
     val exTypeRunning: String,
     val exPeriodDaily: String,
@@ -266,7 +274,7 @@ val EnglishStrings = AppStrings(
     walk = "Walk",
     run = "Run",
     cycle = "Cycle",
-    pastRuns = "Past Runs",
+    pastRuns = "Activity History",
     newest = "Newest",
     oldest = "Oldest",
     noRunsYet = "No runs yet.\nComplete your first activity!",
@@ -286,6 +294,7 @@ val EnglishStrings = AppStrings(
     editTitle = "Edit title",
     titlePlaceholder = "Name this run",
     complete = { label -> "$label Complete" },
+    activity = "Activity",
     time = "Time",
     distance = "Distance",
     avgSpeed = "Avg Speed",
@@ -421,6 +430,13 @@ val EnglishStrings = AppStrings(
     exTypeSitups = "Sit-ups",
     exTypePushups = "Push-ups",
     exTypeSquats = "Squats",
+    exTypeBicepCurls = "Bicep curls",
+    exTypeTricepDips = "Tricep dips",
+    exTypeLunges = "Lunges",
+    exTypeCrunches = "Crunches",
+    exTypeBurpees = "Burpees",
+    exTypeJumpingJacks = "Jumping jacks",
+    exTypePlank = "Plank (seconds)",
     exTypeWalking = "Walking",
     exTypeRunning = "Running",
     exPeriodDaily = "Daily",
@@ -502,6 +518,7 @@ val GreekStrings = AppStrings(
     editTitle = "Επεξεργασία τίτλου",
     titlePlaceholder = "Ονομάστε αυτό το δρομολόγιο",
     complete = { label -> "$label — Ολοκληρώθηκε" },
+    activity = "Δραστηριότητα",
     time = "Χρόνος",
     distance = "Απόσταση",
     avgSpeed = "Μέση Ταχύτητα",
@@ -637,6 +654,13 @@ val GreekStrings = AppStrings(
     exTypeSitups = "Κοιλιακοί",
     exTypePushups = "Κάμψεις",
     exTypeSquats = "Καθίσματα",
+    exTypeBicepCurls = "Κάμψεις δικεφάλων",
+    exTypeTricepDips = "Βυθίσεις τρικεφάλων",
+    exTypeLunges = "Προβολές",
+    exTypeCrunches = "Αναδιπλώσεις",
+    exTypeBurpees = "Burpees",
+    exTypeJumpingJacks = "Αναπηδήσεις",
+    exTypePlank = "Σανίδα (δευτερόλεπτα)",
     exTypeWalking = "Περπάτημα",
     exTypeRunning = "Τρέξιμο",
     exPeriodDaily = "Ημερήσιο",
@@ -701,11 +725,18 @@ fun tierLabel(s: AppStrings, tier: AchievementTier): String = when (tier) {
 }
 
 fun exerciseTypeLabel(s: AppStrings, type: ExerciseType): String = when (type) {
-    ExerciseType.SITUPS  -> s.exTypeSitups
-    ExerciseType.PUSHUPS -> s.exTypePushups
-    ExerciseType.SQUATS  -> s.exTypeSquats
-    ExerciseType.WALKING -> s.exTypeWalking
-    ExerciseType.RUNNING -> s.exTypeRunning
+    ExerciseType.SITUPS        -> s.exTypeSitups
+    ExerciseType.PUSHUPS       -> s.exTypePushups
+    ExerciseType.SQUATS        -> s.exTypeSquats
+    ExerciseType.BICEP_CURLS   -> s.exTypeBicepCurls
+    ExerciseType.TRICEP_DIPS   -> s.exTypeTricepDips
+    ExerciseType.LUNGES        -> s.exTypeLunges
+    ExerciseType.CRUNCHES      -> s.exTypeCrunches
+    ExerciseType.BURPEES       -> s.exTypeBurpees
+    ExerciseType.JUMPING_JACKS -> s.exTypeJumpingJacks
+    ExerciseType.PLANK_SECONDS -> s.exTypePlank
+    ExerciseType.WALKING       -> s.exTypeWalking
+    ExerciseType.RUNNING       -> s.exTypeRunning
 }
 
 fun periodLabel(s: AppStrings, period: TargetPeriod): String = when (period) {

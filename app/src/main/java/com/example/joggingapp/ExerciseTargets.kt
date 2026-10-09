@@ -29,6 +29,13 @@ enum class ExerciseType(val isDistance: Boolean, val defaultEmoji: String) {
     SITUPS(false, "🧎"),
     PUSHUPS(false, "💪"),
     SQUATS(false, "🏋️"),
+    BICEP_CURLS(false, "💪"),
+    TRICEP_DIPS(false, "🙆"),
+    LUNGES(false, "🦵"),
+    CRUNCHES(false, "🤸"),
+    BURPEES(false, "🤾"),
+    JUMPING_JACKS(false, "⭐"),
+    PLANK_SECONDS(false, "🧘"),
     WALKING(true, "🚶"),
     RUNNING(true, "🏃");
 

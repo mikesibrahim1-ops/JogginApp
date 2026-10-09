@@ -992,6 +992,12 @@ fun SummaryScreen(route: SavedRoute, steps: Int, activityLabel: String, onDone: 
     // Use calcDurationSeconds so NaN sentinel pause-break points are excluded
     val dur = calcDurationSeconds(route.points)
     val dateStr = SimpleDateFormat(DATE_FMT_FULL, Locale.getDefault()).format(Date(route.timestamp))
+
+    // Activity type derived from the saved route (truth), handling blended runs. This is
+    // more accurate than the passed-in activityLabel, which reflects the current UI mode.
+    val routeModes = (route.activityTypes ?: listOf(route.activityType)).distinct()
+    val routeActivityLabel = routeModes.joinToString(" + ") { labelForMode(it, S) }
+    val routeActivityEmoji = routeModes.joinToString("") { emojiForMode(it) }
     Box(modifier = Modifier.fillMaxSize().background(c.surface)) {
         Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Text(S.complete(activityLabel), fontSize = 24.sp, fontWeight = FontWeight.Bold, color = c.onBackground)
@@ -1001,6 +1007,7 @@ fun SummaryScreen(route: SavedRoute, steps: Int, activityLabel: String, onDone: 
             }
             Card(modifier = Modifier.fillMaxWidth(), elevation = 2.dp, shape = RoundedCornerShape(12.dp), backgroundColor = c.surface) {
                 Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    SumRow("$routeActivityEmoji  ${S.activity}", routeActivityLabel); Divider(color = c.divider)
                     SumRow("⏱  ${S.time}", fmtTime(dur)); Divider(color = c.divider)
                     SumRow("📍  ${S.distance}", String.format("%.2f ${S.km}", distKm)); Divider(color = c.divider)
                     SumRow("⚡  ${S.avgSpeed}", String.format("%.1f ${S.statKmh}", route.avgSpeed * 3.6f)); Divider(color = c.divider)
