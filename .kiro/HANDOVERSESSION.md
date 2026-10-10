@@ -12,9 +12,11 @@ Android GPS fitness tracker (walk/run/cycle) at `c:\Users\INFINITI\Documents\Kir
 as a sideloaded APK: GitHub Releases hosts the APK; a Firebase Hosting install page links to it.
 
 ## 2. Current version / build state
-- **V1.45** — `versionCode 45`, `versionName "1.45"` (`app/build.gradle`).
-- Git: HEAD `8421dd5` on `main`, pushed to `origin/main` (in sync). Tag **`V1.45`** pushed
-  (annotated tag object `d105d77`). Earlier tags V1.40–V1.44 also exist.
+- **V1.45** — `versionCode 45`, `versionName "1.45"` (`app/build.gradle`). **NOT yet bumped**
+  for the Buddy Link invite fix below — next release should be V1.46.
+- Git: HEAD **`0ebf67d`** on `main`, pushed to `origin/main` (in sync). Tag **`V1.45`** pushed
+  (annotated tag object `d105d77`). Earlier tags V1.40–V1.44 also exist. (`0ebf67d` is the
+  Buddy Link invite-pairing fix, committed + pushed but UNTAGGED / unreleased.)
 - `minSdk 24`, `targetSdk 34`, `compileSdk 34`, Java/Kotlin 17, Compose compiler 1.5.10.
 - Last build: `assembleDebug` + `testDebugUnitTest` → **BUILD SUCCESSFUL** (debug-signed; full
   unit suite green incl. ExerciseTargetsTest).
@@ -56,6 +58,24 @@ as a sideloaded APK: GitHub Releases hosts the APK; a Firebase Hosting install p
 
 ## 4. What was accomplished across recent sessions (all committed + pushed)
 Newest first on `main`:
+- `0ebf67d` — **Buddy Link invite-pairing fix** (committed + pushed to origin/main; NOT bumped,
+  NOT tagged, NOT released, APK NOT rebuilt/installed). Fixes the role-inversion bug where the
+  invite embedded the SENDER's appId, so opening the link made the recipient the requester and
+  the Accept prompt landed on the sender → pairing never completed. Now: the recipient sees an
+  Accept/Ignore **dialog** on opening a valid invite; **Accept** has the recipient create
+  `links/{sorted(me,sender)}` directly in `state="accepted"` (`a=recipient, b=sender`) — allowed
+  by the deployed firestore.rules (create requires `a==myAppId()`, no state constraint) so **NO
+  rules change/deploy**; **Ignore** discards cleanly; received invites are listed in the Buddy
+  Link section and **removable** anytime; the enable-gating drop is fixed (invite is held via
+  BuddyInviteBus and processed after the enable flow instead of being discarded). New
+  `acceptInvite(fromAppId)` on the `BuddyRepository` interface + both impls (Firebase + NoOp).
+  New `BuddyInviteTest.kt`. `firebase-hosting/functions/index.js` got an additive accepted-on-
+  create push — **requires `firebase deploy --only functions`** (pairing does NOT depend on it;
+  not yet deployed). Build verified green (`assembleDebug` + `testDebugUnitTest` → BUILD
+  SUCCESSFUL + DONE_0). **Not verified: real two-device pairing** (needs 2 devices + Firebase).
+  Files: FirebaseBuddyRepository.kt, BuddyRepository.kt, NoOpBuddyRepository.kt,
+  BuddyLinkController.kt, BuddyLinkSection.kt, MainActivity.kt, Strings.kt (EN+EL),
+  functions/index.js, + BuddyInviteTest.kt.
 - `8421dd5` — **Bump to V1.45** (versionCode 45) + release notes. Published to GitHub, tag V1.45.
 - `c61acb3` — **New exercise types** (BICEP_CURLS, TRICEP_DIPS, LUNGES, CRUNCHES, BURPEES,
   JUMPING_JACKS, PLANK_SECONDS — manual/rep-counted); **Activity row in the end-of-activity
@@ -84,9 +104,12 @@ the removal of the handover hook.
 - **Buddy Link** two-party flows + push still need 2 devices + Firebase config (unchanged).
 
 ## 6. Immediate next step(s)
-- **This step:** commit the handover-hook removal (`D .kiro/hooks/handoversession.json`) plus
-  this updated `.kiro/HANDOVERSESSION.md`. Then push.
-- Nothing else pending. V1.45 is fully shipped.
+- **Deploy the cloud function** for the killed-app sender push: `firebase deploy --only functions`
+  (user logged in; pairing works without it, so optional-but-recommended).
+- **Test real two-device Buddy Link pairing** with the new accept/ignore dialog (needs the phone
+  + a 2nd device). This is the only unverified part of `0ebf67d`.
+- When satisfied, **bump to V1.46**, rebuild, archive, tag, publish (see §2/§8 publish command),
+  install on device. The Buddy Link fix is in `main`/origin but not yet in a released APK.
 
 ## 7. Known caveats / open items / blockers
 - **History "Run" vs "Walk" heuristic LEFT AS-IS by user decision:** in the history card
