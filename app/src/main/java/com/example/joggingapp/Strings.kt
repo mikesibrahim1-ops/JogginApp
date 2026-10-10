@@ -158,6 +158,15 @@ data class AppStrings(
     val buddyLinkConsentDecline: String,
     val buddyInvite: String,               // "Invite Buddy"
     val buddyInviteShare: String,          // share-sheet chooser title
+    val buddyInviteDialogTitle: String,    // Accept/Ignore dialog title
+    val buddyInviteDialogBody: (String) -> String, // "{who} invited you…"
+    val buddyInviteAccept: String,         // dialog accept action
+    val buddyInviteIgnore: String,         // dialog ignore action
+    val buddyInvites: String,              // "Invites" section header
+    val buddyInviteRemove: String,         // remove/dismiss an invite
+    val buddyInviteFrom: (String) -> String, // invite-row label "From {who}"
+    val buddyInviteAcceptedToast: String,  // "Buddy added" note after accept
+    val buddyInviteNeedsEnable: String,    // shown when invite arrives before enable
     val buddyBuddies: String,              // "Buddies"
     val buddyPending: String,              // "Pending requests"
     val buddyBlocked: String,              // "Blocked"
@@ -383,6 +392,15 @@ val EnglishStrings = AppStrings(
     buddyLinkConsentDecline = "Not now",
     buddyInvite = "Invite Buddy",
     buddyInviteShare = "Share your Buddy Link invite",
+    buddyInviteDialogTitle = "Buddy invite",
+    buddyInviteDialogBody = { who -> "$who invited you to be safety buddies on Joggin. Accept to share location while you're both out." },
+    buddyInviteAccept = "Accept",
+    buddyInviteIgnore = "Ignore",
+    buddyInvites = "Invites",
+    buddyInviteRemove = "Remove",
+    buddyInviteFrom = { who -> "From $who" },
+    buddyInviteAcceptedToast = "Buddy added",
+    buddyInviteNeedsEnable = "Turn on Buddy Link to accept this invite.",
     buddyBuddies = "Buddies",
     buddyPending = "Pending requests",
     buddyBlocked = "Blocked",
@@ -607,6 +625,15 @@ val GreekStrings = AppStrings(
     buddyLinkConsentDecline = "Όχι τώρα",
     buddyInvite = "Πρόσκληση Φίλου",
     buddyInviteShare = "Μοιραστείτε την πρόσκλησή σας",
+    buddyInviteDialogTitle = "Πρόσκληση φίλου",
+    buddyInviteDialogBody = { who -> "Ο/Η $who σας προσκάλεσε να γίνετε φίλοι ασφαλείας στο Joggin. Αποδεχτείτε για να μοιράζεστε την τοποθεσία σας όσο είστε έξω." },
+    buddyInviteAccept = "Αποδοχή",
+    buddyInviteIgnore = "Αγνόηση",
+    buddyInvites = "Προσκλήσεις",
+    buddyInviteRemove = "Αφαίρεση",
+    buddyInviteFrom = { who -> "Από $who" },
+    buddyInviteAcceptedToast = "Ο φίλος προστέθηκε",
+    buddyInviteNeedsEnable = "Ενεργοποιήστε τον Σύνδεσμο Φίλου για να αποδεχτείτε αυτή την πρόσκληση.",
     buddyBuddies = "Φίλοι",
     buddyPending = "Εκκρεμείς αιτήσεις",
     buddyBlocked = "Αποκλεισμένοι",

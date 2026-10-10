@@ -175,27 +175,28 @@ fun BuddyLinkSection(controller: BuddyLinkController, userName: String) {
                 Text(S.buddyInvite, fontSize = 13.sp, color = c.onSecondary, fontWeight = FontWeight.SemiBold)
             }
 
-            // ── Pending requests ─────────────────────────────────────────────
+            // ── Invites (incoming/pending; dismissable at any time, Req #4) ───
             if (controller.pending.isNotEmpty()) {
-                BuddyGroupHeader(S.buddyPending)
+                BuddyGroupHeader(S.buddyInvites)
                 controller.pending.forEach { link ->
+                    val senderLabel = shortId(link.a)
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        val reqName = shortId(link.a)
-                        Text(reqName, fontSize = 12.sp, color = c.onSecondary, modifier = Modifier.weight(1f))
+                        Text(S.buddyInviteFrom(senderLabel), fontSize = 12.sp, color = c.onSecondary,
+                            modifier = Modifier.weight(1f))
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             Text(S.buddyAccept, fontSize = 12.sp, color = c.success,
                                 fontWeight = FontWeight.SemiBold,
                                 modifier = Modifier
                                     .clickable { controller.accept(link.linkId) }
-                                    .semantics { contentDescription = S.buddyActionDesc(S.buddyAccept, reqName) })
-                            Text(S.buddyDecline, fontSize = 12.sp, color = c.error,
+                                    .semantics { contentDescription = S.buddyActionDesc(S.buddyAccept, senderLabel) })
+                            Text(S.buddyInviteRemove, fontSize = 12.sp, color = c.error,
                                 modifier = Modifier
-                                    .clickable { controller.decline(link.linkId) }
-                                    .semantics { contentDescription = S.buddyActionDesc(S.buddyDecline, reqName) })
+                                    .clickable { controller.remove(link.linkId) }
+                                    .semantics { contentDescription = S.buddyActionDesc(S.buddyInviteRemove, senderLabel) })
                         }
                     }
                     Divider(color = c.onSecondary.copy(alpha = 0.12f))
@@ -374,8 +375,29 @@ private fun BuddyGroupHeader(title: String) {
 }
 
 /** Compact display form of an App ID (UUIDs are long) for lists without a name. */
-private fun shortId(appId: String): String =
+internal fun buddyShortId(appId: String): String =
     if (appId.length <= 10) appId else appId.take(6) + "…" + appId.takeLast(4)
+
+// Local alias so existing call sites in this file stay unchanged.
+private fun shortId(appId: String): String = buddyShortId(appId)
+
+/**
+ * The Accept/Ignore invite dialog shown to the RECIPIENT when they open an invite link
+ * (required behavior #2). [senderLabel] identifies the sender (display name if known,
+ * else a short id). Accept drives the recipient-side pairing; Ignore discards cleanly.
+ */
+@Composable
+fun BuddyInviteDialog(senderLabel: String, onAccept: () -> Unit, onIgnore: () -> Unit) {
+    val S = LocalStrings.current
+    BuddyDialog(
+        title = S.buddyInviteDialogTitle,
+        body = S.buddyInviteDialogBody(senderLabel),
+        confirmLabel = S.buddyInviteAccept,
+        dismissLabel = S.buddyInviteIgnore,
+        onConfirm = onAccept,
+        onDismiss = onIgnore
+    )
+}
 
 /**
  * A lightweight themed confirm/cancel dialog. Uses a plain overlay + card rather than

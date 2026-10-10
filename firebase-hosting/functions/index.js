@@ -15,9 +15,15 @@
  *                    ('pending'|'accepted'|'declined'|'removed'), reqCount
  *   users/{appId}:   fcmToken, displayName
  *
+ * `a`/`b` semantics: for a classic request `a = requester`, `b = recipient`. For an
+ * invite accepted via the Accept/Ignore dialog (recipient-driven, "Option a"), the
+ * recipient creates the link already accepted with `a = recipient-who-accepted` and
+ * `b = sender`; there is no pending phase for that flow.
+ *
  * Event → recipient → type:
  *   created pending                → b   → "request"   (honours ≤2 alerts/24h via reqCount)
  *   pending → accepted             → a   → "accepted"
+ *   created accepted (invite flow) → b   → "accepted"  (sender notified; a = recipient)
  *   accepted → removed             → other party → "unlinked"
  *   re-request (reqCount bumped)   → b   → "request"   (while reqCount ≤ 2)
  */
@@ -100,6 +106,14 @@ exports.onBuddyLinkWrite = functions
     if (beforeState === "pending" && afterState === "accepted") {
       const { name } = await lookupUser(b);
       const { token } = await lookupUser(a);
+      return sendData(token, "accepted", name);
+    }
+
+    // 3b) Invite accepted via the dialog: the recipient (a) created the link already
+    //     "accepted", so notify the SENDER (b) that pairing completed.
+    if (!before && afterState === "accepted") {
+      const { name } = await lookupUser(a);
+      const { token } = await lookupUser(b);
       return sendData(token, "accepted", name);
     }
 

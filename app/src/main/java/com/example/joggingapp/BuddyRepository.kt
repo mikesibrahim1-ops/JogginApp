@@ -55,6 +55,17 @@ interface BuddyRepository {
      */
     suspend fun requestLink(targetAppId: String): BuddyResult<Unit>
 
+    /**
+     * Called when THIS device (the recipient) accepts an invite link whose embedded
+     * id is [fromAppId] (the sender). Creates or transitions
+     * `links/{sorted(me, fromAppId)}` to `state = accepted` with `a = me`, pairing
+     * both sides in one write (design: Option a — the recipient's open+Accept is the
+     * consent event, so the recipient drives the accept). If the link already exists
+     * (either direction), only its state is advanced to accepted (a/b untouched).
+     * Fails NOT_FOUND if the sender user doc doesn't exist, UNKNOWN if `fromAppId == me`.
+     */
+    suspend fun acceptInvite(fromAppId: String): BuddyResult<Unit>
+
     /** Accepts a pending incoming link. */
     suspend fun acceptLink(linkId: String): BuddyResult<Unit>
 

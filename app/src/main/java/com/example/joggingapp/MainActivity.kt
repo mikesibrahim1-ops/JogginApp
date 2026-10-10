@@ -418,6 +418,9 @@ fun JogApp(context: Context) {
     }
     // A transient, localized message shown after handling an invite deep link.
     var buddyInviteMessage by remember { mutableStateOf<String?>(null) }
+    // Sender appId of an opened invite awaiting the recipient's Accept/Ignore choice.
+    // Held across the enable flow so an invite opened before enabling is NOT dropped.
+    var pendingInviteFrom by remember { mutableStateOf<String?>(null) }
 
     // Report the device's GPS/location-enabled state so CONDITION-1
     // (sharing = enabled && gpsOn) stays accurate. Polls while composed.
@@ -442,12 +445,12 @@ fun JogApp(context: Context) {
                 BuddyInviteBus.pending = null
                 when (val res = BuddyInvite.parse(raw)) {
                     is BuddyInvite.ParseResult.Valid -> {
-                        if (buddyController.enabled) {
-                            buddyController.requestLink(res.appId)
-                            buddyInviteMessage = S.buddyStatusPending
-                        } else {
-                            // Not enabled yet — prompt via the section; keep a note.
-                            buddyInviteMessage = S.buddyPermissionNeeded
+                        // HOLD the sender id regardless of enable state so the invite is
+                        // never silently dropped. The Accept/Ignore dialog is shown once
+                        // Buddy Link is enabled; if it isn't yet, prompt the user to enable.
+                        pendingInviteFrom = res.appId
+                        if (!buddyController.enabled) {
+                            buddyInviteMessage = S.buddyInviteNeedsEnable
                         }
                     }
                     is BuddyInvite.ParseResult.Expired -> buddyInviteMessage = S.buddyLinkExpired
@@ -821,6 +824,23 @@ fun JogApp(context: Context) {
                     .padding(horizontal = 20.dp, vertical = 10.dp)) {
                     Text(S.welcomeUser(userName), fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = c.onPrimary)
                 }
+            }
+
+            // ── Buddy invite Accept/Ignore dialog ────────────────────────────
+            // Shown to the RECIPIENT once an invite is opened AND Buddy Link is on.
+            // Accept drives recipient-side pairing (both become buddies); Ignore
+            // discards cleanly. Held across the enable flow so it is never dropped.
+            val inviteFrom = pendingInviteFrom
+            if (inviteFrom != null && buddyController.enabled) {
+                BuddyInviteDialog(
+                    senderLabel = buddyShortId(inviteFrom),
+                    onAccept = {
+                        buddyController.acceptInvite(inviteFrom)
+                        buddyInviteMessage = S.buddyInviteAcceptedToast
+                        pendingInviteFrom = null
+                    },
+                    onIgnore = { pendingInviteFrom = null }
+                )
             }
         }
       }

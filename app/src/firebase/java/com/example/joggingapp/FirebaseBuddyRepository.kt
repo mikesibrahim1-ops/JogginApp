@@ -146,6 +146,40 @@ class FirebaseBuddyRepository(private val appContext: Context) : BuddyRepository
         BuddyResult.Success(Unit)
     }.getOrElse { mapError(it) }
 
+    override suspend fun acceptInvite(fromAppId: String): BuddyResult<Unit> = runCatching {
+        val me = myAppId ?: return BuddyResult.Failure(BuddyResult.Reason.NOT_FOUND)
+        if (fromAppId == me) return BuddyResult.Failure(BuddyResult.Reason.UNKNOWN)
+        // Confirm the sender exists (same guard as requestLink — unknown id → NOT_FOUND).
+        val sender = db.collection("users").document(fromAppId).get().await()
+        if (!sender.exists()) return BuddyResult.Failure(BuddyResult.Reason.NOT_FOUND)
+
+        val linkId = linkIdFor(me, fromAppId)
+        val ref = db.collection("links").document(linkId)
+        val now = System.currentTimeMillis()
+        db.runTransaction { tx ->
+            val snap = tx.get(ref)
+            if (!snap.exists()) {
+                // Birth the link already accepted with me as side `a` (create rule
+                // requires a == myAppId()). One write pairs both sides.
+                tx.set(ref, mapOf(
+                    "a" to me, "b" to fromAppId, "state" to "accepted",
+                    "reqCount" to 1L, "reqWindowStart" to now,
+                    "createdAt" to FieldValue.serverTimestamp(),
+                    "updatedAt" to FieldValue.serverTimestamp()
+                ))
+            } else {
+                // Existing link (either direction): only advance state; never rewrite
+                // a/b (update rule allows either party to touch state/updatedAt).
+                tx.update(ref, mapOf(
+                    "state" to "accepted",
+                    "updatedAt" to FieldValue.serverTimestamp()
+                ))
+            }
+            null
+        }.await()
+        BuddyResult.Success(Unit)
+    }.getOrElse { mapError(it) }
+
     override suspend fun acceptLink(linkId: String): BuddyResult<Unit> =
         setLinkState(linkId, "accepted")
 

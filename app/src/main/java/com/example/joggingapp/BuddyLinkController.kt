@@ -216,6 +216,9 @@ class BuddyLinkController(private val appContext: Context) {
     // ── Actions (fire-and-forget; failures surface via backendAvailable/status) ──
     fun requestLink(targetAppId: String, onResult: (BuddyResult<Unit>) -> Unit = {}) =
         scope.launch { onResult(repo.requestLink(targetAppId)) }
+    /** Recipient accepts an opened invite from [fromAppId], pairing both sides (Option a). */
+    fun acceptInvite(fromAppId: String, onResult: (BuddyResult<Unit>) -> Unit = {}) =
+        scope.launch { onResult(repo.acceptInvite(fromAppId)) }
     fun accept(linkId: String) = scope.launch { repo.acceptLink(linkId) }
     fun decline(linkId: String) = scope.launch { repo.declineLink(linkId) }
     fun remove(linkId: String) = scope.launch { repo.removeLink(linkId) }

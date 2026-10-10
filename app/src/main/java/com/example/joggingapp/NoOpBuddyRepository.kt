@@ -27,6 +27,7 @@ object NoOpBuddyRepository : BuddyRepository {
     override suspend fun refreshFcmToken(): BuddyResult<Unit> = unavailable()
 
     override suspend fun requestLink(targetAppId: String): BuddyResult<Unit> = unavailable()
+    override suspend fun acceptInvite(fromAppId: String): BuddyResult<Unit> = unavailable()
     override suspend fun acceptLink(linkId: String): BuddyResult<Unit> = unavailable()
     override suspend fun declineLink(linkId: String): BuddyResult<Unit> = unavailable()
     override suspend fun removeLink(linkId: String): BuddyResult<Unit> = unavailable()
