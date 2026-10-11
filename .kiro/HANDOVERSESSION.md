@@ -12,22 +12,27 @@ Android GPS fitness tracker (walk/run/cycle) at `c:\Users\INFINITI\Documents\Kir
 as a sideloaded APK: GitHub Releases hosts the APK; a Firebase Hosting install page links to it.
 
 ## 2. Current version / build state
-- **V1.46** — `versionCode 46`, `versionName "1.46"` (`app/build.gradle`). FULLY SHIPPED.
-- Git: HEAD **`2e0f18d`** on `main`, pushed to `origin/main` (in sync). Tag **`V1.46`** pushed.
-  Earlier tags V1.40–V1.45 also exist.
+- **V1.47** — `versionCode 47`, `versionName "1.47"` (`app/build.gradle`). PUBLISHED; on-device
+  install PENDING (device was disconnected at release time — reinstall when the phone is plugged
+  in: `adb install -r app\build\outputs\apk\debug\app-debug.apk`, or it will show up via the new
+  in-app "Check for updates").
+- Git: HEAD **`d9fcd1c`** on `main`, pushed to `origin/main` (in sync). Tag **`V1.47`** pushed.
+  Earlier tags V1.40–V1.46 also exist.
 - `minSdk 24`, `targetSdk 34`, `compileSdk 34`, Java/Kotlin 17, Compose compiler 1.5.10.
 - Last build: `assembleDebug` + `testDebugUnitTest` → **BUILD SUCCESSFUL** (debug-signed; full
   unit suite green incl. ExerciseTargetsTest + BuddyInviteTest). NOTE: the Gradle daemon kept
   dying mid-build this session (accumulated dead daemons after shell wedges); the fix that
   worked was killing all `java.exe`, clearing `~/.gradle/daemon/*`, then building with
   **`--no-daemon`**. Use that if the daemon churns.
-- **V1.46 is PUBLISHED on GitHub** (not draft) with `joggin.apk` asset; `/releases/latest/
+- **V1.47 is PUBLISHED on GitHub** (not draft) with `joggin.apk` asset; `/releases/latest/
   download/joggin.apk` returns 200; install page `https://joggin-a69a7.web.app/get` serves it.
-  Release URL: https://github.com/mikesibrahim1-ops/JogginApp/releases/tag/V1.46
-- Installed + verified on the user's device R5CR100AY2V (dumpsys: versionCode 46 / versionName
-  1.46, apkSigningVersion 3).
-- APKs in `builds/`: `joggin-v1.46.apk` (archived; keeps newest 4 → v1.43–v1.46; v1.42 pruned)
-  and `joggin.apk` (lowercase release copy = V1.46, 12,326,145 bytes).
+  Release URL: https://github.com/mikesibrahim1-ops/JogginApp/releases/tag/V1.47
+- Firebase **Hosting deployed** this session (`firebase deploy --only hosting`) — serves the
+  hardened `/buddy` page + `assetlinks.json`. (Functions NOT deployed — still Blaze-blocked.)
+- **Device R5CR100AY2V was DISCONNECTED** at release time, so V1.47 is NOT yet installed on it
+  (last confirmed on-device version is V1.46). Install when plugged in.
+- APKs in `builds/`: `joggin-v1.47.apk` (archived; keeps newest 4 → v1.44–v1.47; v1.43 pruned)
+  and `joggin.apk` (lowercase release copy = V1.47, 12,345,943 bytes).
 
 ## 3. Environment notes (IMPORTANT — avoids wasted time)
 - **Terminal is very flaky.** PowerShell echoes commands char-by-char and reports **exit -1
@@ -61,6 +66,33 @@ as a sideloaded APK: GitHub Releases hosts the APK; a Firebase Hosting install p
 
 ## 4. What was accomplished across recent sessions (all committed + pushed)
 Newest first on `main`:
+- `d9fcd1c` — **V1.47: reliable Buddy Link invite deep-link + in-app update check** (versionCode
+  47, bump + release notes included in this commit). Two features:
+  (1) **Buddy Link invite now opens the APP, not just the website.** Root cause (see
+  `.agents/tasks/buddy-deeplink-investigation.md`): the share link was https-only and relied on
+  Android App Links verification that was doubly broken (no `autoVerify`; empty `assetlinks.json`),
+  so taps fell back to the browser. Fix (belt-and-suspenders): `BuddyInvite.buildShareText` now
+  shares BOTH the `joggin://buddy/v1/<id>?exp=` custom-scheme link (reliable opener, no
+  verification needed) and the https link; `firebase-hosting/public/buddy/index.html` fires an
+  Android `intent://...package=com.example.joggingapp;S.browser_fallback_url=<get page>;end` from
+  a user tap; `autoVerify="true"` added to the https `/buddy` intent-filter in BOTH manifests;
+  `assetlinks.json` added at `firebase-hosting/public/well-known/assetlinks.json` with a
+  firebase.json **rewrite** `/.well-known/assetlinks.json` → `/well-known/...` (dodges the
+  `**/.*` ignore glob). The app-side parse/accept flow was already correct and unchanged.
+  (2) **In-app update check** (sideload-friendly, GitHub Releases based). New
+  `UpdateChecker.kt` queries `api.github.com/repos/mikesibrahim1-ops/JogginApp/releases/latest`
+  off-thread, compares `tag_name` vs `BuildConfig.VERSION_NAME` via a pure `isNewerVersion`
+  (unit-tested in `UpdateCheckerTest.kt`), auto-checks ~once/day on launch (throttle persisted in
+  jog_prefs) and shows an update prompt; a new collapsible **"App"** section in Settings
+  (MainActivity.kt) shows the version + a "Check for updates" button; the Update action opens the
+  latest APK URL (install-page fallback). EN+EL strings added.
+  ⚠ **KNOWN LIMITATION — https auto-verify still won't work:** Firebase Hosting intercepts
+  `/.well-known/assetlinks.json` with its own handler and returns `[]`, overriding the rewrite
+  (the file DOES serve correctly at `/well-known/assetlinks.json`). To enable true https App-Link
+  auto-open, add the Android app + the DEBUG SHA-256
+  (`24:0D:EE:CC:…99:0E:B0`) under Firebase Console → Project Settings → Your apps. NOT required
+  for the invite to open the app — the custom-scheme + `intent://` path already does that.
+- `295e112` — Handover update (V1.46).
 - `2e0f18d` — **Bump to V1.46** (versionCode 46) + release notes
   (`.kiro/specs/release-notes-v1.46.md`). Built, archived, tagged V1.46, pushed, PUBLISHED to
   GitHub with `joggin.apk`, installed + verified on device. V1.46 rolls up `1d029a8` + `0ebf67d`.
@@ -119,14 +151,19 @@ the removal of the handover hook.
 - **Buddy Link** two-party flows + push still need 2 devices + Firebase config (unchanged).
 
 ## 6. Immediate next step(s)
-- V1.46 is fully shipped (built, tagged, published, installed). Nothing release-blocking pending.
-- **On-device verification** still owed by the user: (a) real two-device Buddy Link pairing with
-  the new accept/ignore dialog, and (b) eyeball the per-type Personal Targets colours across the
-  4 themes. Both are code-complete and build-verified but not runtime-verified this session.
-- **Cloud-function deploy is BLOCKED on Blaze** — see §7. The user wants to avoid upgrading, so
-  the killed-app sender push stays undeployed. Pairing does not depend on it. If the push is
-  wanted without Blaze later, send the FCM notification client-side from the accepting device
-  instead of via the `onBuddyLinkWrite` Cloud Function trigger.
+- **Install V1.47 on the device** (it was disconnected at release): plug in R5CR100AY2V, then
+  `adb install -r app\build\outputs\apk\debug\app-debug.apk` (adb at
+  `C:\Users\INFINITI\Downloads\platform-tools-latest-windows\platform-tools\adb.exe`). The
+  app-debug.apk from this session's build IS V1.47.
+- **Verify on-device:** tapping a Buddy Link invite now opens the app → accept/ignore dialog
+  (the actual bug the user reported); and the new "Check for updates" (Settings → App section +
+  auto-on-launch prompt) works against GitHub Releases.
+- Still owed from V1.46: real two-device Buddy pairing; eyeball per-type target colours across
+  the 4 themes.
+- **Optional:** enable true https App-Link auto-open by registering the app + debug SHA-256 in
+  the Firebase console (see §4 known limitation). Not needed for invites to open the app.
+- **Cloud-function deploy still BLOCKED on Blaze** (see §7); user avoids upgrading; pairing works
+  without it.
 
 ## 7. Known caveats / open items / blockers
 - **History "Run" vs "Walk" heuristic LEFT AS-IS by user decision:** in the history card
