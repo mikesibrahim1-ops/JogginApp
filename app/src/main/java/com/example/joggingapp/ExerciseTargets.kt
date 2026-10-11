@@ -1,6 +1,8 @@
 package com.example.joggingapp
 
 import android.content.Context
+import androidx.compose.ui.graphics.Color
+import com.example.joggingapp.ui.theme.JogginColorTokens
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import java.text.SimpleDateFormat
@@ -46,6 +48,29 @@ enum class ExerciseType(val isDistance: Boolean, val defaultEmoji: String) {
             RUNNING -> 1
             else -> null
         }
+}
+
+/**
+ * The accent colour for an [ExerciseType], used wherever a target/type needs a visual
+ * identity (TargetCard, select chips, the Log button, and the Personal Targets
+ * achievement boxes). Distance types reuse the activity tokens so they match the rest of
+ * the app; each manual type gets its own fixed hue so different exercises are
+ * distinguishable at a glance (and read well on surfaceVariant across all four themes).
+ * The `when` is exhaustive over all 12 types with no `else` branch on purpose.
+ */
+internal fun targetColor(type: ExerciseType, c: JogginColorTokens): Color = when (type) {
+    ExerciseType.WALKING       -> c.walking
+    ExerciseType.RUNNING       -> c.running
+    ExerciseType.SITUPS        -> c.primary
+    ExerciseType.PUSHUPS       -> c.accent
+    ExerciseType.SQUATS        -> c.gold
+    ExerciseType.BICEP_CURLS   -> Color(0xFFEF6C00) // orange
+    ExerciseType.TRICEP_DIPS   -> Color(0xFF26A69A) // teal
+    ExerciseType.LUNGES        -> Color(0xFFAB47BC) // purple
+    ExerciseType.CRUNCHES      -> Color(0xFFEC407A) // pink
+    ExerciseType.BURPEES       -> Color(0xFF42A5F5) // blue
+    ExerciseType.JUMPING_JACKS -> Color(0xFF66BB6A) // green
+    ExerciseType.PLANK_SECONDS -> Color(0xFF8D6E63) // brown
 }
 
 /** The period a target resets over. */

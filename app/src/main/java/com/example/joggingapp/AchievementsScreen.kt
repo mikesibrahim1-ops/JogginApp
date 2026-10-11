@@ -389,7 +389,7 @@ private fun PersonalTargetsSection(completed: List<CompletedTarget>) {
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         Box(modifier = Modifier.size(40.dp).clip(CircleShape)
-                            .background(c.success.copy(alpha = 0.2f)), contentAlignment = Alignment.Center) {
+                            .background(targetColor(ct.type, c).copy(alpha = 0.2f)), contentAlignment = Alignment.Center) {
                             Text(ct.type.defaultEmoji, fontSize = 20.sp)
                         }
                         Column(modifier = Modifier.weight(1f)) {
