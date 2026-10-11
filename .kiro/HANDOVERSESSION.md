@@ -12,19 +12,22 @@ Android GPS fitness tracker (walk/run/cycle) at `c:\Users\INFINITI\Documents\Kir
 as a sideloaded APK: GitHub Releases hosts the APK; a Firebase Hosting install page links to it.
 
 ## 2. Current version / build state
-- **V1.45** — `versionCode 45`, `versionName "1.45"` (`app/build.gradle`). **NOT yet bumped**
-  for the Buddy Link invite fix below — next release should be V1.46.
-- Git: HEAD **`0ebf67d`** on `main`, pushed to `origin/main` (in sync). Tag **`V1.45`** pushed
-  (annotated tag object `d105d77`). Earlier tags V1.40–V1.44 also exist. (`0ebf67d` is the
-  Buddy Link invite-pairing fix, committed + pushed but UNTAGGED / unreleased.)
+- **V1.46** — `versionCode 46`, `versionName "1.46"` (`app/build.gradle`). FULLY SHIPPED.
+- Git: HEAD **`2e0f18d`** on `main`, pushed to `origin/main` (in sync). Tag **`V1.46`** pushed.
+  Earlier tags V1.40–V1.45 also exist.
 - `minSdk 24`, `targetSdk 34`, `compileSdk 34`, Java/Kotlin 17, Compose compiler 1.5.10.
 - Last build: `assembleDebug` + `testDebugUnitTest` → **BUILD SUCCESSFUL** (debug-signed; full
-  unit suite green incl. ExerciseTargetsTest).
-- **V1.45 is PUBLISHED on GitHub** (not draft) with `joggin.apk` asset; `/releases/latest/
+  unit suite green incl. ExerciseTargetsTest + BuddyInviteTest). NOTE: the Gradle daemon kept
+  dying mid-build this session (accumulated dead daemons after shell wedges); the fix that
+  worked was killing all `java.exe`, clearing `~/.gradle/daemon/*`, then building with
+  **`--no-daemon`**. Use that if the daemon churns.
+- **V1.46 is PUBLISHED on GitHub** (not draft) with `joggin.apk` asset; `/releases/latest/
   download/joggin.apk` returns 200; install page `https://joggin-a69a7.web.app/get` serves it.
-- Installed + verified on the user's device (versionCode 45 / versionName 1.45).
-- APKs in `builds/`: `joggin-v1.45.apk` (archived; keeps newest 4 → v1.42–v1.45) and
-  `joggin.apk` (lowercase release copy = V1.45, SHA-256 `3D93C292…F520F21`).
+  Release URL: https://github.com/mikesibrahim1-ops/JogginApp/releases/tag/V1.46
+- Installed + verified on the user's device R5CR100AY2V (dumpsys: versionCode 46 / versionName
+  1.46, apkSigningVersion 3).
+- APKs in `builds/`: `joggin-v1.46.apk` (archived; keeps newest 4 → v1.43–v1.46; v1.42 pruned)
+  and `joggin.apk` (lowercase release copy = V1.46, 12,326,145 bytes).
 
 ## 3. Environment notes (IMPORTANT — avoids wasted time)
 - **Terminal is very flaky.** PowerShell echoes commands char-by-char and reports **exit -1
@@ -58,8 +61,20 @@ as a sideloaded APK: GitHub Releases hosts the APK; a Firebase Hosting install p
 
 ## 4. What was accomplished across recent sessions (all committed + pushed)
 Newest first on `main`:
-- `0ebf67d` — **Buddy Link invite-pairing fix** (committed + pushed to origin/main; NOT bumped,
-  NOT tagged, NOT released, APK NOT rebuilt/installed). Fixes the role-inversion bug where the
+- `2e0f18d` — **Bump to V1.46** (versionCode 46) + release notes
+  (`.kiro/specs/release-notes-v1.46.md`). Built, archived, tagged V1.46, pushed, PUBLISHED to
+  GitHub with `joggin.apk`, installed + verified on device. V1.46 rolls up `1d029a8` + `0ebf67d`.
+- `1d029a8` — **Per-type colours in Personal Targets** (Achievements screen). The completed-
+  exercise boxes now colour by `ExerciseType` instead of a single fixed `c.success`, so e.g.
+  push-ups (accent) vs sit-ups (primary) are distinguishable. `targetColor` moved to
+  `ExerciseTargets.kt` as one shared `internal` function (single source of truth; both the
+  Achievements and Exercise Targets screens call it), exhaustive over all 12 types, no `else`.
+  The 7 manual types got distinct hues (orange/teal/purple/pink/blue/green/brown). Files:
+  `ExerciseTargets.kt`, `ExerciseTargetsScreen.kt`, `AchievementsScreen.kt`. UI appearance across
+  the 4 themes not yet eyeballed on-device (boxes use alpha 0.2f tint behind an emoji).
+- `a396835` — Add `.kiro/steering/brevity.md` (always-on steering rule for concise responses).
+- `37870a8` — Handover update (prior).
+- `0ebf67d` — **Buddy Link invite-pairing fix.** Fixes the role-inversion bug where the
   invite embedded the SENDER's appId, so opening the link made the recipient the requester and
   the Accept prompt landed on the sender → pairing never completed. Now: the recipient sees an
   Accept/Ignore **dialog** on opening a valid invite; **Accept** has the recipient create
@@ -104,12 +119,14 @@ the removal of the handover hook.
 - **Buddy Link** two-party flows + push still need 2 devices + Firebase config (unchanged).
 
 ## 6. Immediate next step(s)
-- **Deploy the cloud function** for the killed-app sender push: `firebase deploy --only functions`
-  (user logged in; pairing works without it, so optional-but-recommended).
-- **Test real two-device Buddy Link pairing** with the new accept/ignore dialog (needs the phone
-  + a 2nd device). This is the only unverified part of `0ebf67d`.
-- When satisfied, **bump to V1.46**, rebuild, archive, tag, publish (see §2/§8 publish command),
-  install on device. The Buddy Link fix is in `main`/origin but not yet in a released APK.
+- V1.46 is fully shipped (built, tagged, published, installed). Nothing release-blocking pending.
+- **On-device verification** still owed by the user: (a) real two-device Buddy Link pairing with
+  the new accept/ignore dialog, and (b) eyeball the per-type Personal Targets colours across the
+  4 themes. Both are code-complete and build-verified but not runtime-verified this session.
+- **Cloud-function deploy is BLOCKED on Blaze** — see §7. The user wants to avoid upgrading, so
+  the killed-app sender push stays undeployed. Pairing does not depend on it. If the push is
+  wanted without Blaze later, send the FCM notification client-side from the accepting device
+  instead of via the `onBuddyLinkWrite` Cloud Function trigger.
 
 ## 7. Known caveats / open items / blockers
 - **History "Run" vs "Walk" heuristic LEFT AS-IS by user decision:** in the history card
@@ -120,7 +137,14 @@ the removal of the handover hook.
 - Exercise Targets not folded into backup/restore (`BackupData` v2); no "undo last rep log" beyond
   the new deduction entry; PLANK_SECONDS reuses the integer rep machinery (value = seconds).
 - The old auto-handover hook is removed; keep this file updated manually.
-- Buddy Link backend blocked on Blaze + the DEPLOY-GUIDE.md ops; APK debug-signed.
+- **Buddy Link Cloud Function deploy blocked on Blaze.** `firebase deploy --only functions` fails:
+  project `joggin-a69a7` must be on the Blaze (pay-as-you-go) plan to enable
+  `cloudbuild.googleapis.com`. User has chosen to AVOID upgrading. The `functions/index.js`
+  accepted-on-create sender push (added in `0ebf67d`) is therefore NOT deployed; invite pairing
+  works entirely client-side (Firestore) without it. Firestore reads/writes + app-sent FCM do not
+  need Blaze — only deploying Cloud Functions does. Note: `firebase` CLI is at
+  `C:\Users\INFINITI\AppData\Roaming\npm\firebase.cmd` (call the `.cmd` directly — the `.ps1`
+  wrapper is blocked by PowerShell execution policy). APK debug-signed.
 
 ## 8. Key files
 - `app/build.gradle` — version (45 / 1.45), minSdk 24, Firebase gating, signing.
