@@ -98,18 +98,30 @@
     return;
   }
 
-  // Build the custom-scheme deep link
-  var deepLink = 'joggin://buddy/v1/' + encodeURIComponent(id);
-  if (exp) deepLink += '?exp=' + encodeURIComponent(exp);
+  // Build the invite path shared by both open strategies.
+  var invitePath = 'buddy/v1/' + encodeURIComponent(id);
+  if (exp) invitePath += '?exp=' + encodeURIComponent(exp);
+
+  // PRIMARY (robust on Chrome/Android): an Android intent:// URI that targets the
+  // installed app by package and carries a browser_fallback_url to the install page,
+  // so users WITHOUT the app land on /get instead of seeing an error.
+  var fallback = 'https://joggin-a69a7.web.app/get';
+  var intentUri = 'intent://' + invitePath +
+    '#Intent;scheme=joggin;package=com.example.joggingapp;' +
+    'S.browser_fallback_url=' + encodeURIComponent(fallback) + ';end';
+
+  // SECONDARY: the raw custom-scheme link (for browsers that don't honour intent://).
+  var deepLink = 'joggin://' + invitePath;
 
   var btn = document.getElementById('open-btn');
-  btn.href = deepLink;
-
-  // Auto-try the deep link after a brief delay (gives the page time to render
-  // so the user sees something if the redirect fails)
-  setTimeout(function() {
-    window.location.href = deepLink;
-  }, 600);
+  // The button is the PRIMARY, user-gesture open path.
+  btn.href = intentUri;
+  btn.addEventListener('click', function() {
+    // On a real click, drive the intent:// navigation explicitly (user gesture).
+    window.location.href = intentUri;
+    // Secondary attempt via the custom scheme if intent:// didn't take.
+    setTimeout(function() { window.location.href = deepLink; }, 1200);
+  });
 })();
 </script>
 

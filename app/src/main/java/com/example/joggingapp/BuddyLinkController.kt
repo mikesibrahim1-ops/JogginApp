@@ -255,9 +255,12 @@ class BuddyLinkController(private val appContext: Context) {
     }
 
     /** The invite link message to share (Req 2.4, 3.1). */
-    fun buildInviteShareText(userName: String): String? {
+    fun buildInviteShareText(
+        userName: String,
+        messageBuilder: ((name: String, appLink: String, httpsLink: String) -> String)? = null
+    ): String? {
         val id = appId ?: return null
-        return BuddyInvite.buildShareText(id, userName)
+        return BuddyInvite.buildShareText(id, userName, messageBuilder)
     }
 
     fun dispose() { scope.cancel() }

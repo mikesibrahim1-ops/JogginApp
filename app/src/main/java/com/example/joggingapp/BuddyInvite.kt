@@ -38,12 +38,31 @@ object BuddyInvite {
 
     /**
      * A shareable message containing the invite link, for the share sheet.
+     *
+     * The message carries BOTH links on purpose (belt-and-suspenders, Req v1.47):
+     *  - the custom-scheme [buildInviteUri] (`joggin://buddy/v1/<id>?exp=<ms>`) is the
+     *    RELIABLE opener — custom schemes don't need App-Links verification, so a tap
+     *    opens the installed app directly.
+     *  - the https [buildHttpsFallback] stays as the tappable "don't have the app?"
+     *    entry point: chat apps auto-linkify https (not always custom schemes), and it
+     *    lands on the hardened /buddy page which can relaunch the app or offer the
+     *    install page.
+     *
+     * [messageBuilder] lets callers supply a localized message (name, appLink,
+     * httpsLink) -> text. Defaults to an English template so non-UI callers still work.
      */
-    fun buildShareText(appId: String, userName: String): String {
+    fun buildShareText(
+        appId: String,
+        userName: String,
+        messageBuilder: ((name: String, appLink: String, httpsLink: String) -> String)? = null
+    ): String {
         val name = userName.ifBlank { "A friend" }
-        val link = buildHttpsFallback(appId)
-        return "$name wants to link with you on Joggin as a safety buddy.\n" +
-               "Open this link in the Joggin app to connect:\n$link"
+        val appLink = buildInviteUri(appId)
+        val httpsLink = buildHttpsFallback(appId)
+        return messageBuilder?.invoke(name, appLink, httpsLink)
+            ?: ("$name wants to link with you on Joggin as a safety buddy.\n\n" +
+                "Already have Joggin installed? Tap to open the app and connect:\n$appLink\n\n" +
+                "Otherwise tap this link (install Joggin first, then tap again):\n$httpsLink")
     }
 
     /**

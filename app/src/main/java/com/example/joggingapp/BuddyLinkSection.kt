@@ -156,7 +156,9 @@ fun BuddyLinkSection(controller: BuddyLinkController, userName: String) {
                 modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
                     .background(c.primary.copy(alpha = 0.15f))
                     .clickable {
-                        val text = controller.buildInviteShareText(userName)
+                        val text = controller.buildInviteShareText(userName) { name, appLink, httpsLink ->
+                            S.buddyInviteShareBody(name, appLink, httpsLink)
+                        }
                         if (text != null) {
                             AppLogger.log(context, LogCategory.UI, "Buddy Link invite shared")
                             val send = Intent(Intent.ACTION_SEND).apply {

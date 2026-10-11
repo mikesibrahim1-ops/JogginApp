@@ -57,6 +57,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.example.joggingapp.ui.theme.JogginTheme
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -226,6 +227,9 @@ fun JogApp(context: Context) {
     var showExerciseTargets by remember { mutableStateOf(false) }
     var savedRoutes      by remember { mutableStateOf(RouteStorage.loadRoutes(context)) }
     var optionsPaneOpen  by remember { mutableStateOf(false) }
+    // Auto-update prompt (v1.47): holds the newer version string once a throttled
+    // launch check finds one. Null = no prompt shown.
+    var updatePromptVersion by remember { mutableStateOf<String?>(null) }
     var colorIdx         by remember { mutableStateOf(0) }
     val prefs = remember { context.getSharedPreferences("jog_prefs", Context.MODE_PRIVATE) }
     var userName by remember { mutableStateOf(prefs.getString("user_name", "") ?: "") }
@@ -815,6 +819,25 @@ fun JogApp(context: Context) {
 
             LaunchedEffect(Unit) {
                 if (showWelcome) { delay(3000L); showWelcome = false }
+            }
+
+            // ── Auto update-check on launch (throttled ~once/day) ─────────────
+            // Fails silently: no UI on network/parse/rate-limit errors, just skips.
+            LaunchedEffect(Unit) {
+                if (UpdateChecker.isAutoCheckDue(context)) {
+                    val result = UpdateChecker.checkLatest(context, BuildConfig.VERSION_NAME)
+                    if (result.updateAvailable && result.latestVersion != null) {
+                        updatePromptVersion = result.latestVersion
+                    }
+                }
+            }
+            // Dismissable "Update available" prompt from the auto-check.
+            updatePromptVersion?.let { newVersion ->
+                UpdatePromptDialog(
+                    newVersion = newVersion,
+                    onUpdate = { UpdateChecker.openUpdate(context); updatePromptVersion = null },
+                    onDismiss = { updatePromptVersion = null }
+                )
             }
             if (showWelcome && !showNameEntry && !showAchievements && !showSummary && !showExerciseTargets) {
                 Box(modifier = Modifier.align(Alignment.TopCenter).padding(top = 48.dp)
@@ -1537,6 +1560,60 @@ fun OptionsPaneContent(colorIdx: Int, savedRoutes: List<SavedRoute>, onColorSele
         }
         } // end Language
 
+        // ── App (version + manual update check) ───────────────────────────────
+        CollapsibleSection(title = S.appSection, leadingEmoji = "📦") {
+            val updateScope = rememberCoroutineScope()
+            // null = idle, true = checking, false = done. Result text held separately.
+            var checking by remember { mutableStateOf(false) }
+            var resultText by remember { mutableStateOf<String?>(null) }
+            var availableVersion by remember { mutableStateOf<String?>(null) }
+
+            Text(S.appVersionLabel(BuildConfig.VERSION_NAME), fontSize = 13.sp,
+                color = c.onSecondary, fontWeight = FontWeight.Medium)
+            Spacer(Modifier.height(12.dp))
+            Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+                .background(c.primary.copy(alpha = 0.15f))
+                .clickable(enabled = !checking) {
+                    checking = true
+                    resultText = null
+                    availableVersion = null
+                    updateScope.launch {
+                        // Manual check is NON-throttled (persistTimestamp = false).
+                        val res = UpdateChecker.checkLatest(context, BuildConfig.VERSION_NAME, persistTimestamp = false)
+                        checking = false
+                        when {
+                            res.failed -> resultText = S.updateCheckFailed
+                            res.updateAvailable && res.latestVersion != null -> {
+                                availableVersion = res.latestVersion
+                                resultText = S.updateVersionAvailable(res.latestVersion)
+                            }
+                            else -> resultText = S.upToDate
+                        }
+                    }
+                }
+                .padding(14.dp),
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("🔄", fontSize = 20.sp)
+                Text(if (checking) S.checkingForUpdates else S.checkForUpdates,
+                    fontSize = 13.sp, color = c.onSecondary, fontWeight = FontWeight.SemiBold)
+            }
+            resultText?.let { msg ->
+                Spacer(Modifier.height(10.dp))
+                Text(msg, fontSize = 12.sp, color = c.onSecondary.copy(alpha = 0.85f))
+                // Offer the Update action inline when a newer version was found.
+                if (availableVersion != null) {
+                    Spacer(Modifier.height(8.dp))
+                    Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+                        .background(c.primary)
+                        .clickable { UpdateChecker.openUpdate(context) }
+                        .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
+                        Text(S.updateAction, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = c.onPrimary)
+                    }
+                }
+            }
+        } // end App
+
         // ── Buddy Link (LAST regular section) ─────────────────────────────────
         if (buddyController != null) {
             BuddyLinkSection(controller = buddyController, userName = userName)
@@ -1755,6 +1832,46 @@ fun OptionsPaneContent(colorIdx: Int, savedRoutes: List<SavedRoute>, onColorSele
 @Composable fun StatItem(value: String, label: String) { val c = JogginTheme.colors; Column(horizontalAlignment = Alignment.CenterHorizontally) { Text(value, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = c.onBackground); Text(label, fontSize = 11.sp, color = c.textSecondary, textAlign = TextAlign.Center) } }
 @Composable fun VDivider() { val c = JogginTheme.colors; Box(modifier = Modifier.width(1.dp).height(40.dp).background(c.divider)) }
 @Composable fun BigButton(label: String, bgColor: Color, onClick: () -> Unit) { val c = JogginTheme.colors; Box(modifier = Modifier.height(52.dp).width(140.dp).clip(RoundedCornerShape(26.dp)).background(bgColor).clickable(onClick = onClick), contentAlignment = Alignment.Center) { Text(label, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = c.onPrimary) } }
+
+/**
+ * "Update available" prompt (v1.47). A themed overlay+card (matching the app's custom
+ * dialog idiom) naming the new version, with an Update action and a Later/dismiss action.
+ */
+@Composable
+fun UpdatePromptDialog(newVersion: String, onUpdate: () -> Unit, onDismiss: () -> Unit) {
+    val c = JogginTheme.colors
+    val S = LocalStrings.current
+    Box(
+        modifier = Modifier.fillMaxSize().background(Color(0x99000000)).clickable(onClick = onDismiss),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth(0.85f).clip(RoundedCornerShape(16.dp))
+                .background(c.secondary).padding(20.dp)
+                .clickable(enabled = false) {}
+        ) {
+            Text(S.updateAvailable, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = c.onSecondary)
+            Spacer(Modifier.height(12.dp))
+            Text(S.updateVersionAvailable(newVersion), fontSize = 13.sp,
+                color = c.onSecondary.copy(alpha = 0.85f), lineHeight = 18.sp)
+            Spacer(Modifier.height(20.dp))
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Box(
+                    modifier = Modifier.weight(1f).clip(RoundedCornerShape(10.dp))
+                        .background(c.divider.copy(alpha = 0.3f))
+                        .clickable(onClick = onDismiss).padding(vertical = 12.dp),
+                    contentAlignment = Alignment.Center
+                ) { Text(S.updateLater, fontSize = 13.sp, color = c.onSecondary) }
+                Box(
+                    modifier = Modifier.weight(1f).clip(RoundedCornerShape(10.dp))
+                        .background(c.primary)
+                        .clickable(onClick = onUpdate).padding(vertical = 12.dp),
+                    contentAlignment = Alignment.Center
+                ) { Text(S.updateAction, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = c.onPrimary) }
+            }
+        }
+    }
+}
 
 
 // ── Share route via WhatsApp / intent ─────────────────────────────────────────

@@ -158,6 +158,8 @@ data class AppStrings(
     val buddyLinkConsentDecline: String,
     val buddyInvite: String,               // "Invite Buddy"
     val buddyInviteShare: String,          // share-sheet chooser title
+    // Invite share body: (name, appLink joggin://, httpsLink https://) -> message
+    val buddyInviteShareBody: (String, String, String) -> String,
     val buddyInviteDialogTitle: String,    // Accept/Ignore dialog title
     val buddyInviteDialogBody: (String) -> String, // "{who} invited you…"
     val buddyInviteAccept: String,         // dialog accept action
@@ -259,6 +261,17 @@ data class AppStrings(
     val exGroupWeek: String,               // group-by option: Week
     val exGroupMonth: String,              // group-by option: Month
     val exWeekOf: (String) -> String,      // weekly bucket header, "Week of {date}"
+    // ── App section / update check (v1.47) ────────────────────────────────────
+    val appSection: String,                // options-pane collapsible header "App"
+    val appVersionLabel: (String) -> String, // "Version 1.47"
+    val checkForUpdates: String,           // button label
+    val checkingForUpdates: String,        // transient while checking
+    val upToDate: String,                  // "You're up to date"
+    val updateAvailable: String,           // dialog title "Update available"
+    val updateVersionAvailable: (String) -> String, // "Version X.Y available"
+    val updateAction: String,              // "Update" button
+    val updateLater: String,               // "Later" / dismiss
+    val updateCheckFailed: String,         // "Couldn't check for updates"
 )
 
 // ── English ───────────────────────────────────────────────────────────────────
@@ -392,6 +405,11 @@ val EnglishStrings = AppStrings(
     buddyLinkConsentDecline = "Not now",
     buddyInvite = "Invite Buddy",
     buddyInviteShare = "Share your Buddy Link invite",
+    buddyInviteShareBody = { name, appLink, httpsLink ->
+        "$name wants to link with you on Joggin as a safety buddy.\n\n" +
+        "Already have Joggin installed? Tap to open the app and connect:\n$appLink\n\n" +
+        "Otherwise tap this link (install Joggin first, then tap again):\n$httpsLink"
+    },
     buddyInviteDialogTitle = "Buddy invite",
     buddyInviteDialogBody = { who -> "$who invited you to be safety buddies on Joggin. Accept to share location while you're both out." },
     buddyInviteAccept = "Accept",
@@ -492,6 +510,17 @@ val EnglishStrings = AppStrings(
     exGroupWeek = "Week",
     exGroupMonth = "Month",
     exWeekOf = { date -> "Week of $date" },
+    // ── App section / update check (v1.47) ────────────────────────────────────
+    appSection = "App",
+    appVersionLabel = { v -> "Version $v" },
+    checkForUpdates = "Check for updates",
+    checkingForUpdates = "Checking for updates…",
+    upToDate = "You're up to date",
+    updateAvailable = "Update available",
+    updateVersionAvailable = { v -> "Version $v available" },
+    updateAction = "Update",
+    updateLater = "Later",
+    updateCheckFailed = "Couldn't check for updates",
 )
 
 // ── Greek (formal Modern Greek, monotonic) ─────────────────────────────────────
@@ -625,6 +654,11 @@ val GreekStrings = AppStrings(
     buddyLinkConsentDecline = "Όχι τώρα",
     buddyInvite = "Πρόσκληση Φίλου",
     buddyInviteShare = "Μοιραστείτε την πρόσκλησή σας",
+    buddyInviteShareBody = { name, appLink, httpsLink ->
+        "Ο/Η $name θέλει να συνδεθεί μαζί σας στο Joggin ως φίλος ασφαλείας.\n\n" +
+        "Έχετε ήδη το Joggin; Πατήστε για να ανοίξει η εφαρμογή και να συνδεθείτε:\n$appLink\n\n" +
+        "Διαφορετικά πατήστε αυτόν τον σύνδεσμο (εγκαταστήστε πρώτα το Joggin και ξαναπατήστε):\n$httpsLink"
+    },
     buddyInviteDialogTitle = "Πρόσκληση φίλου",
     buddyInviteDialogBody = { who -> "Ο/Η $who σας προσκάλεσε να γίνετε φίλοι ασφαλείας στο Joggin. Αποδεχτείτε για να μοιράζεστε την τοποθεσία σας όσο είστε έξω." },
     buddyInviteAccept = "Αποδοχή",
@@ -725,6 +759,17 @@ val GreekStrings = AppStrings(
     exGroupWeek = "Εβδομάδα",
     exGroupMonth = "Μήνας",
     exWeekOf = { date -> "Εβδομάδα $date" },
+    // ── App section / update check (v1.47) ────────────────────────────────────
+    appSection = "Εφαρμογή",
+    appVersionLabel = { v -> "Έκδοση $v" },
+    checkForUpdates = "Έλεγχος για ενημερώσεις",
+    checkingForUpdates = "Έλεγχος για ενημερώσεις…",
+    upToDate = "Έχετε την πιο πρόσφατη έκδοση",
+    updateAvailable = "Διαθέσιμη ενημέρωση",
+    updateVersionAvailable = { v -> "Διαθέσιμη έκδοση $v" },
+    updateAction = "Ενημέρωση",
+    updateLater = "Αργότερα",
+    updateCheckFailed = "Δεν ήταν δυνατός ο έλεγχος για ενημερώσεις",
 )
 
 // ── Resolver ──────────────────────────────────────────────────────────────────

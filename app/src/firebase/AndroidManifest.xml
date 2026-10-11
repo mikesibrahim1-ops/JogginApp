@@ -40,7 +40,8 @@
                 <data android:scheme="joggin" android:host="buddy" />
             </intent-filter>
             <!-- Buddy Link invite https fallback (Firebase Hosting): https://joggin-a69a7.web.app/buddy?id=...&exp=... -->
-            <intent-filter>
+            <!-- autoVerify enables true Android App Links (needs /.well-known/assetlinks.json served). -->
+            <intent-filter android:autoVerify="true">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
