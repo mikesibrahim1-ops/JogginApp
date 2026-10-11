@@ -1,6 +1,8 @@
 package com.example.joggingapp
 
 import android.Manifest
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.os.Build
@@ -150,38 +152,111 @@ fun BuddyLinkSection(controller: BuddyLinkController, userName: String) {
                 Text(S.buddyUnavailableBackend, fontSize = 11.sp, color = c.error.copy(alpha = 0.9f))
             }
 
-            // ── Invite button ────────────────────────────────────────────────
-            Spacer(Modifier.height(12.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
-                    .background(c.primary.copy(alpha = 0.15f))
-                    .clickable {
-                        val text = controller.buildInviteShareText(userName) { name, appLink, httpsLink ->
-                            S.buddyInviteShareBody(name, appLink, httpsLink)
-                        }
-                        if (text != null) {
-                            AppLogger.log(context, LogCategory.UI, "Buddy Link invite shared")
-                            val send = Intent(Intent.ACTION_SEND).apply {
-                                type = "text/plain"
-                                putExtra(Intent.EXTRA_TEXT, text)
-                            }
-                            context.startActivity(Intent.createChooser(send, S.buddyInviteShare))
-                        }
+            // ── My Buddy code card (Copy / Share) + member-since ──────────────
+            val myId = controller.appId
+            if (myId != null) {
+                Spacer(Modifier.height(12.dp))
+                // Transient status line under the card (copied / connect result).
+                var codeMsg by remember { mutableStateOf<String?>(null) }
+                Column(
+                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+                        .background(c.primary.copy(alpha = 0.10f)).padding(14.dp)
+                ) {
+                    Text(S.buddyYourCode, fontSize = 11.sp, color = c.onSecondary.copy(alpha = 0.7f),
+                        fontWeight = FontWeight.Medium)
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        formatBuddyCode(myId), fontSize = 15.sp, color = c.onSecondary,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.semantics { contentDescription = S.buddyYourCode }
+                    )
+                    controller.myCreatedAt?.let { createdAt ->
+                        Spacer(Modifier.height(4.dp))
+                        Text(S.buddyMemberSince(formatMemberDate(createdAt)), fontSize = 10.sp,
+                            color = c.onSecondary.copy(alpha = 0.6f))
                     }
-                    .padding(14.dp)
-                    .semantics { contentDescription = S.buddyInvite },
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Text("🔗", fontSize = 20.sp)
-                Text(S.buddyInvite, fontSize = 13.sp, color = c.onSecondary, fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.height(10.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                        Text("📋 ${S.buddyCodeCopy}", fontSize = 12.sp, color = c.primary,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier
+                                .clickable {
+                                    val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                    cm.setPrimaryClip(ClipData.newPlainText("Buddy code", myId))
+                                    AppLogger.log(context, LogCategory.UI, "Buddy Link code copied")
+                                    codeMsg = S.buddyCodeCopied
+                                }
+                                .semantics { contentDescription = S.buddyCodeCopy })
+                        Text("↗ ${S.buddyCodeShare}", fontSize = 12.sp, color = c.primary,
+                            modifier = Modifier
+                                .clickable {
+                                    AppLogger.log(context, LogCategory.UI, "Buddy Link code shared")
+                                    val send = Intent(Intent.ACTION_SEND).apply {
+                                        type = "text/plain"
+                                        putExtra(Intent.EXTRA_TEXT, myId)
+                                    }
+                                    context.startActivity(Intent.createChooser(send, S.buddyCodeShare))
+                                }
+                                .semantics { contentDescription = S.buddyCodeShare })
+                    }
+                }
+
+                // ── Connect: enter a friend's code ─────────────────────────────
+                Spacer(Modifier.height(12.dp))
+                var codeInput by remember { mutableStateOf("") }
+                androidx.compose.material.TextField(
+                    value = codeInput,
+                    onValueChange = { codeInput = it },
+                    singleLine = true,
+                    placeholder = { Text(S.buddyEnterCodeHint, fontSize = 12.sp) },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+                        .background(c.primary.copy(alpha = 0.15f))
+                        .clickable {
+                            val normalized = normalizeBuddyCode(codeInput)
+                            if (normalized == myId) {
+                                codeMsg = S.buddySelfInvite
+                            } else if (!isValidBuddyCode(normalized)) {
+                                codeMsg = S.buddyCodeInvalid
+                            } else {
+                                codeMsg = S.buddyInviteSent  // optimistic; corrected on result
+                                controller.requestLink(normalized, fromName = userName) { result ->
+                                    codeMsg = when (result) {
+                                        is BuddyResult.Success -> {
+                                            codeInput = ""
+                                            S.buddyInviteSent
+                                        }
+                                        is BuddyResult.Failure -> when (result.reason) {
+                                            BuddyResult.Reason.NOT_FOUND -> S.buddyCodeUnknown
+                                            BuddyResult.Reason.DUPLICATE -> S.buddyAlreadyConnected
+                                            else -> S.buddyUnavailableBackend
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        .padding(14.dp)
+                        .semantics { contentDescription = S.buddyConnect },
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text("🔗", fontSize = 20.sp)
+                    Text(S.buddyConnect, fontSize = 13.sp, color = c.onSecondary, fontWeight = FontWeight.SemiBold)
+                }
+                codeMsg?.let { msg ->
+                    Spacer(Modifier.height(8.dp))
+                    Text(msg, fontSize = 11.sp, color = c.onSecondary.copy(alpha = 0.85f))
+                }
             }
 
             // ── Invites (incoming/pending; dismissable at any time, Req #4) ───
             if (controller.pending.isNotEmpty()) {
                 BuddyGroupHeader(S.buddyInvites)
                 controller.pending.forEach { link ->
-                    val senderLabel = shortId(link.a)
+                    val senderLabel = link.fromName.ifBlank { shortId(link.a) }
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -219,6 +294,10 @@ fun BuddyLinkSection(controller: BuddyLinkController, userName: String) {
                         Column(modifier = Modifier.weight(1f)) {
                             val name = view.user.displayName.ifBlank { shortId(view.user.appId) }
                             Text(name, fontSize = 13.sp, color = c.onSecondary, fontWeight = FontWeight.Medium)
+                            if (view.user.createdAt > 0L) {
+                                Text(S.buddyMemberSince(formatMemberDate(view.user.createdAt)),
+                                    fontSize = 10.sp, color = c.onSecondary.copy(alpha = 0.6f))
+                            }
                             val status = when {
                                 view.isLiveNow() -> S.buddyStatusSharing
                                 view.link?.state == BuddyLinkState.PENDING -> S.buddyStatusPending
@@ -379,6 +458,29 @@ private fun BuddyGroupHeader(title: String) {
 /** Compact display form of an App ID (UUIDs are long) for lists without a name. */
 internal fun buddyShortId(appId: String): String =
     if (appId.length <= 10) appId else appId.take(6) + "…" + appId.takeLast(4)
+
+/**
+ * Pure helpers for the V1.48 code-based invite flow. The "code" IS the raw appId (a
+ * UUID with dashes removed → 32 lowercase hex chars); these only format/parse it for
+ * display and entry, and are unit-tested in BuddyCodeTest.
+ */
+
+/** Group a raw appId into readable 4-char chunks for display (never used as the key). */
+internal fun formatBuddyCode(rawId: String): String =
+    rawId.chunked(4).joinToString(" ")
+
+/** Normalize a pasted/typed code to the appId form: strip spaces + dashes, lowercase. */
+internal fun normalizeBuddyCode(input: String): String =
+    input.filterNot { it == ' ' || it == '-' }.lowercase()
+
+/** A valid appId code is exactly 32 hex characters (a dash-stripped UUID). */
+internal fun isValidBuddyCode(normalized: String): Boolean =
+    normalized.length == 32 && normalized.all { it in '0'..'9' || it in 'a'..'f' }
+
+/** Format a "member since" epoch-ms time the same way the Achievements screen does. */
+internal fun formatMemberDate(epochMs: Long): String =
+    java.text.SimpleDateFormat("MMM dd, yyyy", java.util.Locale.getDefault())
+        .format(java.util.Date(epochMs))
 
 // Local alias so existing call sites in this file stay unchanged.
 private fun shortId(appId: String): String = buddyShortId(appId)

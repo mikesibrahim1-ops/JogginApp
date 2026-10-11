@@ -52,8 +52,12 @@ interface BuddyRepository {
      * Initiates a link request to [targetAppId] (from opening an invite link).
      * If the target is offline this still succeeds and the link is left PENDING
      * (Req 3.5a). Fails only for nonexistent IDs, blocks, or duplicates.
+     *
+     * [fromName] is the sender's current displayName, denormalized onto the link doc
+     * (`links/{linkId}.fromName`) so the recipient can show "<name> wants to buddy up"
+     * before the sender's user doc becomes readable (which only happens post-accept).
      */
-    suspend fun requestLink(targetAppId: String): BuddyResult<Unit>
+    suspend fun requestLink(targetAppId: String, fromName: String? = null): BuddyResult<Unit>
 
     /**
      * Called when THIS device (the recipient) accepts an invite link whose embedded

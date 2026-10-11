@@ -59,5 +59,9 @@
             android:name=".BuddyLocationService"
             android:exported="false"
             android:foregroundServiceType="location" />
+        <!-- Buddy Link invite Accept/Ignore actions from the notification shade (V1.48). -->
+        <receiver
+            android:name=".BuddyInviteActionReceiver"
+            android:exported="false" />
     </application>
 </manifest>

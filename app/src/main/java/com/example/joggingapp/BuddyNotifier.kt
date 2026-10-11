@@ -34,15 +34,50 @@ object BuddyNotifier {
     private const val CHANNEL_ID = "joggin_buddy_events"
     private const val CHANNEL_ID_LOW = "joggin_buddy_events_low"
     // Distinct id space from the broadcast service (NOTIF_ID = 2) and workout notifs.
-    private const val NOTIF_ID_REQUEST = 3001
+    // `internal` so BuddyInviteActionReceiver can cancel the request notification.
+    internal const val NOTIF_ID_REQUEST = 3001
     private const val NOTIF_ID_ACCEPTED = 3002
     private const val NOTIF_ID_UNLINKED = 3003
     private const val NOTIF_ID_LOCATION_SHARED = 3004
 
-    /** A link request was received from someone. */
-    fun notifyRequestReceived(context: Context) {
+    /**
+     * A link request was received. When a [linkId] is supplied the notification carries
+     * Accept / Ignore action buttons wired to [BuddyInviteActionReceiver]; the title uses
+     * the sender's [fromName] ("<name> wants to buddy up"), falling back to a short code
+     * form of the linkId when the name is blank.
+     */
+    fun notifyRequestReceived(context: Context, linkId: String? = null, fromName: String? = null) {
         val s = stringsFor(loadLanguage(context))
-        post(context, NOTIF_ID_REQUEST, s.buddyNotifRequestTitle, s.buddyNotifRequestBody)
+        val name = fromName?.ifBlank { null }
+        val title = if (name != null || linkId != null) {
+            s.buddyNotifRequestFrom(name ?: buddyShortId(linkId ?: ""))
+        } else {
+            s.buddyNotifRequestTitle
+        }
+        val actions = if (linkId != null) {
+            listOf(
+                action(context, BuddyInviteActionReceiver.ACTION_ACCEPT, linkId, s.buddyInviteAccept),
+                action(context, BuddyInviteActionReceiver.ACTION_IGNORE, linkId, s.buddyInviteIgnore)
+            )
+        } else emptyList()
+        post(context, NOTIF_ID_REQUEST, title, s.buddyNotifRequestBody, actions = actions)
+    }
+
+    /** Build an explicit-intent broadcast action for the Accept/Ignore buttons. */
+    private fun action(
+        context: Context, intentAction: String, linkId: String, label: String
+    ): NotificationCompat.Action {
+        val intent = Intent(context, BuddyInviteActionReceiver::class.java).apply {
+            action = intentAction
+            putExtra(BuddyInviteActionReceiver.EXTRA_LINK_ID, linkId)
+        }
+        // Distinct request codes per (action, link) so Accept and Ignore don't collide.
+        val requestCode = (intentAction.hashCode() * 31) xor linkId.hashCode()
+        val pending = PendingIntent.getBroadcast(
+            context, requestCode, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        return NotificationCompat.Action.Builder(0, label, pending).build()
     }
 
     /** A buddy accepted my link request. */
@@ -75,7 +110,8 @@ object BuddyNotifier {
 
     private fun post(
         context: Context, id: Int, title: String, body: String,
-        channelId: String = createChannel(context), lowKey: Boolean = false
+        channelId: String = createChannel(context), lowKey: Boolean = false,
+        actions: List<NotificationCompat.Action> = emptyList()
     ) {
         if (!hasNotificationPermission(context)) return
         val openApp = Intent(context, MainActivity::class.java).apply {
@@ -85,7 +121,7 @@ object BuddyNotifier {
             context, id, openApp,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        val notif = NotificationCompat.Builder(context, channelId)
+        val builder = NotificationCompat.Builder(context, channelId)
             .setContentTitle(title)
             .setContentText(body)
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
@@ -96,7 +132,8 @@ object BuddyNotifier {
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setPriority(if (lowKey) NotificationCompat.PRIORITY_LOW else NotificationCompat.PRIORITY_DEFAULT)
             .setOnlyAlertOnce(lowKey)
-            .build()
+        actions.forEach { builder.addAction(it) }
+        val notif = builder.build()
         try {
             val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             nm.notify(id, notif)

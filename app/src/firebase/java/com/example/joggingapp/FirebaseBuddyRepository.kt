@@ -69,13 +69,18 @@ class FirebaseBuddyRepository(private val appContext: Context) : BuddyRepository
         // their App ID before the user-doc create is evaluated (rules require it).
         db.collection("authMap").document(uid).set(mapOf("appId" to appId)).await()
         // Upsert the user doc keyed by our App ID, recording the auth session uid.
-        db.collection("users").document(appId).set(
-            mapOf(
-                "authUid" to uid,
-                "updatedAt" to FieldValue.serverTimestamp()
-            ),
-            SetOptions.merge()
-        ).await()
+        // Write createdAt ("member since") create-if-absent only: read the doc first and
+        // include a server timestamp when it does not yet exist OR has no createdAt, so an
+        // existing account's creation time is NEVER clobbered.
+        val userRef = db.collection("users").document(appId)
+        val existing = runCatching { userRef.get().await() }.getOrNull()
+        val needsCreatedAt = existing == null || !existing.exists() || existing.get("createdAt") == null
+        val sessionData = buildMap<String, Any> {
+            put("authUid", uid)
+            put("updatedAt", FieldValue.serverTimestamp())
+            if (needsCreatedAt) put("createdAt", FieldValue.serverTimestamp())
+        }
+        userRef.set(sessionData, SetOptions.merge()).await()
         BuddyResult.Success(Unit)
     }.getOrElse { mapError(it) }
 
@@ -110,13 +115,14 @@ class FirebaseBuddyRepository(private val appContext: Context) : BuddyRepository
 
     // ── Linking ───────────────────────────────────────────────────────────────
 
-    override suspend fun requestLink(targetAppId: String): BuddyResult<Unit> = runCatching {
+    override suspend fun requestLink(targetAppId: String, fromName: String?): BuddyResult<Unit> = runCatching {
         val me = myAppId ?: return BuddyResult.Failure(BuddyResult.Reason.NOT_FOUND)
         if (targetAppId == me) return BuddyResult.Failure(BuddyResult.Reason.UNKNOWN)
         // Confirm the target exists (Req 3.5 — unknown id → NOT_FOUND).
         val target = db.collection("users").document(targetAppId).get().await()
         if (!target.exists()) return BuddyResult.Failure(BuddyResult.Reason.NOT_FOUND)
 
+        val safeFromName = fromName ?: ""
         val linkId = linkIdFor(me, targetAppId)
         val ref = db.collection("links").document(linkId)
         val now = System.currentTimeMillis()
@@ -126,6 +132,7 @@ class FirebaseBuddyRepository(private val appContext: Context) : BuddyRepository
                 tx.set(ref, mapOf(
                     "a" to me, "b" to targetAppId, "state" to "pending",
                     "reqCount" to 1L, "reqWindowStart" to now,
+                    "fromName" to safeFromName,
                     "createdAt" to FieldValue.serverTimestamp(),
                     "updatedAt" to FieldValue.serverTimestamp()
                 ))
@@ -135,11 +142,14 @@ class FirebaseBuddyRepository(private val appContext: Context) : BuddyRepository
                 val within = now - windowStart <= BuddyConstants.REQUEST_ALERT_WINDOW_MS
                 val newCount = if (within) (snap.getLong("reqCount") ?: 0L) + 1 else 1L
                 val newWindow = if (within) windowStart else now
-                tx.update(ref, mapOf(
-                    "reqCount" to newCount,
-                    "reqWindowStart" to newWindow,
-                    "updatedAt" to FieldValue.serverTimestamp()
-                ))
+                val updates = buildMap<String, Any> {
+                    put("reqCount", newCount)
+                    put("reqWindowStart", newWindow)
+                    put("updatedAt", FieldValue.serverTimestamp())
+                    // Refresh the denormalized name on a re-request when provided.
+                    if (safeFromName.isNotBlank()) put("fromName", safeFromName)
+                }
+                tx.update(ref, updates)
             }
             null
         }.await()
@@ -440,7 +450,8 @@ private fun com.google.firebase.firestore.DocumentSnapshot.toBuddyUser(appId: St
         buddyEnabled = getBoolean("buddyEnabled") ?: false,
         gpsOn = getBoolean("gpsOn") ?: false,
         sharing = getBoolean("sharing") ?: false,
-        updatedAt = getTimestamp("updatedAt")?.toDate()?.time ?: 0L
+        updatedAt = getTimestamp("updatedAt")?.toDate()?.time ?: 0L,
+        createdAt = getTimestamp("createdAt")?.toDate()?.time ?: 0L
     )
 
 private fun com.google.firebase.firestore.DocumentSnapshot.toBuddyLink(): BuddyLink {
@@ -458,7 +469,8 @@ private fun com.google.firebase.firestore.DocumentSnapshot.toBuddyLink(): BuddyL
         reqCount = (getLong("reqCount") ?: 0L).toInt(),
         reqWindowStart = getLong("reqWindowStart") ?: 0L,
         createdAt = getTimestamp("createdAt")?.toDate()?.time ?: 0L,
-        updatedAt = getTimestamp("updatedAt")?.toDate()?.time ?: 0L
+        updatedAt = getTimestamp("updatedAt")?.toDate()?.time ?: 0L,
+        fromName = getString("fromName") ?: ""
     )
 }
 

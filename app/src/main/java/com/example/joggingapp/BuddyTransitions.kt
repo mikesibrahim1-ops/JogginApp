@@ -14,8 +14,9 @@ object BuddyTransitions {
 
     /** A social event the controller should surface as a notification. */
     sealed class Event {
-        /** An incoming link request (new, or a re-request within the alert cap). */
-        object RequestReceived : Event()
+        /** An incoming link request (new, or a re-request within the alert cap). Carries
+         *  the triggering link so the controller can pass linkId/fromName to the notifier. */
+        data class RequestReceived(val link: BuddyLink) : Event()
         /** A buddy became accepted (appeared in the accepted set). name may be a short id. */
         data class Accepted(val name: String) : Event()
         /** A buddy unlinked / vanished from the accepted set. name may be a short id. */
@@ -40,7 +41,7 @@ object BuddyTransitions {
             val isNew = prevCount == null
             val bumped = prevCount != null && link.reqCount > prevCount
             if ((isNew || bumped) && link.reqCount <= maxAlerts) {
-                events.add(Event.RequestReceived)
+                events.add(Event.RequestReceived(link))
             }
         }
         return events

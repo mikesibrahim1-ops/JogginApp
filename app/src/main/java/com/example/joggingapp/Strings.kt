@@ -195,6 +195,20 @@ data class AppStrings(
     val buddyEventsChannelName: String,    // notification channel for social events
     val buddyNotifRequestTitle: String,    // "New buddy request"
     val buddyNotifRequestBody: String,     // "Someone wants to link with you"
+    val buddyNotifRequestFrom: (String) -> String, // "{name} wants to buddy up"
+    // ── V1.48 code-based invite flow ──────────────────────────────────────────
+    val buddyYourCode: String,             // "Your Buddy code"
+    val buddyCodeCopy: String,             // "Copy"
+    val buddyCodeCopied: String,           // "Code copied"
+    val buddyCodeShare: String,            // "Share"
+    val buddyEnterCodeHint: String,        // input hint
+    val buddyConnect: String,              // "Connect" button
+    val buddyInviteSent: String,           // "Invite sent"
+    val buddyCodeInvalid: String,          // "That code isn't valid"
+    val buddyCodeUnknown: String,          // no one found with that code
+    val buddyAlreadyConnected: String,     // already connected / pending
+    val buddySelfInvite: String,           // "That's your own code"
+    val buddyMemberSince: (String) -> String, // "Member since {date}"
     val buddyNotifAcceptedTitle: String,   // "Buddy request accepted"
     val buddyNotifAcceptedBody: (String) -> String, // "{name} is now your buddy"
     val buddyNotifUnlinkedTitle: String,   // "Buddy unlinked"
@@ -445,6 +459,19 @@ val EnglishStrings = AppStrings(
     buddyEventsChannelName = "Buddy Link updates",
     buddyNotifRequestTitle = "New buddy request",
     buddyNotifRequestBody = "Someone wants to link with you on Buddy Link",
+    buddyNotifRequestFrom = { name -> "$name wants to buddy up" },
+    buddyYourCode = "Your Buddy code",
+    buddyCodeCopy = "Copy",
+    buddyCodeCopied = "Code copied",
+    buddyCodeShare = "Share",
+    buddyEnterCodeHint = "Enter a friend's code",
+    buddyConnect = "Connect",
+    buddyInviteSent = "Invite sent",
+    buddyCodeInvalid = "That code isn't valid",
+    buddyCodeUnknown = "No one found with that code",
+    buddyAlreadyConnected = "You're already connected or a request is pending",
+    buddySelfInvite = "That's your own code",
+    buddyMemberSince = { date -> "Member since $date" },
     buddyNotifAcceptedTitle = "Buddy request accepted",
     buddyNotifAcceptedBody = { name -> "$name is now your buddy" },
     buddyNotifUnlinkedTitle = "Buddy unlinked",
@@ -694,6 +721,19 @@ val GreekStrings = AppStrings(
     buddyEventsChannelName = "Ενημερώσεις Συνδέσμου Φίλου",
     buddyNotifRequestTitle = "Νέο αίτημα φίλου",
     buddyNotifRequestBody = "Κάποιος θέλει να συνδεθεί μαζί σας στον Σύνδεσμο Φίλου",
+    buddyNotifRequestFrom = { name -> "Ο/Η $name θέλει να γίνετε φίλοι" },
+    buddyYourCode = "Ο κωδικός σας Buddy",
+    buddyCodeCopy = "Αντιγραφή",
+    buddyCodeCopied = "Ο κωδικός αντιγράφηκε",
+    buddyCodeShare = "Κοινοποίηση",
+    buddyEnterCodeHint = "Εισαγάγετε τον κωδικό ενός φίλου",
+    buddyConnect = "Σύνδεση",
+    buddyInviteSent = "Η πρόσκληση στάλθηκε",
+    buddyCodeInvalid = "Μη έγκυρος κωδικός",
+    buddyCodeUnknown = "Δεν βρέθηκε κανείς με αυτόν τον κωδικό",
+    buddyAlreadyConnected = "Είστε ήδη συνδεδεμένοι ή εκκρεμεί αίτημα",
+    buddySelfInvite = "Αυτός είναι ο δικός σας κωδικός",
+    buddyMemberSince = { date -> "Μέλος από $date" },
     buddyNotifAcceptedTitle = "Το αίτημα φίλου έγινε αποδεκτό",
     buddyNotifAcceptedBody = { name -> "Ο/Η $name είναι πλέον φίλος σας" },
     buddyNotifUnlinkedTitle = "Αποσύνδεση φίλου",

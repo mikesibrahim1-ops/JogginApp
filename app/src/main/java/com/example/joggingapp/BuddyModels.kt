@@ -23,7 +23,8 @@ data class BuddyUser(
     val buddyEnabled: Boolean = false,
     val gpsOn: Boolean = false,
     val sharing: Boolean = false,
-    val updatedAt: Long = 0L
+    val updatedAt: Long = 0L,
+    val createdAt: Long = 0L        // account creation time ("member since"), server-set once
 )
 
 /**
@@ -39,7 +40,8 @@ data class BuddyLink(
     val reqCount: Int = 0,
     val reqWindowStart: Long = 0L,
     val createdAt: Long = 0L,
-    val updatedAt: Long = 0L
+    val updatedAt: Long = 0L,
+    val fromName: String = ""       // sender's displayName, denormalized at request time
 )
 
 /** A buddy's latest known location fix. `at` is the fix time (drives staleness). */

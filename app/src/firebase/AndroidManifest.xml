@@ -63,6 +63,10 @@
             android:name=".BuddyLocationService"
             android:exported="false"
             android:foregroundServiceType="location" />
+        <!-- Buddy Link invite Accept/Ignore actions from the notification shade (V1.48). -->
+        <receiver
+            android:name=".BuddyInviteActionReceiver"
+            android:exported="false" />
         <!-- Buddy Link push receiver (FCM). Only present in the Firebase-enabled build. -->
         <service
             android:name=".BuddyFirebaseMessagingService"

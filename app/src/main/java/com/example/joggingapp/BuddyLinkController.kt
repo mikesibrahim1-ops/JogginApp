@@ -59,6 +59,13 @@ class BuddyLinkController(private val appContext: Context) {
     /** Derived: am I currently sharing? (mutual-on gate, CONDITION-1 — my side.) */
     val sharing: Boolean get() = enabled && gpsOn
 
+    /**
+     * The local "member since" time (ms epoch), stored create-if-absent in prefs on first
+     * enable so the Buddy section can show a stable date without an extra Firestore read.
+     * Null until the account has been provisioned at least once.
+     */
+    val myCreatedAt: Long? get() = prefs.getLong(KEY_CREATED_AT, 0L).takeIf { it > 0L }
+
     /** True when at least one buddy can currently see me (drives the eye indicator). */
     val hasWatchers: Boolean get() = enabled && watchers.isNotEmpty()
 
@@ -119,7 +126,11 @@ class BuddyLinkController(private val appContext: Context) {
      */
     private fun detectPendingTransitions(newPending: List<BuddyLink>) {
         BuddyTransitions.pendingEvents(prevPendingCounts, newPending).forEach { ev ->
-            if (ev is BuddyTransitions.Event.RequestReceived) BuddyNotifier.notifyRequestReceived(appContext)
+            if (ev is BuddyTransitions.Event.RequestReceived) {
+                BuddyNotifier.notifyRequestReceived(
+                    appContext, linkId = ev.link.linkId, fromName = ev.link.fromName
+                )
+            }
         }
         prevPendingCounts = BuddyTransitions.pendingSnapshot(newPending)
     }
@@ -189,6 +200,10 @@ class BuddyLinkController(private val appContext: Context) {
         appId = id
         enabled = true
         prefs.edit().putBoolean(KEY_ENABLED, true).apply()
+        // Record "member since" once, create-if-absent — never overwrite a prior value.
+        if (!prefs.contains(KEY_CREATED_AT)) {
+            prefs.edit().putLong(KEY_CREATED_AT, System.currentTimeMillis()).apply()
+        }
         AppLogger.log(appContext, LogCategory.PROFILE, "Buddy Link enabled")
         scope.launch {
             repo.ensureSession(id)
@@ -214,8 +229,11 @@ class BuddyLinkController(private val appContext: Context) {
     }
 
     // ── Actions (fire-and-forget; failures surface via backendAvailable/status) ──
-    fun requestLink(targetAppId: String, onResult: (BuddyResult<Unit>) -> Unit = {}) =
-        scope.launch { onResult(repo.requestLink(targetAppId)) }
+    fun requestLink(
+        targetAppId: String,
+        fromName: String? = null,
+        onResult: (BuddyResult<Unit>) -> Unit = {}
+    ) = scope.launch { onResult(repo.requestLink(targetAppId, fromName)) }
     /** Recipient accepts an opened invite from [fromAppId], pairing both sides (Option a). */
     fun acceptInvite(fromAppId: String, onResult: (BuddyResult<Unit>) -> Unit = {}) =
         scope.launch { onResult(repo.acceptInvite(fromAppId)) }
@@ -251,6 +269,8 @@ class BuddyLinkController(private val appContext: Context) {
         repo.deleteAllMyData()
         BuddyIdentity.reset(appContext)
         disable()
+        // Clear local "member since" so a fresh identity starts a fresh account age.
+        prefs.edit().remove(KEY_CREATED_AT).apply()
         appId = null
     }
 
@@ -267,5 +287,6 @@ class BuddyLinkController(private val appContext: Context) {
 
     companion object {
         private const val KEY_ENABLED = "buddy_enabled"
+        private const val KEY_CREATED_AT = "buddy_created_at"
     }
 }
