@@ -12,27 +12,29 @@ Android GPS fitness tracker (walk/run/cycle) at `c:\Users\INFINITI\Documents\Kir
 as a sideloaded APK: GitHub Releases hosts the APK; a Firebase Hosting install page links to it.
 
 ## 2. Current version / build state
-- **V1.47** — `versionCode 47`, `versionName "1.47"` (`app/build.gradle`). PUBLISHED; on-device
-  install PENDING (device was disconnected at release time — reinstall when the phone is plugged
-  in: `adb install -r app\build\outputs\apk\debug\app-debug.apk`, or it will show up via the new
-  in-app "Check for updates").
-- Git: HEAD **`d9fcd1c`** on `main`, pushed to `origin/main` (in sync). Tag **`V1.47`** pushed.
-  Earlier tags V1.40–V1.46 also exist.
+- **V1.48** — `versionCode 48`, `versionName "1.48"` (`app/build.gradle`). PUBLISHED; on-device
+  install PENDING (device disconnected at release time — reinstall when plugged in:
+  `adb install -r app\build\outputs\apk\debug\app-debug.apk`, or via in-app "Check for updates").
+  Last confirmed on-device version is V1.47.
+- Git: HEAD **`e3fd0d6`** on `main`, pushed to `origin/main` (in sync). Tag **`V1.48`** pushed.
+  Earlier tags V1.40–V1.47 also exist.
 - `minSdk 24`, `targetSdk 34`, `compileSdk 34`, Java/Kotlin 17, Compose compiler 1.5.10.
 - Last build: `assembleDebug` + `testDebugUnitTest` → **BUILD SUCCESSFUL** (debug-signed; full
   unit suite green incl. ExerciseTargetsTest + BuddyInviteTest). NOTE: the Gradle daemon kept
   dying mid-build this session (accumulated dead daemons after shell wedges); the fix that
   worked was killing all `java.exe`, clearing `~/.gradle/daemon/*`, then building with
   **`--no-daemon`**. Use that if the daemon churns.
-- **V1.47 is PUBLISHED on GitHub** (not draft) with `joggin.apk` asset; `/releases/latest/
+- **V1.48 is PUBLISHED on GitHub** (not draft) with `joggin.apk` asset; `/releases/latest/
   download/joggin.apk` returns 200; install page `https://joggin-a69a7.web.app/get` serves it.
-  Release URL: https://github.com/mikesibrahim1-ops/JogginApp/releases/tag/V1.47
-- Firebase **Hosting deployed** this session (`firebase deploy --only hosting`) — serves the
-  hardened `/buddy` page + `assetlinks.json`. (Functions NOT deployed — still Blaze-blocked.)
-- **Device R5CR100AY2V was DISCONNECTED** at release time, so V1.47 is NOT yet installed on it
-  (last confirmed on-device version is V1.46). Install when plugged in.
-- APKs in `builds/`: `joggin-v1.47.apk` (archived; keeps newest 4 → v1.44–v1.47; v1.43 pruned)
-  and `joggin.apk` (lowercase release copy = V1.47, 12,345,943 bytes).
+  Release URL: https://github.com/mikesibrahim1-ops/JogginApp/releases/tag/V1.48
+- Firestore rules were NOT changed by V1.48 (links/users have no field whitelist; the new
+  `fromName`/`createdAt` fields are already allowed) — **no rules deploy needed**.
+- Firebase Hosting was deployed in the V1.47 session (hardened `/buddy` page + `assetlinks.json`);
+  not touched by V1.48. (Functions still NOT deployed — Blaze-blocked.)
+- **Device R5CR100AY2V was DISCONNECTED** at V1.48 release time, so V1.48 is NOT yet installed on
+  it (last confirmed on-device version is V1.47). Install when plugged in.
+- APKs in `builds/`: `joggin-v1.48.apk` (archived; keeps newest 4 → v1.45–v1.48; v1.44 pruned)
+  and `joggin.apk` (lowercase release copy = V1.48, 12,358,239 bytes).
 
 ## 3. Environment notes (IMPORTANT — avoids wasted time)
 - **Terminal is very flaky.** PowerShell echoes commands char-by-char and reports **exit -1
@@ -66,6 +68,28 @@ as a sideloaded APK: GitHub Releases hosts the APK; a Firebase Hosting install p
 
 ## 4. What was accomplished across recent sessions (all committed + pushed)
 Newest first on `main`:
+- `e3fd0d6` — **V1.48: code-based Buddy Link invites + Accept/Ignore notification** (versionCode
+  48, bump + release notes in this commit). Replaces the broken share-a-link invite with a
+  CODE-BASED flow, all on the FREE Spark plan (no Cloud Functions, no paid push). Design (user-
+  chosen): the CODE = the existing `appId` (per-install UUID in jog_prefs `buddy_app_id`); no
+  username registry. Each user sees THEIR OWN code (formatted + Copy/Share) in the Buddy section;
+  to connect, the SENDER enters the RECIPIENT's code → `requestLink(targetCode)` writes a pending
+  `links` doc (`a=me, b=target, state=pending`) now carrying a denormalized **`fromName`** (sender
+  displayName) so the prompt can name the sender before acceptance. The recipient's existing
+  `observePendingRequests` Firestore listener raises a LOCAL notification "<name> wants to buddy
+  up" with **Accept / Ignore** action buttons wired to a new `goAsync` `BroadcastReceiver`
+  (`BuddyInviteActionReceiver`, registered `exported=false` in BOTH manifests) that calls
+  acceptLink/declineLink off-thread. Accept → link `accepted` → `observeBuddies` shows both sides
+  by `displayName`. Added **`createdAt`** (create-if-absent) on `users/{appId}` + a "Member since
+  <date>" display. New `BuddyCodeTest` (code normalize/validate, 6/6). EN+EL strings. **Firestore
+  rules unchanged** (no field whitelist → new fields already allowed; no deploy). Deep-link path
+  (joggin:// + https /buddy) kept for back-compat but the code flow is the primary invite UI.
+  ⚠ **FREE-TIER LIMITATION (unchanged, by design):** the invite notification fires via the
+  recipient's live Firestore listener — reliable when their app is foreground/backgrounded/running
+  the location foreground service; a FULLY KILLED app sees the pending invite on next open. True
+  push to a killed app needs a server (Blaze), which the user has ruled out. Client-side FCM is not
+  possible (no server key; legacy API dead; HTTP v1 needs server-minted OAuth).
+- `8ec3b35` — Handover update (V1.47).
 - `d9fcd1c` — **V1.47: reliable Buddy Link invite deep-link + in-app update check** (versionCode
   47, bump + release notes included in this commit). Two features:
   (1) **Buddy Link invite now opens the APP, not just the website.** Root cause (see
@@ -151,19 +175,20 @@ the removal of the handover hook.
 - **Buddy Link** two-party flows + push still need 2 devices + Firebase config (unchanged).
 
 ## 6. Immediate next step(s)
-- **Install V1.47 on the device** (it was disconnected at release): plug in R5CR100AY2V, then
+- **Install V1.48 on the device** (disconnected at release): plug in R5CR100AY2V, then
   `adb install -r app\build\outputs\apk\debug\app-debug.apk` (adb at
   `C:\Users\INFINITI\Downloads\platform-tools-latest-windows\platform-tools\adb.exe`). The
-  app-debug.apk from this session's build IS V1.47.
-- **Verify on-device:** tapping a Buddy Link invite now opens the app → accept/ignore dialog
-  (the actual bug the user reported); and the new "Check for updates" (Settings → App section +
-  auto-on-launch prompt) works against GitHub Releases.
-- Still owed from V1.46: real two-device Buddy pairing; eyeball per-type target colours across
-  the 4 themes.
-- **Optional:** enable true https App-Link auto-open by registering the app + debug SHA-256 in
-  the Firebase console (see §4 known limitation). Not needed for invites to open the app.
-- **Cloud-function deploy still BLOCKED on Blaze** (see §7); user avoids upgrading; pairing works
-  without it.
+  app-debug.apk from this session's build IS V1.48.
+- **Verify on-device the new code-based Buddy flow:** each user sees their own code (Copy); one
+  user enters the other's code + Connect; the recipient gets the "<name> wants to buddy up"
+  notification with Accept/Ignore (best when the recipient's app is open/backgrounded — see the
+  free-tier limitation); on Accept both appear under Buddy by name with "Member since".
+- Still owed from earlier: eyeball per-type target colours across the 4 themes; the V1.47
+  reliable-deep-link open (custom scheme / intent://) in a real chat app.
+- **Optional (free):** enable true https App-Link auto-open by registering the app + debug SHA-256
+  in the Firebase console (V1.47 §4 limitation). Not needed for invites to work.
+- **Cloud-function deploy still BLOCKED on Blaze** (§7); user avoids all cost. Everything shipped
+  works without it.
 
 ## 7. Known caveats / open items / blockers
 - **History "Run" vs "Walk" heuristic LEFT AS-IS by user decision:** in the history card
