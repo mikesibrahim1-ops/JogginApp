@@ -60,17 +60,26 @@ interface BuddyRepository {
     suspend fun requestLink(targetAppId: String, fromName: String? = null): BuddyResult<Unit>
 
     /**
-     * Called when THIS device (the recipient) accepts an invite link whose embedded
-     * id is [fromAppId] (the sender). Creates or transitions
-     * `links/{sorted(me, fromAppId)}` to `state = accepted` with `a = me`, pairing
-     * both sides in one write (design: Option a — the recipient's open+Accept is the
-     * consent event, so the recipient drives the accept). If the link already exists
-     * (either direction), only its state is advanced to accepted (a/b untouched).
-     * Fails NOT_FOUND if the sender user doc doesn't exist, UNKNOWN if `fromAppId == me`.
+     * Called when THIS device opens + accepts an invite link whose embedded id is
+     * [fromAppId] (the inviter). Since V1.49 a link can never be born accepted (rules):
+     *  - if a PENDING link exists with me as side `b` (the inviter already requested
+     *    me), it is moved to accepted → [InviteOutcome.CONNECTED];
+     *  - if the link is already accepted → [InviteOutcome.CONNECTED] (no write);
+     *  - otherwise a PENDING request is sent to the inviter via [requestLink] with
+     *    [fromName] → [InviteOutcome.REQUEST_SENT] (the inviter then accepts).
+     * Fails NOT_FOUND for an unknown inviter id, UNKNOWN if `fromAppId == me`.
      */
-    suspend fun acceptInvite(fromAppId: String): BuddyResult<Unit>
+    suspend fun acceptInvite(fromAppId: String, fromName: String? = null): BuddyResult<InviteOutcome>
 
-    /** Accepts a pending incoming link. */
+    /**
+     * True when the backend still needs a session to be (re)established before it can
+     * be used (e.g. the first anonymous sign-in failed). Drives the launch-time
+     * auto-retry in [BuddyLinkController.start]. Backends with no session concept
+     * return false.
+     */
+    fun needsSession(): Boolean
+
+    /** Accepts a pending incoming link. Only the recipient (side `b`) may accept. */
     suspend fun acceptLink(linkId: String): BuddyResult<Unit>
 
     /** Declines a pending incoming link. */

@@ -3,10 +3,10 @@ rules_version = '2';
 // ─────────────────────────────────────────────────────────────────────────────
 // Buddy Link — Firestore security rules (design §9)
 //
-// ⚠ DEPLOY COPY. This is the file Firebase actually deploys (firebase.json →
-// firestore.rules). Keep it identical to the repo-root ../firestore.rules, which is
-// the canonical/reviewed copy. The Firebase CLI refuses rules paths outside the
-// firebase.json directory, so a local copy is required.
+// ⚠ TWO IDENTICAL COPIES: repo-root firestore.rules (canonical/reviewed) and
+// firebase-hosting/firestore.rules (the DEPLOY copy, firebase.json → firestore.rules).
+// Keep them byte-identical. The Firebase CLI refuses rules paths outside the
+// firebase.json directory, so the local deploy copy is required.
 //
 // Identity model: documents are keyed by our own App ID (a stable UUID), while the
 // caller authenticates with a Firebase anonymous uid. The `authMap/{uid}` resolver
@@ -18,7 +18,8 @@ rules_version = '2';
 //  - a location (and its trail) is readable ONLY when an ACCEPTED link exists,
 //    BOTH users are `sharing == true`, and NEITHER has blocked the other
 //    (CONDITION-1, three-layer enforcement — this is layer 3, tamper-resistant);
-//  - link create requires the caller to be side `a` and not blocked by `b`.
+//  - link create requires the caller to be side `a`, the target user to exist, and
+//    the link to start PENDING; only the recipient (side `b`) can accept it (V1.49).
 // ─────────────────────────────────────────────────────────────────────────────
 
 service cloud.firestore {
@@ -45,6 +46,13 @@ service cloud.firestore {
       return exists(/databases/$(database)/documents/links/$(linkId(x, y)))
         && get(/databases/$(database)/documents/links/$(linkId(x, y))).data.state == 'accepted';
     }
+    // Any link (pending OR accepted) exists between the pair. Needed so a party can
+    // read the counterpart's user doc to show "User X" on a PENDING invite, before
+    // acceptance. Reading the user doc exposes only displayName/status, not location
+    // (locations stay gated by acceptedLink + mutual sharing below).
+    function linkedEitherState(x, y) {
+      return exists(/databases/$(database)/documents/links/$(linkId(x, y)));
+    }
     function hasBlocked(ownerAppId, otherAppId) {
       return exists(/databases/$(database)/documents/users/$(ownerAppId)/blocked/$(otherAppId));
     }
@@ -66,9 +74,10 @@ service cloud.firestore {
 
     // users/{appId}
     match /users/{appId} {
-      // Readable by the owner or by an accepted buddy (needed to show name/status).
+      // Readable by the owner, or by anyone who has a link (pending or accepted) with
+      // this user — so a pending invite can display the counterpart's name/status.
       allow read: if ownsUser(appId)
-                  || (signedIn() && acceptedLink(myAppId(), appId));
+                  || (signedIn() && linkedEitherState(myAppId(), appId));
       // Create/own only the App ID that the caller's authMap points to, and the doc
       // must carry the caller's own authUid so ownsUser() works thereafter.
       allow create: if mappedToMe(appId)
@@ -83,13 +92,47 @@ service cloud.firestore {
       }
     }
 
-    // links/{linkId}: either party may read/update; creator must be side `a` and not blocked.
-    match /links/{linkId} {
-      allow read, update: if signedIn()
+    // links/{linkId}: either party may read/update/delete; creator must be side `a`.
+    // NOTE: the creator is side `a` and may be inviting a stranger `b`, whose
+    // users/{b}/blocked/* subtree the creator cannot read. Calling hasBlocked(b, me)
+    // here throws PERMISSION_DENIED (get/exists on an unreadable path errors, it does
+    // not return false), which blocked the code-based invite entirely. The block is
+    // instead enforced where it is readable: the recipient (side `b`) can decline, and
+    // location reads are already gated by hasBlocked on both sides.
+    // The doc-id wildcard is `lid` (not `linkId`) so it doesn't shadow the linkId()
+    // function, which the create rule calls.
+    match /links/{lid} {
+      // Single-doc read: a MISSING doc (resource == null) reveals nothing, and must be
+      // readable so the creator's transaction can tx.get() it before creating (V1.49).
+      allow get: if signedIn()
+        && (resource == null
+            || myAppId() == resource.data.a || myAppId() == resource.data.b);
+      // Queries (observeBuddies / observePendingRequests / deleteAllMyData) must be
+      // constrained to links where I'm a party.
+      allow list: if signedIn()
         && (myAppId() == resource.data.a || myAppId() == resource.data.b);
       allow create: if signedIn()
         && request.resource.data.a == myAppId()
-        && !hasBlocked(request.resource.data.b, myAppId());
+        // Forbid forged ids: the doc id must be the sorted pair.
+        && lid == linkId(request.resource.data.a, request.resource.data.b)
+        // No self-link.
+        && request.resource.data.b != myAppId()
+        // SECURITY: a link is always born PENDING; it can't be created already accepted.
+        && request.resource.data.state == 'pending'
+        // The target must exist (replaces the removed client-side users/{b} precheck).
+        && exists(/databases/$(database)/documents/users/$(request.resource.data.b));
+      allow update: if signedIn()
+        && (myAppId() == resource.data.a || myAppId() == resource.data.b)
+        // The parties of a link are immutable.
+        && request.resource.data.a == resource.data.a
+        && request.resource.data.b == resource.data.b
+        // State: unchanged (re-request counter bump), or either party declines/removes,
+        // or ONLY the recipient (side b) accepts a PENDING link.
+        && (request.resource.data.state == resource.data.state
+            || request.resource.data.state in ['declined', 'removed']
+            || (request.resource.data.state == 'accepted'
+                && resource.data.state == 'pending'
+                && myAppId() == resource.data.b));
       allow delete: if signedIn()
         && (myAppId() == resource.data.a || myAppId() == resource.data.b);
     }

@@ -51,14 +51,21 @@ class FirebaseBuddyRepository(private val appContext: Context) : BuddyRepository
         trySend(auth.currentUser != null)
         val id = myAppId
         if (id == null) { trySend(false); awaitClose { }; return@callbackFlow }
+        // V1.49: re-emit on auth changes so a LATE sign-in (session auto-retry) flips
+        // availability to true. The users/{id} listener below may have been denied
+        // (and terminated by the SDK) while signed out, so it can't be relied on for that.
+        val authListener = FirebaseAuth.AuthStateListener { a -> trySend(a.currentUser != null) }
+        auth.addAuthStateListener(authListener)
         val reg: ListenerRegistration = db.collection("users").document(id)
             .addSnapshotListener { snap, _ ->
                 // If we get a server (non-cache) snapshot, we're online.
                 val online = snap != null && !snap.metadata.isFromCache
                 trySend(online || auth.currentUser != null)
             }
-        awaitClose { reg.remove() }
+        awaitClose { reg.remove(); auth.removeAuthStateListener(authListener) }
     }
+
+    override fun needsSession(): Boolean = auth.currentUser == null
 
     // ── Identity / session ──────────────────────────────────────────────────────
 
@@ -115,83 +122,109 @@ class FirebaseBuddyRepository(private val appContext: Context) : BuddyRepository
 
     // ── Linking ───────────────────────────────────────────────────────────────
 
-    override suspend fun requestLink(targetAppId: String, fromName: String?): BuddyResult<Unit> = runCatching {
-        val me = myAppId ?: return BuddyResult.Failure(BuddyResult.Reason.NOT_FOUND)
-        if (targetAppId == me) return BuddyResult.Failure(BuddyResult.Reason.UNKNOWN)
-        // Confirm the target exists (Req 3.5 — unknown id → NOT_FOUND).
-        val target = db.collection("users").document(targetAppId).get().await()
-        if (!target.exists()) return BuddyResult.Failure(BuddyResult.Reason.NOT_FOUND)
+    override suspend fun requestLink(targetAppId: String, fromName: String?): BuddyResult<Unit> {
+        // Set inside the transaction when the (last) attempt was creating the link doc,
+        // so a rules denial of that create can be reported as an unknown code.
+        var creating = false
+        return runCatching {
+            val me = myAppId ?: return BuddyResult.Failure(BuddyResult.Reason.NOT_FOUND)
+            if (targetAppId == me) return BuddyResult.Failure(BuddyResult.Reason.UNKNOWN)
+            // V1.49: NO users/{target} precheck. That read is denied by design before any
+            // link exists (users read needs a link), which made every Connect fail with
+            // PERMISSION_DENIED. Target existence is now enforced by the links create rule
+            // (exists(users/{b})); a denied create is mapped to NOT_FOUND below (Req 3.5).
 
-        val safeFromName = fromName ?: ""
-        val linkId = linkIdFor(me, targetAppId)
-        val ref = db.collection("links").document(linkId)
-        val now = System.currentTimeMillis()
-        db.runTransaction { tx ->
-            val snap = tx.get(ref)
-            if (!snap.exists()) {
-                tx.set(ref, mapOf(
-                    "a" to me, "b" to targetAppId, "state" to "pending",
-                    "reqCount" to 1L, "reqWindowStart" to now,
-                    "fromName" to safeFromName,
-                    "createdAt" to FieldValue.serverTimestamp(),
-                    "updatedAt" to FieldValue.serverTimestamp()
-                ))
-            } else {
-                // Existing link: bump the 24h alert counter (Req 3.8), keep state.
-                val windowStart = snap.getLong("reqWindowStart") ?: 0L
-                val within = now - windowStart <= BuddyConstants.REQUEST_ALERT_WINDOW_MS
-                val newCount = if (within) (snap.getLong("reqCount") ?: 0L) + 1 else 1L
-                val newWindow = if (within) windowStart else now
-                val updates = buildMap<String, Any> {
-                    put("reqCount", newCount)
-                    put("reqWindowStart", newWindow)
-                    put("updatedAt", FieldValue.serverTimestamp())
-                    // Refresh the denormalized name on a re-request when provided.
-                    if (safeFromName.isNotBlank()) put("fromName", safeFromName)
+            val safeFromName = fromName ?: ""
+            val linkId = linkIdFor(me, targetAppId)
+            val ref = db.collection("links").document(linkId)
+            val now = System.currentTimeMillis()
+            db.runTransaction { tx ->
+                // Reading a missing link doc is allowed by the rules (resource == null).
+                val snap = tx.get(ref)
+                creating = !snap.exists()
+                if (!snap.exists()) {
+                    tx.set(ref, mapOf(
+                        "a" to me, "b" to targetAppId, "state" to "pending",
+                        "reqCount" to 1L, "reqWindowStart" to now,
+                        "fromName" to safeFromName,
+                        "createdAt" to FieldValue.serverTimestamp(),
+                        "updatedAt" to FieldValue.serverTimestamp()
+                    ))
+                } else {
+                    // Existing link: bump the 24h alert counter (Req 3.8), keep state.
+                    val windowStart = snap.getLong("reqWindowStart") ?: 0L
+                    val within = now - windowStart <= BuddyConstants.REQUEST_ALERT_WINDOW_MS
+                    val newCount = if (within) (snap.getLong("reqCount") ?: 0L) + 1 else 1L
+                    val newWindow = if (within) windowStart else now
+                    val updates = buildMap<String, Any> {
+                        put("reqCount", newCount)
+                        put("reqWindowStart", newWindow)
+                        put("updatedAt", FieldValue.serverTimestamp())
+                        // Refresh the denormalized name on a re-request when provided.
+                        if (safeFromName.isNotBlank()) put("fromName", safeFromName)
+                    }
+                    tx.update(ref, updates)
                 }
-                tx.update(ref, updates)
-            }
-            null
-        }.await()
-        BuddyResult.Success(Unit)
-    }.getOrElse { mapError(it) }
+                null
+            }.await()
+            BuddyResult.Success(Unit)
+        }.getOrElse { t ->
+            val failure = mapError(t)
+            // The create rule rejects a code with no users/{b} doc → "unknown code".
+            if (creating && failure.reason == BuddyResult.Reason.PERMISSION)
+                BuddyResult.Failure(BuddyResult.Reason.NOT_FOUND, failure.message)
+            else failure
+        }
+    }
 
-    override suspend fun acceptInvite(fromAppId: String): BuddyResult<Unit> = runCatching {
+    override suspend fun acceptInvite(fromAppId: String, fromName: String?): BuddyResult<InviteOutcome> = runCatching {
         val me = myAppId ?: return BuddyResult.Failure(BuddyResult.Reason.NOT_FOUND)
         if (fromAppId == me) return BuddyResult.Failure(BuddyResult.Reason.UNKNOWN)
-        // Confirm the sender exists (same guard as requestLink — unknown id → NOT_FOUND).
-        val sender = db.collection("users").document(fromAppId).get().await()
-        if (!sender.exists()) return BuddyResult.Failure(BuddyResult.Reason.NOT_FOUND)
-
-        val linkId = linkIdFor(me, fromAppId)
-        val ref = db.collection("links").document(linkId)
-        val now = System.currentTimeMillis()
-        db.runTransaction { tx ->
+        // V1.49: no users/{fromAppId} precheck (denied before a link exists), and a link
+        // is never created already-accepted (rules require create state == 'pending').
+        val ref = db.collection("links").document(linkIdFor(me, fromAppId))
+        val action = db.runTransaction { tx ->
+            // Missing doc is readable (rules: resource == null).
             val snap = tx.get(ref)
-            if (!snap.exists()) {
-                // Birth the link already accepted with me as side `a` (create rule
-                // requires a == myAppId()). One write pairs both sides.
-                tx.set(ref, mapOf(
-                    "a" to me, "b" to fromAppId, "state" to "accepted",
-                    "reqCount" to 1L, "reqWindowStart" to now,
-                    "createdAt" to FieldValue.serverTimestamp(),
-                    "updatedAt" to FieldValue.serverTimestamp()
-                ))
-            } else {
-                // Existing link (either direction): only advance state; never rewrite
-                // a/b (update rule allows either party to touch state/updatedAt).
+            val state = if (snap.exists()) BuddyLinkDecisions.parseState(snap.getString("state")) else null
+            val act = BuddyLinkDecisions.inviteAction(me, state, snap.getString("b"))
+            if (act == BuddyLinkDecisions.InviteAction.ACCEPT_EXISTING) {
+                // The inviter already requested me (I'm side b) → accept it.
                 tx.update(ref, mapOf(
                     "state" to "accepted",
                     "updatedAt" to FieldValue.serverTimestamp()
                 ))
             }
-            null
+            act
         }.await()
-        BuddyResult.Success(Unit)
+        when (action) {
+            BuddyLinkDecisions.InviteAction.ACCEPT_EXISTING,
+            BuddyLinkDecisions.InviteAction.ALREADY_CONNECTED -> BuddyResult.Success(InviteOutcome.CONNECTED)
+            // Send a pending request back to the inviter (a = me), who then accepts.
+            BuddyLinkDecisions.InviteAction.SEND_REQUEST -> when (val r = requestLink(fromAppId, fromName)) {
+                is BuddyResult.Success -> BuddyResult.Success(InviteOutcome.REQUEST_SENT)
+                is BuddyResult.Failure -> r
+            }
+        }
     }.getOrElse { mapError(it) }
 
-    override suspend fun acceptLink(linkId: String): BuddyResult<Unit> =
-        setLinkState(linkId, "accepted")
+    override suspend fun acceptLink(linkId: String): BuddyResult<Unit> = runCatching {
+        val me = myAppId ?: return BuddyResult.Failure(BuddyResult.Reason.NOT_FOUND)
+        val ref = db.collection("links").document(linkId)
+        // Client-side guard mirroring the rules: only the recipient (side b) may accept,
+        // and only a pending link.
+        val accepted = db.runTransaction { tx ->
+            val snap = tx.get(ref)
+            val state = if (snap.exists()) BuddyLinkDecisions.parseState(snap.getString("state")) else null
+            val ok = BuddyLinkDecisions.canAccept(me, state, snap.getString("b"))
+            if (ok) {
+                tx.update(ref, mapOf("state" to "accepted", "updatedAt" to FieldValue.serverTimestamp()))
+            }
+            ok
+        }.await()
+        if (accepted) BuddyResult.Success(Unit)
+        else BuddyResult.Failure(BuddyResult.Reason.PERMISSION, "only the invited user can accept a pending link")
+    }.getOrElse { mapError(it) }
 
     override suspend fun declineLink(linkId: String): BuddyResult<Unit> =
         setLinkState(linkId, "declined")
@@ -425,7 +458,7 @@ class FirebaseBuddyRepository(private val appContext: Context) : BuddyRepository
     private fun linkIdFor(x: String, y: String): String =
         listOf(x, y).sorted().joinToString("_")
 
-    private fun mapError(t: Throwable): BuddyResult<Nothing> {
+    private fun mapError(t: Throwable): BuddyResult.Failure {
         val reason = when {
             t is com.google.firebase.firestore.FirebaseFirestoreException &&
                 t.code == com.google.firebase.firestore.FirebaseFirestoreException.Code.PERMISSION_DENIED ->

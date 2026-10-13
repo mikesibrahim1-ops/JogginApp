@@ -10,6 +10,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
@@ -83,7 +84,38 @@ class BuddyLinkController(private val appContext: Context) {
         if (started) return
         started = true
         if (!enabled) return   // nothing to observe until enabled
-        beginObserving()
+        // V1.49 session auto-retry: if the first-ever sign-in failed there is no
+        // persisted session, so re-run ensureSession (off the main thread, bounded
+        // backoff) BEFORE attaching listeners — a listener attached while signed out
+        // is denied and terminated by the SDK. NoOp backend: needsSession() is false.
+        val id = appId
+        if (id != null && repo.needsSession()) {
+            scope.launch {
+                ensureSessionWithRetry(id)
+                if (enabled) beginObserving()
+            }
+        } else {
+            beginObserving()
+        }
+    }
+
+    /**
+     * Calls [BuddyRepository.ensureSession] up to [BuddySessionRetry.MAX_ATTEMPTS] times
+     * with a growing delay. Suspends (never blocks the UI). Returns true on success.
+     */
+    private suspend fun ensureSessionWithRetry(id: String): Boolean {
+        var attempt = 1
+        while (true) {
+            val ok = repo.ensureSession(id) is BuddyResult.Success
+            if (ok) {
+                AppLogger.log(appContext, LogCategory.PROFILE, "Buddy Link session established (attempt $attempt)")
+                return true
+            }
+            AppLogger.log(appContext, LogCategory.ERROR, "Buddy Link session attempt $attempt failed")
+            if (!BuddySessionRetry.shouldRetry(attempt, ok, repo.needsSession())) return false
+            delay(BuddySessionRetry.delayAfterAttemptMs(attempt))
+            attempt++
+        }
     }
 
     // Tracks the appId whose trail we're currently observing, so we only re-subscribe
@@ -206,10 +238,12 @@ class BuddyLinkController(private val appContext: Context) {
         }
         AppLogger.log(appContext, LogCategory.PROFILE, "Buddy Link enabled")
         scope.launch {
-            repo.ensureSession(id)
+            // Establish the session (with bounded retry) BEFORE observing, so the
+            // listeners aren't attached signed-out and silently terminated (V1.49).
+            ensureSessionWithRetry(id)
             repo.updateMyUser(displayName = displayName, buddyEnabled = true, gpsOn = gpsOn, sharing = sharing)
+            if (enabled) beginObserving()
         }
-        beginObserving()
         applySharingState()
     }
 
@@ -234,9 +268,15 @@ class BuddyLinkController(private val appContext: Context) {
         fromName: String? = null,
         onResult: (BuddyResult<Unit>) -> Unit = {}
     ) = scope.launch { onResult(repo.requestLink(targetAppId, fromName)) }
-    /** Recipient accepts an opened invite from [fromAppId], pairing both sides (Option a). */
-    fun acceptInvite(fromAppId: String, onResult: (BuddyResult<Unit>) -> Unit = {}) =
-        scope.launch { onResult(repo.acceptInvite(fromAppId)) }
+    /**
+     * Accepts an opened invite from [fromAppId]: accepts the inviter's pending request
+     * if one exists (CONNECTED), otherwise sends a request back (REQUEST_SENT).
+     */
+    fun acceptInvite(
+        fromAppId: String,
+        fromName: String? = null,
+        onResult: (BuddyResult<InviteOutcome>) -> Unit = {}
+    ) = scope.launch { onResult(repo.acceptInvite(fromAppId, fromName)) }
     fun accept(linkId: String) = scope.launch { repo.acceptLink(linkId) }
     fun decline(linkId: String) = scope.launch { repo.declineLink(linkId) }
     fun remove(linkId: String) = scope.launch { repo.removeLink(linkId) }

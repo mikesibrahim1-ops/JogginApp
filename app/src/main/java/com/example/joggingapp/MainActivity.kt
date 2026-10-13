@@ -858,8 +858,21 @@ fun JogApp(context: Context) {
                 BuddyInviteDialog(
                     senderLabel = buddyShortId(inviteFrom),
                     onAccept = {
-                        buddyController.acceptInvite(inviteFrom)
-                        buddyInviteMessage = S.buddyInviteAcceptedToast
+                        // V1.49: links are never born accepted. Accept the inviter's
+                        // pending request if it exists, else send them a request back.
+                        val inviterLabel = buddyShortId(inviteFrom)
+                        buddyController.acceptInvite(inviteFrom, fromName = userName) { result ->
+                            buddyInviteMessage = when (result) {
+                                is BuddyResult.Success -> when (result.value) {
+                                    InviteOutcome.CONNECTED -> S.buddyInviteAcceptedToast
+                                    InviteOutcome.REQUEST_SENT -> S.buddyInviteRequestSent(inviterLabel)
+                                }
+                                is BuddyResult.Failure -> when (result.reason) {
+                                    BuddyResult.Reason.NOT_FOUND -> S.buddyLinkInvalid
+                                    else -> S.buddyUnavailableBackend
+                                }
+                            }
+                        }
                         pendingInviteFrom = null
                     },
                     onIgnore = { pendingInviteFrom = null }

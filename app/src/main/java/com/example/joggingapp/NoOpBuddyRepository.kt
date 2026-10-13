@@ -27,7 +27,9 @@ object NoOpBuddyRepository : BuddyRepository {
     override suspend fun refreshFcmToken(): BuddyResult<Unit> = unavailable()
 
     override suspend fun requestLink(targetAppId: String, fromName: String?): BuddyResult<Unit> = unavailable()
-    override suspend fun acceptInvite(fromAppId: String): BuddyResult<Unit> = unavailable()
+    override suspend fun acceptInvite(fromAppId: String, fromName: String?): BuddyResult<InviteOutcome> = unavailable()
+    // No session concept → never triggers the launch-time session retry.
+    override fun needsSession(): Boolean = false
     override suspend fun acceptLink(linkId: String): BuddyResult<Unit> = unavailable()
     override suspend fun declineLink(linkId: String): BuddyResult<Unit> = unavailable()
     override suspend fun removeLink(linkId: String): BuddyResult<Unit> = unavailable()

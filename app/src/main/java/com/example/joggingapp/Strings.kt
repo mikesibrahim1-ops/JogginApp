@@ -168,6 +168,7 @@ data class AppStrings(
     val buddyInviteRemove: String,         // remove/dismiss an invite
     val buddyInviteFrom: (String) -> String, // invite-row label "From {who}"
     val buddyInviteAcceptedToast: String,  // "Buddy added" note after accept
+    val buddyInviteRequestSent: (String) -> String, // "Request sent — {who} needs to accept"
     val buddyInviteNeedsEnable: String,    // shown when invite arrives before enable
     val buddyBuddies: String,              // "Buddies"
     val buddyPending: String,              // "Pending requests"
@@ -432,6 +433,7 @@ val EnglishStrings = AppStrings(
     buddyInviteRemove = "Remove",
     buddyInviteFrom = { who -> "From $who" },
     buddyInviteAcceptedToast = "Buddy added",
+    buddyInviteRequestSent = { who -> "Request sent — $who needs to accept" },
     buddyInviteNeedsEnable = "Turn on Buddy Link to accept this invite.",
     buddyBuddies = "Buddies",
     buddyPending = "Pending requests",
@@ -694,6 +696,7 @@ val GreekStrings = AppStrings(
     buddyInviteRemove = "Αφαίρεση",
     buddyInviteFrom = { who -> "Από $who" },
     buddyInviteAcceptedToast = "Ο φίλος προστέθηκε",
+    buddyInviteRequestSent = { who -> "Το αίτημα στάλθηκε — ο/η $who πρέπει να το αποδεχτεί" },
     buddyInviteNeedsEnable = "Ενεργοποιήστε τον Σύνδεσμο Φίλου για να αποδεχτείτε αυτή την πρόσκληση.",
     buddyBuddies = "Φίλοι",
     buddyPending = "Εκκρεμείς αιτήσεις",
