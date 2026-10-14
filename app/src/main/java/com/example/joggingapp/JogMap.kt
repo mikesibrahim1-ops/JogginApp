@@ -38,6 +38,9 @@ fun JogMap(
     buddyView: BuddyView? = null,
     buddyTrail: List<BuddyTrailPoint> = emptyList(),
     buddyUpdatedLabel: (Long) -> String = { "" },
+    /** Changes to a new non-zero value when the user taps a "buddy online" notification,
+     *  requesting the map center on the buddy's current fix. 0 = no pending focus. */
+    focusBuddyNonce: Long = 0L,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -277,6 +280,23 @@ fun JogMap(
             mapView.overlays.add(marker)
         }
         mapView.post { mapView.invalidate() }
+    }
+
+    // Focus the map on the buddy when a "buddy online" notification tap requests it.
+    // Keyed on the nonce (bumped per tap) so repeated taps re-center; disables user
+    // follow-mode so the buddy stays centered instead of snapping back to the user.
+    LaunchedEffect(focusBuddyNonce, buddyLat, buddyLon) {
+        if (focusBuddyNonce > 0L) {
+            val loc = buddyView?.location
+            if (loc != null && buddyView.isLiveNow()) {
+                followLocation = false
+                mapView.post {
+                    mapView.controller.animateTo(GeoPoint(loc.lat, loc.lon))
+                    mapView.controller.setZoom(16.0)
+                }
+                updateFocusButton(frame, followLocation, hasGpsSignal)
+            }
+        }
     }
 
     DisposableEffect(Unit) {

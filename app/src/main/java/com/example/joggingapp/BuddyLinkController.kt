@@ -77,13 +77,28 @@ class BuddyLinkController(private val appContext: Context) {
      */
     val primaryBuddyView: BuddyView? get() = buddies.firstOrNull { it.isLiveNow() }
 
+    // Separate from [observing]: [started] guards the one-time launch entry so the
+    // DisposableEffect only kicks the session once, while [observing] guards whether
+    // listeners are currently attached (so enable/re-enable can re-attach cleanly).
     private var started = false
+    private var observing = false
 
-    /** Begin observing the repository. Safe to call once per composition. */
+    /** Begin observing the repository on app launch. Safe to call once per composition. */
     fun start() {
         if (started) return
         started = true
         if (!enabled) return   // nothing to observe until enabled
+        ensureSession()
+    }
+
+    /**
+     * Single idempotent entry point that establishes the backend session (with bounded
+     * retry) and attaches the Firestore listeners. Shared by [start] (launch) and
+     * [enableConfirmed] (consent completion) so enabling Buddy Link begins the live
+     * session IMMEDIATELY — no app restart required. Safe to call repeatedly:
+     * [beginObserving] early-returns while already observing.
+     */
+    private fun ensureSession() {
         // V1.49 session auto-retry: if the first-ever sign-in failed there is no
         // persisted session, so re-run ensureSession (off the main thread, bounded
         // backoff) BEFORE attaching listeners — a listener attached while signed out
@@ -130,20 +145,30 @@ class BuddyLinkController(private val appContext: Context) {
     // cap (Req 3.8): a re-request bumps reqCount, and we alert only while within the cap.
     private var prevPendingCounts: Map<String, Int>? = null
     private var prevBuddyIds: Set<String>? = null
+    // Baseline of currently-online (live) buddy appIds, used to fire a one-shot
+    // "buddy came online" notification only on a genuine offline->online transition.
+    // Null until the first emission so the initial snapshot never alerts.
+    private var prevOnlineIds: Set<String>? = null
+
+    // Jobs for the attached listeners, so [disable] can cancel them and a later
+    // re-enable re-attaches a fresh set rather than doubling up.
+    private val observeJobs = ArrayList<Job>()
 
     private fun beginObserving() {
-        repo.observeAvailability().onEach { backendAvailable = it }.launchIn(scope)
-        repo.observeBuddies().onEach {
+        if (observing) return   // already attached — avoid duplicate listeners/diffs
+        observing = true
+        observeJobs += repo.observeAvailability().onEach { backendAvailable = it }.launchIn(scope)
+        observeJobs += repo.observeBuddies().onEach {
             detectBuddyTransitions(it)
             buddies = it
             refreshTrailSubscription()
         }.launchIn(scope)
-        repo.observePendingRequests().onEach {
+        observeJobs += repo.observePendingRequests().onEach {
             detectPendingTransitions(it)
             pending = it
         }.launchIn(scope)
-        repo.observeBlocked().onEach { blocked = it }.launchIn(scope)
-        repo.observeWatchers().onEach { watchers = it }.launchIn(scope)
+        observeJobs += repo.observeBlocked().onEach { blocked = it }.launchIn(scope)
+        observeJobs += repo.observeWatchers().onEach { watchers = it }.launchIn(scope)
         // Store the FCM token for future server-side push (best-effort, non-blocking).
         scope.launch { repo.refreshFcmToken() }
     }
@@ -181,6 +206,14 @@ class BuddyLinkController(private val appContext: Context) {
             }
         }
         prevBuddyIds = BuddyTransitions.buddySnapshot(newBuddies)
+        // A buddy turning THEIR sharing on -> a local "buddy online" notification, but
+        // only on a genuine offline->online transition after the baseline (prevOnlineIds
+        // null = first emission = silent baseline). The carried-forward snapshot dedupes
+        // so a buddy staying online across emissions alerts exactly once.
+        BuddyTransitions.onlineEvents(prevOnlineIds, newBuddies).forEach { ev ->
+            if (ev is BuddyTransitions.Event.CameOnline) BuddyNotifier.notifyBuddyOnline(appContext, ev.name, ev.appId)
+        }
+        prevOnlineIds = BuddyTransitions.onlineSnapshot(newBuddies)
     }
 
     /**
@@ -237,14 +270,14 @@ class BuddyLinkController(private val appContext: Context) {
             prefs.edit().putLong(KEY_CREATED_AT, System.currentTimeMillis()).apply()
         }
         AppLogger.log(appContext, LogCategory.PROFILE, "Buddy Link enabled")
+        // Push my enabled state to the backend, then start the live session through the
+        // SAME idempotent path app launch uses so listeners + sharing come up IMMEDIATELY
+        // (no app restart). ensureSession() handles session-retry-before-observe itself.
         scope.launch {
-            // Establish the session (with bounded retry) BEFORE observing, so the
-            // listeners aren't attached signed-out and silently terminated (V1.49).
-            ensureSessionWithRetry(id)
             repo.updateMyUser(displayName = displayName, buddyEnabled = true, gpsOn = gpsOn, sharing = sharing)
-            if (enabled) beginObserving()
         }
-        applySharingState()
+        ensureSession()
+        applySharingState()   // start the location foreground service when CONDITION-1 holds
     }
 
     /** Turns Buddy Link OFF: stops sharing immediately (Req 1.6). */
@@ -253,10 +286,13 @@ class BuddyLinkController(private val appContext: Context) {
         prefs.edit().putBoolean(KEY_ENABLED, false).apply()
         AppLogger.log(appContext, LogCategory.PROFILE, "Buddy Link disabled")
         scope.launch { repo.updateMyUser(buddyEnabled = false, sharing = false) }
+        // Cancel the attached listeners and reset the observing flag so a later
+        // re-enable re-attaches a fresh set (no duplicate listeners / doubled diffs).
+        observeJobs.forEach { it.cancel() }; observeJobs.clear(); observing = false
         // Clear observed lists so the UI doesn't show stale buddies while off.
         buddies = emptyList(); pending = emptyList(); watchers = emptyList()
         trailJob?.cancel(); trailJob = null; trailBuddyId = null; buddyTrail = emptyList()
-        prevPendingCounts = null; prevBuddyIds = null
+        prevPendingCounts = null; prevBuddyIds = null; prevOnlineIds = null
         lastOnDemandRequestAt = emptyMap()
         showHistory = false
         applySharingState()   // sharing is now false -> stops the broadcast service

@@ -21,6 +21,9 @@ object BuddyTransitions {
         data class Accepted(val name: String) : Event()
         /** A buddy unlinked / vanished from the accepted set. name may be a short id. */
         data class Unlinked(val name: String) : Event()
+        /** A buddy transitioned offline->online (started sharing a live fix).
+         *  Carries the buddy's appId so a notification tap can focus the map on them. */
+        data class CameOnline(val appId: String, val name: String) : Event()
     }
 
     /**
@@ -82,6 +85,43 @@ object BuddyTransitions {
     /** The accepted-buddy id set to carry forward after processing. */
     fun buddySnapshot(newBuddies: List<BuddyView>): Set<String> =
         newBuddies.map { it.user.appId }.toSet()
+
+    /**
+     * Decide "buddy came online" events from a buddy-list transition. "Online" means
+     * [BuddyView.isLiveNow] (mutual sharing + a fresh fix) — the SAME notion the map
+     * uses to decide a buddy is showable, so a buddy with sharing on but a stale/absent
+     * fix is NOT announced prematurely. Emits one [Event.CameOnline] per appId that is
+     * online now but was not in the previous online set ([prev]). Returns empty when
+     * [prev] is null (the first emission establishes the baseline and NEVER alerts —
+     * the required initial-snapshot suppression). Because the controller carries the
+     * [onlineSnapshot] forward each emission, a buddy already online does not re-alert
+     * until it goes offline and back online (dedupe). Names use the display name with a
+     * [shortAppId] fallback.
+     */
+    fun onlineEvents(
+        prev: Set<String>?,
+        newBuddies: List<BuddyView>,
+        nowMs: Long = System.currentTimeMillis()
+    ): List<Event> {
+        if (prev == null) return emptyList()
+        val onlineNow = newBuddies.filter { it.isLiveNow(nowMs) }
+        val events = ArrayList<Event>()
+        for (b in onlineNow) {
+            val id = b.user.appId
+            if (id !in prev) {
+                val name = b.user.displayName.ifBlank { null } ?: shortAppId(id)
+                events.add(Event.CameOnline(id, name))
+            }
+        }
+        return events
+    }
+
+    /** The currently-online (live) buddy appId set to carry forward after processing. */
+    fun onlineSnapshot(
+        newBuddies: List<BuddyView>,
+        nowMs: Long = System.currentTimeMillis()
+    ): Set<String> =
+        newBuddies.filter { it.isLiveNow(nowMs) }.map { it.user.appId }.toSet()
 
     /**
      * On-demand request cooldown (Req 6.1b / G6): true if enough time has elapsed since

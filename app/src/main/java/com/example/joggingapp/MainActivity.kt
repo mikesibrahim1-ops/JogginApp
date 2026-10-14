@@ -82,6 +82,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         // Capture an invite deep link if the app was launched by one.
         handleBuddyInviteIntent(intent)
+        // Capture a "focus buddy on the map" request if launched by a buddy-online notif.
+        handleBuddyFocusIntent(intent)
         CrashLogger.install(this)
         AppLogger.log(this, LogCategory.UI, "App launched — " +
             "device=${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL} " +
@@ -95,6 +97,7 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         handleBuddyInviteIntent(intent)
+        handleBuddyFocusIntent(intent)
     }
 
     // Track foreground state so FCM push notifications don't double up with the in-app
@@ -120,6 +123,19 @@ class MainActivity : ComponentActivity() {
             BuddyInviteBus.pending = data.toString()
         }
     }
+
+    /**
+     * Extracts a "focus this buddy on the map" request from a buddy-online notification
+     * tap and publishes it for the UI. Mirrors [handleBuddyInviteIntent] — the extra is
+     * set by [BuddyNotifier.notifyBuddyOnline].
+     */
+    private fun handleBuddyFocusIntent(intent: Intent?) {
+        val buddyId = intent?.getStringExtra(BuddyNotifier.EXTRA_FOCUS_BUDDY_ID) ?: return
+        if (buddyId.isNotBlank()) {
+            AppLogger.log(this, LogCategory.UI, "Buddy Link focus-on-map intent received")
+            BuddyFocusBus.pending = buddyId
+        }
+    }
 }
 
 /**
@@ -128,6 +144,15 @@ class MainActivity : ComponentActivity() {
  * outside the Activity so a recreate doesn't lose a link that arrived mid-flight.
  */
 object BuddyInviteBus {
+    @Volatile var pending: String? = null
+}
+
+/**
+ * Process-wide holder for a "focus this buddy on the map" request (buddy-online notif
+ * tap). Same lifecycle as [BuddyInviteBus]: MainActivity writes the buddy appId from
+ * onCreate/onNewIntent; JogApp polls it to switch to the map and center on the buddy.
+ */
+object BuddyFocusBus {
     @Volatile var pending: String? = null
 }
 
@@ -426,6 +451,37 @@ fun JogApp(context: Context) {
     // Held across the enable flow so an invite opened before enabling is NOT dropped.
     var pendingInviteFrom by remember { mutableStateOf<String?>(null) }
 
+    // "Buddy online" notification tap -> focus the map on that buddy. The nonce bumps
+    // per tap so JogMap re-centers even on the same buddy; the id lets us confirm the
+    // live buddy matches before centering.
+    var buddyFocusNonce by remember { mutableStateOf(0L) }
+    var buddyFocusId by remember { mutableStateOf<String?>(null) }
+
+    // Periodic tick so the map re-evaluates time-based liveness (isLiveNow) and repaints
+    // when a buddy appears/goes stale WITHOUT needing an app restart. Mirrors the nowTick
+    // pattern in BuddyLinkSection.kt.
+    var buddyTick by remember { mutableStateOf(0L) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(15000L)
+            buddyTick = System.currentTimeMillis()
+        }
+    }
+
+    // Poll the process-wide focus bus (same lifecycle as the invite bus): when a buddy
+    // online notification was tapped, record the buddy id and bump the nonce.
+    LaunchedEffect(Unit) {
+        while (true) {
+            val id = BuddyFocusBus.pending
+            if (id != null) {
+                BuddyFocusBus.pending = null
+                buddyFocusId = id
+                buddyFocusNonce = System.currentTimeMillis()
+            }
+            delay(500L)
+        }
+    }
+
     // Report the device's GPS/location-enabled state so CONDITION-1
     // (sharing = enabled && gpsOn) stays accurate. Polls while composed.
     LaunchedEffect(Unit) {
@@ -634,19 +690,33 @@ fun JogApp(context: Context) {
                 })
             } else {
                 val pagerState = rememberPagerState(initialPage = 0)
+                // A buddy-online notification tap: jump to the map page (0) so the
+                // focus-on-buddy animation in JogMap is visible.
+                LaunchedEffect(buddyFocusNonce) {
+                    if (buddyFocusNonce > 0L) pagerState.animateScrollToPage(0)
+                }
                 VerticalPager(state = pagerState, pageCount = 2, modifier = Modifier.fillMaxSize()) { page ->
                     when (page) {
                         0 -> {
                             Column(modifier = Modifier.fillMaxSize()) {
                                 Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
+                                    // Read buddyTick so time-based liveness (isLiveNow)
+                                    // is re-evaluated periodically and the map repaints
+                                    // when a buddy comes/goes live without an app restart.
+                                    val primaryBuddy = run { buddyTick; buddyController.primaryBuddyView }
+                                    // Only honour the focus request when the live primary
+                                    // buddy is the one the notification named.
+                                    val focusNonce = if (buddyFocusId != null &&
+                                        primaryBuddy?.user?.appId == buddyFocusId) buddyFocusNonce else 0L
                                     JogMap(
                                         path = path, routeColor = routeColor, hasGpsSignal = path.isNotEmpty(),
-                                        buddyView = buddyController.primaryBuddyView,
+                                        buddyView = primaryBuddy,
                                         buddyTrail = buddyController.visibleBuddyTrail,
                                         buddyUpdatedLabel = { atMs ->
                                             val mins = ((System.currentTimeMillis() - atMs) / 60000L).toInt()
                                             if (mins <= 0) S.buddyJustNow else S.buddyMinutesAgo(mins)
                                         },
+                                        focusBuddyNonce = focusNonce,
                                         modifier = Modifier.fillMaxSize()
                                     )
                                     // ── Broadcast-on badge (top-center) while this device shares (Req 6.2) ──

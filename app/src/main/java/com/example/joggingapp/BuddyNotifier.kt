@@ -39,6 +39,11 @@ object BuddyNotifier {
     private const val NOTIF_ID_ACCEPTED = 3002
     private const val NOTIF_ID_UNLINKED = 3003
     private const val NOTIF_ID_LOCATION_SHARED = 3004
+    private const val NOTIF_ID_ONLINE = 3005
+
+    /** Intent extra carrying the appId of the buddy to focus on the map when a
+     *  "buddy online" notification is tapped. Read by MainActivity.handleIntent. */
+    const val EXTRA_FOCUS_BUDDY_ID = "com.example.joggingapp.extra.FOCUS_BUDDY_ID"
 
     /**
      * A link request was received. When a [linkId] is supplied the notification carries
@@ -106,16 +111,33 @@ object BuddyNotifier {
         )
     }
 
+    /**
+     * A buddy came online (started sharing a live fix). Reuses the default-importance
+     * [CHANNEL_ID] (same as request/accepted/unlinked). Tapping it opens the app and
+     * routes to the map focused on this buddy via [EXTRA_FOCUS_BUDDY_ID] (handled in
+     * MainActivity.onNewIntent/handleIntent — same mechanism as the invite deep-link).
+     */
+    fun notifyBuddyOnline(context: Context, buddyName: String, buddyAppId: String? = null) {
+        val s = stringsFor(loadLanguage(context))
+        post(
+            context, NOTIF_ID_ONLINE,
+            s.buddyNotifOnlineTitle, s.buddyNotifOnlineBody(buddyName),
+            focusBuddyId = buddyAppId
+        )
+    }
+
     // ── Internals ───────────────────────────────────────────────────────────────
 
     private fun post(
         context: Context, id: Int, title: String, body: String,
         channelId: String = createChannel(context), lowKey: Boolean = false,
-        actions: List<NotificationCompat.Action> = emptyList()
+        actions: List<NotificationCompat.Action> = emptyList(),
+        focusBuddyId: String? = null
     ) {
         if (!hasNotificationPermission(context)) return
         val openApp = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            if (focusBuddyId != null) putExtra(EXTRA_FOCUS_BUDDY_ID, focusBuddyId)
         }
         val pending = PendingIntent.getActivity(
             context, id, openApp,

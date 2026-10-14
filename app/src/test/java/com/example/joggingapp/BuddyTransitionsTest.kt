@@ -11,11 +11,28 @@ import org.junit.Test
  */
 class BuddyTransitionsTest {
 
+    // A fixed "now" so liveness is deterministic across the suite.
+    private val NOW = 1_000_000_000L
+
     private fun link(id: String, a: String = "a", b: String = "b", reqCount: Int = 1) =
         BuddyLink(linkId = id, a = a, b = b, state = BuddyLinkState.PENDING, reqCount = reqCount)
 
     private fun buddy(appId: String, name: String = "") =
         BuddyView(user = BuddyUser(appId = appId, displayName = name))
+
+    // A live buddy: mutually sharing AND a fresh fix (so isLiveNow() == true).
+    private fun liveBuddy(appId: String, name: String = "", atMs: Long = NOW) =
+        BuddyView(
+            user = BuddyUser(appId = appId, displayName = name, sharing = true),
+            location = BuddyLocation(lat = 0.0, lon = 0.0, at = atMs)
+        )
+
+    // A buddy sharing but with a stale fix (older than STALE_MS) -> NOT live.
+    private fun staleBuddy(appId: String, name: String = "") =
+        BuddyView(
+            user = BuddyUser(appId = appId, displayName = name, sharing = true),
+            location = BuddyLocation(lat = 0.0, lon = 0.0, at = NOW - BuddyConstants.STALE_MS - 1_000L)
+        )
 
     // ── pendingEvents ────────────────────────────────────────────────────────
 
@@ -109,6 +126,76 @@ class BuddyTransitionsTest {
     fun buddies_snapshot_capturesIds() {
         val snap = BuddyTransitions.buddySnapshot(listOf(buddy("id1"), buddy("id2")))
         assertEquals(setOf("id1", "id2"), snap)
+    }
+
+    // ── onlineEvents / onlineSnapshot (buddy came online) ───────────────────────
+
+    @Test
+    fun online_firstEmission_neverAlerts() {
+        // prev == null is the baseline: even with online buddies, no event fires.
+        val events = BuddyTransitions.onlineEvents(
+            prev = null, newBuddies = listOf(liveBuddy("id1", "Alice")), nowMs = NOW
+        )
+        assertTrue(events.isEmpty())
+    }
+
+    @Test
+    fun online_alreadyOnlineAtBaseline_noEvent() {
+        // Baseline already counted id1 online -> staying online fires nothing.
+        val events = BuddyTransitions.onlineEvents(
+            prev = setOf("id1"), newBuddies = listOf(liveBuddy("id1", "Alice")), nowMs = NOW
+        )
+        assertTrue(events.isEmpty())
+    }
+
+    @Test
+    fun online_offlineToOnline_emitsOneCameOnlineWithName() {
+        // id1 was NOT online before, now is -> exactly one CameOnline with displayName.
+        val events = BuddyTransitions.onlineEvents(
+            prev = emptySet(), newBuddies = listOf(liveBuddy("id1", "Alice")), nowMs = NOW
+        )
+        assertEquals(1, events.size)
+        assertEquals(BuddyTransitions.Event.CameOnline("id1", "Alice"), events[0])
+    }
+
+    @Test
+    fun online_blankName_fallsBackToShortId() {
+        val longId = "abcdef1234567890"
+        val events = BuddyTransitions.onlineEvents(
+            prev = emptySet(), newBuddies = listOf(liveBuddy(longId, "")), nowMs = NOW
+        )
+        assertEquals(1, events.size)
+        val ev = events[0] as BuddyTransitions.Event.CameOnline
+        assertEquals(longId, ev.appId)
+        assertEquals("abcdef…7890", ev.name)
+    }
+
+    @Test
+    fun online_sharingButStaleFix_isNotOnline_noEvent() {
+        // sharing=true but the fix is stale -> isLiveNow() false -> not announced.
+        val events = BuddyTransitions.onlineEvents(
+            prev = emptySet(), newBuddies = listOf(staleBuddy("id1", "Alice")), nowMs = NOW
+        )
+        assertTrue(events.isEmpty())
+    }
+
+    @Test
+    fun online_snapshot_capturesOnlyLiveIds() {
+        val snap = BuddyTransitions.onlineSnapshot(
+            listOf(liveBuddy("id1"), staleBuddy("id2"), buddy("id3")), nowMs = NOW
+        )
+        assertEquals(setOf("id1"), snap)
+    }
+
+    @Test
+    fun online_dedupe_staysOnlineAcrossEmissionsFiresOnce() {
+        // Emission 1: offline->online fires once; carry the snapshot forward.
+        val e1 = BuddyTransitions.onlineEvents(emptySet(), listOf(liveBuddy("id1", "Alice")), NOW)
+        assertEquals(1, e1.size)
+        val snap1 = BuddyTransitions.onlineSnapshot(listOf(liveBuddy("id1", "Alice")), NOW)
+        // Emission 2: still online, carried-forward snapshot -> no repeat alert.
+        val e2 = BuddyTransitions.onlineEvents(snap1, listOf(liveBuddy("id1", "Alice")), NOW)
+        assertTrue(e2.isEmpty())
     }
 
     // ── canRequestLocation ─────────────────────────────────────────────────────

@@ -213,6 +213,8 @@ data class AppStrings(
     val buddyNotifAcceptedTitle: String,   // "Buddy request accepted"
     val buddyNotifAcceptedBody: (String) -> String, // "{name} is now your buddy"
     val buddyNotifUnlinkedTitle: String,   // "Buddy unlinked"
+    val buddyNotifOnlineTitle: String,     // "Buddy online"
+    val buddyNotifOnlineBody: (String) -> String, // "Your buddy, {name}, is online"
     val buddyToggleDesc: (Boolean) -> String,   // a11y: "Buddy Link, on/off. Double-tap to toggle."
     val buddyActionDesc: (String, String) -> String, // a11y: "{action} {name}"
     val buddyRequestCooldown: String,      // "Requested — please wait" (rate-limit)
@@ -477,6 +479,8 @@ val EnglishStrings = AppStrings(
     buddyNotifAcceptedTitle = "Buddy request accepted",
     buddyNotifAcceptedBody = { name -> "$name is now your buddy" },
     buddyNotifUnlinkedTitle = "Buddy unlinked",
+    buddyNotifOnlineTitle = "Buddy online",
+    buddyNotifOnlineBody = { name -> "Your buddy, $name, is online" },
     buddyToggleDesc = { on -> "Buddy Link, ${if (on) "on" else "off"}. Double-tap to toggle." },
     buddyActionDesc = { action, name -> "$action $name" },
     buddyRequestCooldown = "Requested — please wait",
@@ -740,6 +744,8 @@ val GreekStrings = AppStrings(
     buddyNotifAcceptedTitle = "Το αίτημα φίλου έγινε αποδεκτό",
     buddyNotifAcceptedBody = { name -> "Ο/Η $name είναι πλέον φίλος σας" },
     buddyNotifUnlinkedTitle = "Αποσύνδεση φίλου",
+    buddyNotifOnlineTitle = "Ο φίλος είναι συνδεδεμένος",
+    buddyNotifOnlineBody = { name -> "Ο/Η $name, ο φίλος σου, είναι συνδεδεμένος" },
     buddyToggleDesc = { on -> "Σύνδεσμος Φίλου, ${if (on) "ενεργός" else "ανενεργός"}. Πατήστε δύο φορές για εναλλαγή." },
     buddyActionDesc = { action, name -> "$action $name" },
     buddyRequestCooldown = "Ζητήθηκε — περιμένετε",
