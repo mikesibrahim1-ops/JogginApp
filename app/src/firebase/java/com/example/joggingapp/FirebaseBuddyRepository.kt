@@ -138,6 +138,22 @@ class FirebaseBuddyRepository(private val appContext: Context) : BuddyRepository
             val linkId = linkIdFor(me, targetAppId)
             val ref = db.collection("links").document(linkId)
             val now = System.currentTimeMillis()
+
+            // Decide what to do with any existing link doc. A declined/removed link is a
+            // dead-end: the deployed rules forbid an in-place declined/removed → pending
+            // transition, so a plain update would bump the counter but keep the dead state
+            // and silently report a false "Request sent". Instead we delete the dead-end
+            // and recreate a genuinely fresh pending request (both writes are permitted by
+            // the already-deployed rules — either party may delete, side `a` may create).
+            val preSnap = ref.get().await()
+            val action = BuddyLinkDecisions.requestLinkAction(
+                if (preSnap.exists()) BuddyLinkDecisions.parseState(preSnap.getString("state")) else null
+            )
+            if (action == BuddyLinkDecisions.RequestLinkAction.RECREATE_PENDING) {
+                // Drop the dead-end so the create path below runs against a missing doc.
+                ref.delete().await()
+            }
+
             db.runTransaction { tx ->
                 // Reading a missing link doc is allowed by the rules (resource == null).
                 val snap = tx.get(ref)
@@ -151,7 +167,8 @@ class FirebaseBuddyRepository(private val appContext: Context) : BuddyRepository
                         "updatedAt" to FieldValue.serverTimestamp()
                     ))
                 } else {
-                    // Existing link: bump the 24h alert counter (Req 3.8), keep state.
+                    // Existing live link (pending/accepted): bump the 24h alert counter
+                    // (Req 3.8), keep state.
                     val windowStart = snap.getLong("reqWindowStart") ?: 0L
                     val within = now - windowStart <= BuddyConstants.REQUEST_ALERT_WINDOW_MS
                     val newCount = if (within) (snap.getLong("reqCount") ?: 0L) + 1 else 1L

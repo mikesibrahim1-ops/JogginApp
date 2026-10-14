@@ -39,6 +39,28 @@ object BuddyLinkDecisions {
     fun canAccept(me: String, state: BuddyLinkState?, b: String?): Boolean =
         state == BuddyLinkState.PENDING && b == me
 
+    /** What requestLink should do with the existing link doc (if any) when re-sending. */
+    enum class RequestLinkAction {
+        /** No doc exists → create a fresh pending request. */
+        CREATE_NEW,
+        /** A live pending/accepted doc exists → bump the 24h counter, keep state. */
+        BUMP_EXISTING,
+        /** A declined/removed dead-end exists → delete it, then create a fresh pending request. */
+        RECREATE_PENDING
+    }
+
+    /**
+     * Decide requestLink's action from the existing link doc's [state] (null when the
+     * doc doesn't exist). A declined/removed dead-end can't be reset in place under the
+     * deployed rules, so it is deleted and recreated; a pending/accepted link just bumps
+     * the re-request counter (Req 3.8) and keeps its state.
+     */
+    fun requestLinkAction(state: BuddyLinkState?): RequestLinkAction = when (state) {
+        null -> RequestLinkAction.CREATE_NEW
+        BuddyLinkState.DECLINED, BuddyLinkState.REMOVED -> RequestLinkAction.RECREATE_PENDING
+        else -> RequestLinkAction.BUMP_EXISTING
+    }
+
     /** Map the Firestore `state` string to the enum (null when the doc doesn't exist). */
     fun parseState(raw: String?): BuddyLinkState? = when (raw) {
         null -> null

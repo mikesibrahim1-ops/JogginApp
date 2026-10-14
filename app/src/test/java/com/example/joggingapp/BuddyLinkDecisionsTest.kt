@@ -71,6 +71,48 @@ class BuddyLinkDecisionsTest {
         assertFalse(BuddyLinkDecisions.canAccept(me, null, b = null))
     }
 
+    // ── requestLink (re-send) decision ─────────────────────────────────────────
+
+    @Test
+    fun requestLink_noExistingLink_createsNew() {
+        assertEquals(
+            BuddyLinkDecisions.RequestLinkAction.CREATE_NEW,
+            BuddyLinkDecisions.requestLinkAction(null)
+        )
+    }
+
+    @Test
+    fun requestLink_declined_recreatesPending() {
+        assertEquals(
+            BuddyLinkDecisions.RequestLinkAction.RECREATE_PENDING,
+            BuddyLinkDecisions.requestLinkAction(BuddyLinkState.DECLINED)
+        )
+    }
+
+    @Test
+    fun requestLink_removed_recreatesPending() {
+        assertEquals(
+            BuddyLinkDecisions.RequestLinkAction.RECREATE_PENDING,
+            BuddyLinkDecisions.requestLinkAction(BuddyLinkState.REMOVED)
+        )
+    }
+
+    @Test
+    fun requestLink_pending_bumpsExisting() {
+        assertEquals(
+            BuddyLinkDecisions.RequestLinkAction.BUMP_EXISTING,
+            BuddyLinkDecisions.requestLinkAction(BuddyLinkState.PENDING)
+        )
+    }
+
+    @Test
+    fun requestLink_accepted_bumpsExisting() {
+        assertEquals(
+            BuddyLinkDecisions.RequestLinkAction.BUMP_EXISTING,
+            BuddyLinkDecisions.requestLinkAction(BuddyLinkState.ACCEPTED)
+        )
+    }
+
     @Test
     fun parseState_mapsFirestoreStrings() {
         assertNull(BuddyLinkDecisions.parseState(null))
