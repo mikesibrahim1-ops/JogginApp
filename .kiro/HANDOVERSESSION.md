@@ -12,29 +12,27 @@ Android GPS fitness tracker (walk/run/cycle) at `c:\Users\INFINITI\Documents\Kir
 as a sideloaded APK: GitHub Releases hosts the APK; a Firebase Hosting install page links to it.
 
 ## 2. Current version / build state
-- **V1.48** — `versionCode 48`, `versionName "1.48"` (`app/build.gradle`). PUBLISHED; on-device
-  install PENDING (device disconnected at release time — reinstall when plugged in:
-  `adb install -r app\build\outputs\apk\debug\app-debug.apk`, or via in-app "Check for updates").
-  Last confirmed on-device version is V1.47.
-- Git: HEAD **`e3fd0d6`** on `main`, pushed to `origin/main` (in sync). Tag **`V1.48`** pushed.
-  Earlier tags V1.40–V1.47 also exist.
+- **V1.49** — `versionCode 49`, `versionName "1.49"` (`app/build.gradle`). PUBLISHED; **on-device
+  install PENDING** (device disconnected at release time). Install when plugged in:
+  `adb install -r app\build\outputs\apk\debug\app-debug.apk` (the app-debug.apk currently in the
+  build output IS V1.49), or from the GitHub release / install page. **Both phones need V1.49** —
+  V1.48 can no longer connect (its requestLink precheck is denied by the new rules).
+- Git: HEAD **`9c2c51b`** on `main`, pushed to `origin/main` (in sync). Tag **`V1.49`** pushed.
+  Earlier tags V1.40–V1.48 also exist.
 - `minSdk 24`, `targetSdk 34`, `compileSdk 34`, Java/Kotlin 17, Compose compiler 1.5.10.
-- Last build: `assembleDebug` + `testDebugUnitTest` → **BUILD SUCCESSFUL** (debug-signed; full
-  unit suite green incl. ExerciseTargetsTest + BuddyInviteTest). NOTE: the Gradle daemon kept
-  dying mid-build this session (accumulated dead daemons after shell wedges); the fix that
-  worked was killing all `java.exe`, clearing `~/.gradle/daemon/*`, then building with
-  **`--no-daemon`**. Use that if the daemon churns.
-- **V1.48 is PUBLISHED on GitHub** (not draft) with `joggin.apk` asset; `/releases/latest/
-  download/joggin.apk` returns 200; install page `https://joggin-a69a7.web.app/get` serves it.
-  Release URL: https://github.com/mikesibrahim1-ops/JogginApp/releases/tag/V1.48
-- Firestore rules were NOT changed by V1.48 (links/users have no field whitelist; the new
-  `fromName`/`createdAt` fields are already allowed) — **no rules deploy needed**.
-- Firebase Hosting was deployed in the V1.47 session (hardened `/buddy` page + `assetlinks.json`);
-  not touched by V1.48. (Functions still NOT deployed — Blaze-blocked.)
-- **Device R5CR100AY2V was DISCONNECTED** at V1.48 release time, so V1.48 is NOT yet installed on
-  it (last confirmed on-device version is V1.47). Install when plugged in.
-- APKs in `builds/`: `joggin-v1.48.apk` (archived; keeps newest 4 → v1.45–v1.48; v1.44 pruned)
-  and `joggin.apk` (lowercase release copy = V1.48, 12,358,239 bytes).
+- Last build: `assembleDebug` + `testDebugUnitTest` → **BUILD SUCCESSFUL** + `DONE_0` (debug-
+  signed; 65/65 unit tests incl. new BuddyLinkDecisionsTest). Built with **`--no-daemon`** (see §3).
+- **V1.49 is PUBLISHED on GitHub** (not draft) with `joggin.apk` asset.
+  Release URL: https://github.com/mikesibrahim1-ops/JogginApp/releases/tag/V1.49
+- **Firestore rules for V1.49 were DEPLOYED this session** (`firebase deploy --only
+  firestore:rules` → "released", DONE_0). The rules and the V1.49 APK MUST go together.
+- Firebase Hosting was deployed in the V1.47 session; not touched since. (Functions still NOT
+  deployed — Blaze-blocked.) **Firebase Anonymous Authentication is now ENABLED** in the console
+  (user did this — it was the first Buddy "temporarily unavailable" root cause; see §7).
+- **Device R5CR100AY2V** (Samsung SM-G991B, Android 15) connects intermittently; last confirmed
+  on-device version was V1.48. Install V1.49 when plugged in.
+- APKs in `builds/`: `joggin-v1.49.apk` (archived; keeps newest 4 → v1.46–v1.49; v1.45 pruned)
+  and `joggin.apk` (lowercase release copy = V1.49).
 
 ## 3. Environment notes (IMPORTANT — avoids wasted time)
 - **Terminal is very flaky.** PowerShell echoes commands char-by-char and reports **exit -1
@@ -68,6 +66,36 @@ as a sideloaded APK: GitHub Releases hosts the APK; a Firebase Hosting install p
 
 ## 4. What was accomplished across recent sessions (all committed + pushed)
 Newest first on `main`:
+- `9c2c51b` — **V1.49: fix Buddy Link PERMISSION_DENIED + secure links rules + session auto-retry**
+  (versionCode 49, bump + release notes in this commit). THE BIG FIX for "connect by code never
+  worked / Firebase permission denied." Root cause (see
+  `.agents/tasks/buddy-permission-loop-investigation.md`): a chicken-and-egg in the app —
+  `requestLink`/`acceptInvite` read `users/{other}` as an existence precheck BEFORE any link
+  existed, which the rules deny (users readable only by owner or an existing link party); and the
+  follow-up transaction `tx.get(links/{id})` on a not-yet-existing link doc was also denied
+  (`resource` null). The repeated "permission denied" spam in the in-app debugger was these
+  one-shot `get()`s. NOT a link-id mismatch, NOT a stale cache. Fixes:
+  (1) **App** (`FirebaseBuddyRepository.kt`): removed both `users/{other}` prechecks; a
+  PERMISSION_DENIED on link create now maps to `Reason.NOT_FOUND` so the UI shows "unknown code"
+  (not "temporarily unavailable"); `acceptInvite` no longer creates an already-`accepted` link —
+  it either accepts an existing pending-to-me link or sends a pending request back (two-branch
+  logic extracted to pure `BuddyLinkDecisions.kt`, unit-tested in `BuddyLinkDecisionsTest.kt`).
+  (2) **Firestore rules** (BOTH `firestore.rules` + `firebase-hosting/firestore.rules`, identical):
+  `links` read allows `resource == null` (so the creator's tx.get works); `links` create requires
+  `a==me`, correct `linkId`, `b != me`, `state=='pending'` (SECURITY: can't be born accepted), and
+  `exists(users/{b})` (server-side replacement for the removed client precheck); `links` update
+  forbids changing `a`/`b` and only lets side `b` move a pending link to `accepted`. This also
+  CLOSED a hole where anyone holding your 32-hex code could force an accepted link and read your
+  location if sharing. (3) **Session auto-retry** (`BuddyLinkController.kt`): `start()` now
+  re-runs `ensureSession` with bounded backoff if enabled-but-not-signed-in, so a failed first
+  sign-in self-heals instead of showing "temporarily unavailable" until an off/on toggle.
+  EN+EL strings. Build green (65/65). **Rules deployed. Not verified: real two-device connect**
+  (needs 2 phones both on V1.49). Files: FirebaseBuddyRepository.kt, BuddyLinkController.kt,
+  BuddyLinkDecisions.kt (new), BuddyRepository.kt, NoOpBuddyRepository.kt, MainActivity.kt,
+  Strings.kt, both firestore.rules, release-notes-v1.49.md, BuddyLinkDecisionsTest.kt (new).
+  ⚠ **KNOWN NON-BLOCKER (review-flagged, not yet fixed):** if a buddy declines/removes your invite
+  and you re-send, the app can show "Request sent" when the request didn't actually go through
+  (declined/removed dead-end). Candidate for a follow-up.
 - `e3fd0d6` — **V1.48: code-based Buddy Link invites + Accept/Ignore notification** (versionCode
   48, bump + release notes in this commit). Replaces the broken share-a-link invite with a
   CODE-BASED flow, all on the FREE Spark plan (no Cloud Functions, no paid push). Design (user-
@@ -168,25 +196,35 @@ gh (keyring auth)**; installed V1.45 on the device; and (pending in this final s
 the removal of the handover hook.
 
 ## 5. Current working state (verified vs. untested)
-- **Verified:** everything compiles; unit suite green; V1.45 published + live (asset present,
-  /latest returns 200); V1.45 installed on-device (version confirmed).
-- **Compiled, lightly/you-tested on device:** the 7 new exercise types, number-pad deduction,
-  the summary Activity row, the history rename. User has been smoke-testing on-device each round.
-- **Buddy Link** two-party flows + push still need 2 devices + Firebase config (unchanged).
+- **Verified:** everything compiles; 65/65 unit suite green; V1.49 published + rules deployed +
+  anonymous auth enabled in console.
+- **NOT verified on-device:** V1.49 is not installed on the phone yet; the real two-phone
+  code-connect flow (enter code → Connect → Accept → both appear) has never completed
+  successfully end-to-end. V1.48 testing hit PERMISSION_DENIED, which V1.49 is intended to fix.
+  The whole point of V1.49 is unproven until a two-phone test on V1.49 succeeds.
+- **Buddy history so far:** V1.48 code-connect failed on-device with "temporarily unavailable"
+  (anon auth was off — user enabled it) then "Firebase permission denied" (the precheck bug V1.49
+  fixes). Each prior Buddy fix compiled + reviewed but none has been confirmed working on two
+  real devices.
 
-## 6. Immediate next step(s)
-- **Install V1.48 on the device** (disconnected at release): plug in R5CR100AY2V, then
-  `adb install -r app\build\outputs\apk\debug\app-debug.apk` (adb at
-  `C:\Users\INFINITI\Downloads\platform-tools-latest-windows\platform-tools\adb.exe`). The
-  app-debug.apk from this session's build IS V1.48.
-- **Verify on-device the new code-based Buddy flow:** each user sees their own code (Copy); one
-  user enters the other's code + Connect; the recipient gets the "<name> wants to buddy up"
-  notification with Accept/Ignore (best when the recipient's app is open/backgrounded — see the
-  free-tier limitation); on Accept both appear under Buddy by name with "Member since".
-- Still owed from earlier: eyeball per-type target colours across the 4 themes; the V1.47
-  reliable-deep-link open (custom scheme / intent://) in a real chat app.
+## 6. Immediate next step(s) — START HERE
+1. **Install V1.49 on BOTH phones.** Plug in R5CR100AY2V →
+   `adb install -r app\build\outputs\apk\debug\app-debug.apk` (adb at
+   `C:\Users\INFINITI\Downloads\platform-tools-latest-windows\platform-tools\adb.exe`; the current
+   app-debug.apk IS V1.49). Second phone: install from the GitHub release / install page, or plug
+   it in too. V1.48 cannot connect — both MUST be on V1.49.
+2. **Two-phone test:** enable Buddy Link on both; phone A pastes phone B's code → Connect →
+   expect "Invite sent" (NOT a permission error); phone B gets "<name> wants to buddy up" → Accept;
+   both should list each other under Buddies. If it fails, pull the error: the IN-APP debugger
+   (version triple-tap → Debug console, or `AppLogger` file at
+   `files/app_log.txt` via `adb exec-out run-as com.example.joggingapp cat files/app_log.txt`)
+   shows "Firebase buddy op failed: <reason>"; the exact denied Firestore path is only in logcat
+   tag `Firestore` (`adb logcat -d | Select-String Firestore`). Match timestamps to taps.
+3. Follow-up candidate (user-approved area): fix the declined/removed re-send "Request sent"
+   false-positive (§4 known non-blocker).
+- Still owed from earlier (lower priority): eyeball per-type target colours across the 4 themes.
 - **Optional (free):** enable true https App-Link auto-open by registering the app + debug SHA-256
-  in the Firebase console (V1.47 §4 limitation). Not needed for invites to work.
+  in the Firebase console (§4 V1.47 limitation). Not needed for invites to work.
 - **Cloud-function deploy still BLOCKED on Blaze** (§7); user avoids all cost. Everything shipped
   works without it.
 
@@ -199,6 +237,15 @@ the removal of the handover hook.
 - Exercise Targets not folded into backup/restore (`BackupData` v2); no "undo last rep log" beyond
   the new deduction entry; PLANK_SECONDS reuses the integer rep machinery (value = seconds).
 - The old auto-handover hook is removed; keep this file updated manually.
+- **Firebase Anonymous Auth** must stay ENABLED (console → Authentication → Sign-in method →
+  Anonymous). It was OFF originally, which made every Buddy session fail with "temporarily
+  unavailable". The user enabled it this session; do NOT enable "Auto clean-up" (it deletes
+  anonymous accounts >30 days, which would drop buddy identities). Firestore DB is provisioned.
+- **This session was almost entirely Buddy Link debugging** (V1.49). The terminal was EXTREMELY
+  flaky — many captures wrote nothing. The reliable diagnostic that worked: `adb exec-out run-as
+  com.example.joggingapp cat files/app_log.txt` for the in-app log, and `adb logcat -d |
+  Select-String Firestore` for the exact denied path. Two long-running workflow runs had to be
+  aborted after hanging for hours on the wedged shell.
 - **Buddy Link Cloud Function deploy blocked on Blaze.** `firebase deploy --only functions` fails:
   project `joggin-a69a7` must be on the Blaze (pay-as-you-go) plan to enable
   `cloudbuild.googleapis.com`. User has chosen to AVOID upgrading. The `functions/index.js`
