@@ -13,7 +13,7 @@
  * Data model (see .kiro/specs/buddy-link/design.md §4):
  *   links/{linkId}:  a (requester appId), b (recipient appId), state
  *                    ('pending'|'accepted'|'declined'|'removed'), reqCount
- *   users/{appId}:   fcmToken, displayName
+ *   users/{appId}:   displayName   (fcmToken moved to users/{appId}/private/self, §3.6)
  *
  * `a`/`b` semantics: for a classic request `a = requester`, `b = recipient`. For an
  * invite accepted via the Accept/Ignore dialog (recipient-driven, "Option a"), the
@@ -36,12 +36,23 @@ admin.initializeApp();
 const REGION = "us-central1";
 const REQUEST_ALERT_MAX_PER_24H = 2;
 
-/** Fetch a user's FCM token + display name; returns {token, name} or null token. */
+/**
+ * Fetch a user's FCM token + display name; returns {token, name} or null token.
+ * fcmToken now lives in the owner-only users/{appId}/private/self subdoc (design §3.6);
+ * displayName stays on the public user doc. The admin SDK bypasses rules, so it reads
+ * both. Forward-compatibility only (Blaze-gated, currently undeployed).
+ */
 async function lookupUser(appId) {
   if (!appId) return { token: null, name: "" };
-  const snap = await admin.firestore().collection("users").doc(appId).get();
-  const data = snap.exists ? snap.data() : null;
-  return { token: data && data.fcmToken ? data.fcmToken : null, name: (data && data.displayName) || "" };
+  const userSnap = await admin.firestore().collection("users").doc(appId).get();
+  const userData = userSnap.exists ? userSnap.data() : null;
+  const privSnap = await admin.firestore()
+    .collection("users").doc(appId).collection("private").doc("self").get();
+  const privData = privSnap.exists ? privSnap.data() : null;
+  return {
+    token: privData && privData.fcmToken ? privData.fcmToken : null,
+    name: (userData && userData.displayName) || "",
+  };
 }
 
 /** Send a data-only FCM message. No-op if the target has no token. */

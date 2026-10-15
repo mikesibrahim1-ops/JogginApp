@@ -28,7 +28,8 @@ import kotlinx.coroutines.tasks.await
  *
  * Firestore layout:
  *   users/{appId}                     displayName, photoRef, buddyEnabled, gpsOn,
- *                                     sharing, fcmToken, authUid, updatedAt
+ *                                     sharing, createdAt, updatedAt   (public profile)
+ *   users/{appId}/private/self        authUid, fcmToken, updatedAt    (owner-only, §3)
  *   users/{appId}/blocked/{otherId}   at
  *   links/{linkId}                    a, b, state, reqCount, reqWindowStart,
  *                                     createdAt, updatedAt   (linkId = sorted "a_b")
@@ -75,15 +76,24 @@ class FirebaseBuddyRepository(private val appContext: Context) : BuddyRepository
         // Write the resolver doc FIRST so security rules can map this caller (uid) to
         // their App ID before the user-doc create is evaluated (rules require it).
         db.collection("authMap").document(uid).set(mapOf("appId" to appId)).await()
-        // Upsert the user doc keyed by our App ID, recording the auth session uid.
+        // Write the owner-only private subdoc carrying authUid FIRST (design §3.5). This
+        // must precede the public-doc merge in ALL cases: for a returning user the public
+        // merge is an UPDATE gated by ownsUser(), which reads authUid from this subdoc.
+        // Authorized on create via mappedToMe(appId) (authMap written above).
+        db.collection("users").document(appId)
+            .collection("private").document("self")
+            .set(mapOf("authUid" to uid, "updatedAt" to FieldValue.serverTimestamp()), SetOptions.merge())
+            .await()
+        // Upsert the user doc keyed by our App ID. authUid NO LONGER lives here (§3).
         // Write createdAt ("member since") create-if-absent only: read the doc first and
         // include a server timestamp when it does not yet exist OR has no createdAt, so an
-        // existing account's creation time is NEVER clobbered.
+        // existing account's creation time is NEVER clobbered. The §4.3 rule also makes
+        // createdAt immutable on update as the authoritative guarantee if this self-read
+        // is denied on an un-migrated account.
         val userRef = db.collection("users").document(appId)
         val existing = runCatching { userRef.get().await() }.getOrNull()
         val needsCreatedAt = existing == null || !existing.exists() || existing.get("createdAt") == null
         val sessionData = buildMap<String, Any> {
-            put("authUid", uid)
             put("updatedAt", FieldValue.serverTimestamp())
             if (needsCreatedAt) put("createdAt", FieldValue.serverTimestamp())
         }
@@ -102,10 +112,21 @@ class FirebaseBuddyRepository(private val appContext: Context) : BuddyRepository
             buddyEnabled?.let { put("buddyEnabled", it) }
             gpsOn?.let { put("gpsOn", it) }
             sharing?.let { put("sharing", it) }
-            fcmToken?.let { put("fcmToken", it) }
             put("updatedAt", FieldValue.serverTimestamp())
         }
         db.collection("users").document(id).set(data, SetOptions.merge()).await()
+        // fcmToken moved to the owner-only private subdoc (design §3). Defensive-only:
+        // no live caller passes fcmToken here. Best-effort with the same fail-closed /
+        // self-heal semantics as refreshFcmToken — a denial (subdoc not yet created)
+        // persists nothing and self-heals on the next refreshFcmToken after ensureSession.
+        if (fcmToken != null) {
+            runCatching {
+                db.collection("users").document(id)
+                    .collection("private").document("self")
+                    .set(mapOf("fcmToken" to fcmToken, "updatedAt" to FieldValue.serverTimestamp()), SetOptions.merge())
+                    .await()
+            }
+        }
         BuddyResult.Success(Unit)
     }.getOrElse { mapError(it) }
 
@@ -113,7 +134,11 @@ class FirebaseBuddyRepository(private val appContext: Context) : BuddyRepository
         val id = myAppId ?: return BuddyResult.Failure(BuddyResult.Reason.NOT_FOUND)
         // Fetch the current registration token and persist it for future server push.
         val token = com.google.firebase.messaging.FirebaseMessaging.getInstance().token.await()
+        // Token stored in the owner-only private subdoc (design §3). Fails closed if the
+        // subdoc does not yet exist (no authUid in a token-only payload); self-heals once
+        // ensureSession has created the subdoc.
         db.collection("users").document(id)
+            .collection("private").document("self")
             .set(mapOf("fcmToken" to token, "updatedAt" to FieldValue.serverTimestamp()), SetOptions.merge())
             .await()
         AppLogger.log(appContext, LogCategory.PROFILE, "Buddy Link FCM token stored")
@@ -425,23 +450,27 @@ class FirebaseBuddyRepository(private val appContext: Context) : BuddyRepository
 
     override suspend fun requestBuddyLocation(buddyAppId: String): BuddyResult<Unit> = runCatching {
         val me = myAppId ?: return BuddyResult.Failure(BuddyResult.Reason.NOT_FOUND)
-        // Write a request marker on the buddy's location doc; the buddy's service
-        // observes locReq and pushes a fresh fix (design §8).
-        db.collection("locations").document(buddyAppId).set(
-            mapOf("locReq" to mapOf(me to FieldValue.serverTimestamp())),
-            SetOptions.merge()
-        ).await()
+        // Write a request marker in the buddy's locReq subcollection (design §5, F10);
+        // the owner observes locReq and pushes a fresh fix. MUST remain a non-merge set so
+        // the payload is always exactly {at} and satisfies the hasOnly(['at']) rule.
+        db.collection("locations").document(buddyAppId)
+            .collection("locReq").document(me)
+            .set(mapOf("at" to FieldValue.serverTimestamp()))
+            .await()
         BuddyResult.Success(Unit)
     }.getOrElse { mapError(it) }
 
     override fun observeLocationRequests(): Flow<List<String>> = callbackFlow {
         val me = myAppId
         if (me == null) { trySend(emptyList()); awaitClose { }; return@callbackFlow }
-        val reg = db.collection("locations").document(me)
-            .addSnapshotListener { s, _ ->
-                @Suppress("UNCHECKED_CAST")
-                val req = s?.get("locReq") as? Map<String, Any> ?: emptyMap()
-                trySend(req.keys.toList())
+        // Listen to the locReq subcollection (design §5.4). Delete each marker after
+        // emitting so markers do not accumulate (no TTL on this subcollection); the owner
+        // holds delete permission (§5.3). Best-effort; failures ignored.
+        val reg = db.collection("locations").document(me).collection("locReq")
+            .addSnapshotListener { qs, _ ->
+                val ids = qs?.documents?.map { it.id } ?: emptyList()
+                trySend(ids)
+                qs?.documents?.forEach { it.reference.delete() }
             }
         awaitClose { reg.remove() }
     }
@@ -465,6 +494,13 @@ class FirebaseBuddyRepository(private val appContext: Context) : BuddyRepository
             val la = db.collection("links").whereEqualTo("a", me).get().await()
             val lb = db.collection("links").whereEqualTo("b", me).get().await()
             (la.documents + lb.documents).forEach { it.reference.delete().await() }
+        }
+        // Delete the owner-only private subdoc (design §3.5). Deleting the parent user doc
+        // does NOT cascade to subcollections, so without this the sensitive fields
+        // (authUid, fcmToken) would outlive "delete all my data".
+        runCatching {
+            db.collection("users").document(me)
+                .collection("private").document("self").delete().await()
         }
         db.collection("users").document(me).delete().await()
         BuddyResult.Success(Unit)
