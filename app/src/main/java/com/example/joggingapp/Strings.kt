@@ -202,6 +202,7 @@ data class AppStrings(
     val buddyCodeCopy: String,             // "Copy"
     val buddyCodeCopied: String,           // "Code copied"
     val buddyCodeShare: String,            // "Share"
+    val buddyShareSubject: String,         // EXTRA_SUBJECT for share invite
     val buddyEnterCodeHint: String,        // input hint
     val buddyConnect: String,              // "Connect" button
     val buddyInviteSent: String,           // "Invite sent"
@@ -468,6 +469,7 @@ val EnglishStrings = AppStrings(
     buddyCodeCopy = "Copy",
     buddyCodeCopied = "Code copied",
     buddyCodeShare = "Share",
+    buddyShareSubject = "Add me on Joggin as a safety buddy",
     buddyEnterCodeHint = "Enter a friend's code",
     buddyConnect = "Connect",
     buddyInviteSent = "Invite sent",
@@ -733,6 +735,7 @@ val GreekStrings = AppStrings(
     buddyCodeCopy = "Αντιγραφή",
     buddyCodeCopied = "Ο κωδικός αντιγράφηκε",
     buddyCodeShare = "Κοινοποίηση",
+    buddyShareSubject = "Πρόσθεσέ με στο Joggin ως φίλο ασφαλείας",
     buddyEnterCodeHint = "Εισαγάγετε τον κωδικό ενός φίλου",
     buddyConnect = "Σύνδεση",
     buddyInviteSent = "Η πρόσκληση στάλθηκε",

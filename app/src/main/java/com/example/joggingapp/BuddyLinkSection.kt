@@ -191,9 +191,14 @@ fun BuddyLinkSection(controller: BuddyLinkController, userName: String) {
                             modifier = Modifier
                                 .clickable {
                                     AppLogger.log(context, LogCategory.UI, "Buddy Link code shared")
+                                    val shareText = controller.buildInviteShareText(userName) { name, appLink, httpsLink ->
+                                        S.buddyInviteShareBody(name, appLink, httpsLink)
+                                    }
+                                    val body = if (shareText != null) shareText else myId
                                     val send = Intent(Intent.ACTION_SEND).apply {
                                         type = "text/plain"
-                                        putExtra(Intent.EXTRA_TEXT, myId)
+                                        putExtra(Intent.EXTRA_SUBJECT, S.buddyShareSubject)
+                                        putExtra(Intent.EXTRA_TEXT, body)
                                     }
                                     context.startActivity(Intent.createChooser(send, S.buddyCodeShare))
                                 }
