@@ -35,8 +35,12 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/users/$(appId)).data;
     }
     // Does `ownerAppId` currently own docs as this caller? (write authorization)
+    // authUid now lives in the owner-only users/{appId}/private/self subdoc (design §3.3).
+    // A rule get() reads the doc directly and does NOT re-evaluate its allow read, so this
+    // is neither recursive nor a self-authorization paradox (design §3.3a).
     function ownsUser(appId) {
-      return signedIn() && userDoc(appId).authUid == request.auth.uid;
+      return signedIn()
+        && get(/databases/$(database)/documents/users/$(appId)/private/self).data.authUid == request.auth.uid;
     }
     // Is there an ACCEPTED link between appIdX and appIdY? linkId = sorted pair.
     function linkId(x, y) {
@@ -78,17 +82,62 @@ service cloud.firestore {
       // this user — so a pending invite can display the counterpart's name/status.
       allow read: if ownsUser(appId)
                   || (signedIn() && linkedEitherState(myAppId(), appId));
-      // Create/own only the App ID that the caller's authMap points to, and the doc
-      // must carry the caller's own authUid so ownsUser() works thereafter.
+      // Public profile doc now holds only non-sensitive fields (authUid/fcmToken moved
+      // to private/self, design §3). Whitelist + type-check; authUid/fcmToken rejected.
       allow create: if mappedToMe(appId)
-                    && request.resource.data.authUid == request.auth.uid;
-      // Updates require existing ownership; authUid must not be reassigned to someone else.
+                    && request.resource.data.keys().hasOnly(
+                         ['displayName','photoRef','buddyEnabled','gpsOn','sharing','createdAt','updatedAt'])
+                    && (!('displayName' in request.resource.data) || request.resource.data.displayName is string)
+                    && (!('photoRef' in request.resource.data) || request.resource.data.photoRef is string)
+                    && (!('buddyEnabled' in request.resource.data) || request.resource.data.buddyEnabled is bool)
+                    && (!('gpsOn' in request.resource.data) || request.resource.data.gpsOn is bool)
+                    && (!('sharing' in request.resource.data) || request.resource.data.sharing is bool)
+                    && (!('createdAt' in request.resource.data) || request.resource.data.createdAt is timestamp)
+                    && (!('updatedAt' in request.resource.data) || request.resource.data.updatedAt is timestamp)
+                    && request.resource.size() < 10;
+      // Updates require existing ownership. createdAt is write-once/immutable on update
+      // (design §4.3 + §3.5a point 4a): a write carrying a DIFFERENT createdAt on an
+      // existing doc is rejected, preserving the real "member since".
       allow update: if ownsUser(appId)
-                    && request.resource.data.authUid == request.auth.uid;
+                    && request.resource.data.keys().hasOnly(
+                         ['displayName','photoRef','buddyEnabled','gpsOn','sharing','createdAt','updatedAt'])
+                    && (!('displayName' in request.resource.data) || request.resource.data.displayName is string)
+                    && (!('photoRef' in request.resource.data) || request.resource.data.photoRef is string)
+                    && (!('buddyEnabled' in request.resource.data) || request.resource.data.buddyEnabled is bool)
+                    && (!('gpsOn' in request.resource.data) || request.resource.data.gpsOn is bool)
+                    && (!('sharing' in request.resource.data) || request.resource.data.sharing is bool)
+                    && (!('createdAt' in request.resource.data) || request.resource.data.createdAt is timestamp)
+                    && (!('updatedAt' in request.resource.data) || request.resource.data.updatedAt is timestamp)
+                    && (!('createdAt' in request.resource.data)
+                        || !('createdAt' in resource.data)
+                        || request.resource.data.createdAt == resource.data.createdAt)
+                    && request.resource.size() < 10;
       allow delete: if ownsUser(appId);
 
       match /blocked/{otherId} {
         allow read, write: if ownsUser(appId);
+      }
+
+      // Owner-only sensitive fields (authUid, fcmToken). NEVER readable by a linked or
+      // pending party (design §3.4). Create is bootstrapped via authMap (same as the
+      // user-doc create); updates are gated by ownership.
+      match /private/{docId} {
+        allow read: if ownsUser(appId);
+        allow create: if mappedToMe(appId)
+                      && docId == 'self'
+                      && request.resource.data.authUid == request.auth.uid
+                      && request.resource.data.keys().hasOnly(['authUid', 'fcmToken', 'updatedAt'])
+                      && request.resource.data.authUid is string
+                      && (!('fcmToken' in request.resource.data) || request.resource.data.fcmToken is string)
+                      && request.resource.size() < 4;
+        allow update: if ownsUser(appId)
+                      && docId == 'self'
+                      && request.resource.data.authUid == request.auth.uid
+                      && request.resource.data.keys().hasOnly(['authUid', 'fcmToken', 'updatedAt'])
+                      && request.resource.data.authUid is string
+                      && (!('fcmToken' in request.resource.data) || request.resource.data.fcmToken is string)
+                      && request.resource.size() < 4;
+        allow delete: if ownsUser(appId);
       }
     }
 
@@ -132,14 +181,37 @@ service cloud.firestore {
             || request.resource.data.state in ['declined', 'removed']
             || (request.resource.data.state == 'accepted'
                 && resource.data.state == 'pending'
-                && myAppId() == resource.data.b));
+                && myAppId() == resource.data.b))
+        // ── ADDED (F3): alert-cap tamper resistance (design §4.4). reqWindowStart is
+        // monotonic non-decreasing; reqCount may stay equal, bump by exactly 1, or reset
+        // to 1 only when the window advances. Guards short-circuit for writes that omit
+        // these fields (accept/decline/remove only touch state/updatedAt).
+        && (!('reqWindowStart' in request.resource.data)
+            || !('reqWindowStart' in resource.data)
+            || request.resource.data.reqWindowStart >= resource.data.reqWindowStart)
+        && (!('reqCount' in request.resource.data)
+            || !('reqCount' in resource.data)
+            || request.resource.data.reqCount == resource.data.reqCount
+            || request.resource.data.reqCount == resource.data.reqCount + 1
+            || (request.resource.data.reqCount == 1
+                && request.resource.data.reqWindowStart > resource.data.reqWindowStart));
       allow delete: if signedIn()
         && (myAppId() == resource.data.a || myAppId() == resource.data.b);
     }
 
     // locations/{appId}: owner writes; accepted+mutually-sharing+unblocked buddies read.
     match /locations/{appId} {
-      allow write: if ownsUser(appId);
+      // Owner write with field/size/type/range validation (design §4.1). On-demand
+      // requests live in the locReq subcollection (§5), NOT on this doc.
+      allow write: if ownsUser(appId)
+        && request.resource.data.keys().hasOnly(['lat', 'lon', 'at', 'expireAt'])
+        && request.resource.data.lat is number
+        && request.resource.data.lon is number
+        && request.resource.data.lat >= -90 && request.resource.data.lat <= 90
+        && request.resource.data.lon >= -180 && request.resource.data.lon <= 180
+        && request.resource.data.at is timestamp
+        && request.resource.data.expireAt is timestamp
+        && request.resource.size() < 8;
       allow read: if signedIn()
         && acceptedLink(myAppId(), appId)
         && userDoc(appId).sharing == true
@@ -148,13 +220,40 @@ service cloud.firestore {
         && !hasBlocked(myAppId(), appId);
 
       match /trail/{point} {
-        allow write: if ownsUser(appId);
+        allow write: if ownsUser(appId)
+          && request.resource.data.keys().hasOnly(['lat', 'lon', 'at', 'expireAt'])
+          && request.resource.data.lat is number
+          && request.resource.data.lon is number
+          && request.resource.data.lat >= -90 && request.resource.data.lat <= 90
+          && request.resource.data.lon >= -180 && request.resource.data.lon <= 180
+          && request.resource.data.at is timestamp
+          && request.resource.data.expireAt is timestamp
+          && request.resource.size() < 6;
         allow read: if signedIn()
           && acceptedLink(myAppId(), appId)
           && userDoc(appId).sharing == true
           && userDoc(myAppId()).sharing == true
           && !hasBlocked(appId, myAppId())
           && !hasBlocked(myAppId(), appId);
+      }
+
+      // On-demand location-request markers (design §5, F10). Owner reads incoming
+      // requests; an accepted, mutually-sharing, unblocked buddy may create ONLY their
+      // own marker (key == their appId), shape- and size-limited. The write gate reuses
+      // CONDITION-1 exactly, so it cannot broaden location-read access.
+      match /locReq/{requesterAppId} {
+        allow read: if ownsUser(appId);
+        allow create, update: if signedIn()
+          && requesterAppId == myAppId()
+          && acceptedLink(myAppId(), appId)
+          && userDoc(appId).sharing == true
+          && userDoc(myAppId()).sharing == true
+          && !hasBlocked(appId, myAppId())
+          && !hasBlocked(myAppId(), appId)
+          && request.resource.data.keys().hasOnly(['at'])
+          && request.resource.data.at is timestamp
+          && request.resource.size() < 3;
+        allow delete: if ownsUser(appId) || requesterAppId == myAppId();
       }
     }
   }
