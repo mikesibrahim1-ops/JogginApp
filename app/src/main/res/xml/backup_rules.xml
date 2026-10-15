@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Exclude the Buddy Link identity key (jog_prefs/buddy_app_id) and the app log
+     from the platform backup channel. API 23-30 (fullBackupContent). -->
+<full-backup-content>
+    <exclude domain="sharedpref" path="jog_prefs.xml" />
+    <exclude domain="file" path="app_log.txt" />
+</full-backup-content>
