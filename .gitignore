@@ -48,6 +48,21 @@ app/google-services.json
 keystore.properties
 *.p12
 *.pem
+# Credential tokens — NEVER commit (F1 security fix)
+.ghtoken
+*token*
+*.token
 
 # Cloud Functions deps
 firebase-hosting/functions/node_modules/
+
+# Agent/session scratch (not part of the app)
+.agents/
+.worktrees/
+LOG*.txt
+apks*.txt
+fs_hits.txt
+fscap.txt
+gitstatus.txt
+install_out.txt
+ver_out.txt
