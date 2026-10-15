@@ -13,7 +13,6 @@
     "public": "public",
     "ignore": [
       "firebase.json",
-      "**/.*",
       "**/node_modules/**",
       "**/*.apk"
     ],
@@ -25,21 +24,11 @@
       {
         "source": "/get",
         "destination": "/get/index.html"
-      },
-      {
-        "source": "/.well-known/assetlinks.json",
-        "destination": "/well-known/assetlinks.json"
       }
     ],
     "headers": [
       {
         "source": "/.well-known/assetlinks.json",
-        "headers": [
-          { "key": "Content-Type", "value": "application/json" }
-        ]
-      },
-      {
-        "source": "/well-known/assetlinks.json",
         "headers": [
           { "key": "Content-Type", "value": "application/json" }
         ]
