@@ -176,19 +176,30 @@ fun BuddyLinkSection(controller: BuddyLinkController, userName: String) {
                             color = c.onSecondary.copy(alpha = 0.6f))
                     }
                     Spacer(Modifier.height(10.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                        Text("📋 ${S.buddyCodeCopy}", fontSize = 12.sp, color = c.primary,
-                            fontWeight = FontWeight.SemiBold,
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        // Copy: filled button (c.primary bg / c.onPrimary text) so it
+                        // stands out against the pale c.primary-tinted card in all themes.
+                        Box(
                             modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(c.primary)
                                 .clickable {
                                     val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                                     cm.setPrimaryClip(ClipData.newPlainText("Buddy code", myId))
                                     AppLogger.log(context, LogCategory.UI, "Buddy Link code copied")
                                     codeMsg = S.buddyCodeCopied
                                 }
-                                .semantics { contentDescription = S.buddyCodeCopy })
-                        Text("↗ ${S.buddyCodeShare}", fontSize = 12.sp, color = c.primary,
+                                .padding(horizontal = 14.dp, vertical = 8.dp)
+                                .semantics { contentDescription = S.buddyCodeCopy }
+                        ) {
+                            Text("📋 ${S.buddyCodeCopy}", fontSize = 12.sp, color = c.onPrimary,
+                                fontWeight = FontWeight.SemiBold)
+                        }
+                        // Share: same filled button chrome, identical behaviour as before.
+                        Box(
                             modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(c.primary)
                                 .clickable {
                                     AppLogger.log(context, LogCategory.UI, "Buddy Link code shared")
                                     val shareText = controller.buildInviteShareText(userName) { name, appLink, httpsLink ->
@@ -202,7 +213,12 @@ fun BuddyLinkSection(controller: BuddyLinkController, userName: String) {
                                     }
                                     context.startActivity(Intent.createChooser(send, S.buddyCodeShare))
                                 }
-                                .semantics { contentDescription = S.buddyCodeShare })
+                                .padding(horizontal = 14.dp, vertical = 8.dp)
+                                .semantics { contentDescription = S.buddyCodeShare }
+                        ) {
+                            Text("↗ ${S.buddyCodeShare}", fontSize = 12.sp, color = c.onPrimary,
+                                fontWeight = FontWeight.SemiBold)
+                        }
                     }
                 }
 
