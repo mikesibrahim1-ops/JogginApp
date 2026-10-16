@@ -2060,18 +2060,21 @@ fun generateRouteBitmap(context: Context, points: List<Point>): android.net.Uri?
         val canvas = android.graphics.Canvas(bmp)
 
         // Convert geo coords to pixel positions on this bitmap
+        // Inset the route projection by `pad` on every edge so the stroke + 12px dot
+        // radius never touch the bitmap edge (fixes top/bottom clip when sharing).
         val n = Math.pow(2.0, zoom.toDouble())
+        val pad = 24f
         fun lonToPixX(lon: Double): Float {
             val tileX = (lon + 180.0) / 360.0 * n
             val centerTileX = (centerLon + 180.0) / 360.0 * n
-            return (width / 2f + ((tileX - centerTileX) * 256).toFloat())
+            return (width / 2f + ((tileX - centerTileX) * 256).toFloat() * ((width - 2 * pad) / width))
         }
         fun latToPixY(lat: Double): Float {
             val latRad = Math.toRadians(lat)
             val tileY = (1.0 - Math.log(Math.tan(latRad) + 1.0 / Math.cos(latRad)) / Math.PI) / 2.0 * n
             val centerLatRad = Math.toRadians(centerLat)
             val centerTileY = (1.0 - Math.log(Math.tan(centerLatRad) + 1.0 / Math.cos(centerLatRad)) / Math.PI) / 2.0 * n
-            return (height / 2f + ((tileY - centerTileY) * 256).toFloat())
+            return (height / 2f + ((tileY - centerTileY) * 256).toFloat() * ((height - 2 * pad) / height))
         }
 
         // Draw route shadow
