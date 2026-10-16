@@ -761,7 +761,9 @@ fun JogApp(context: Context) {
                                             Text(activityLabel, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = c.onBackground)
                                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                                 Text(S.hintAchievements, fontSize = 10.sp, color = c.textSecondary)
+                                                Text("↪", fontSize = 12.sp, color = c.textSecondary)   // swipe right → achievements
                                                 Text("|", fontSize = 10.sp, color = c.divider)
+                                                Text("↩", fontSize = 12.sp, color = c.textSecondary)   // swipe left → options
                                                 Text(S.hintOptions, fontSize = 10.sp, color = c.textSecondary)
                                             }
                                         }
