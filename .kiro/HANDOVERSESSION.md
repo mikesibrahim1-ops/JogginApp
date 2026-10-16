@@ -11,14 +11,165 @@ Android GPS fitness tracker (walk/run/cycle) at `c:\Users\INFINITI\Documents\Kir
 (project `joggin-a69a7`) powers **Buddy Link** (opt-in 1:1 live-location sharing). Distributed
 as a sideloaded APK: GitHub Releases hosts the APK; a Firebase Hosting install page links to it.
 
+## 0. LATEST SESSION SUMMARY (read this first — 2026-10-15, security session)
+This session acted on the security gap analysis. Landed on `main` (local, **NOT pushed**, **NOT
+in any APK**, **rules NOT deployed**):
+- **`faffec8` — F1:** `.ghtoken` now gitignored (`*token*` etc.) + scratch patterns. Verified it was
+  NEVER committed to history (`git log --all -- .ghtoken` empty). ⚠ **USER STILL MUST ROTATE the
+  token** on github.com (it sat in the working tree) and move it outside the repo.
+- **`0b022d1` + `92fb987` + `9909152` + `963e9a5` — Buddy Link security hardening** (HEAD now
+  **`963e9a5`**). Done via a design→review loop (converged) then an implement→semantic-review loop
+  (APPROVED, no HIGH/MED). Covers: **F2+F9** (moved `authUid`/`fcmToken` out of the buddy-readable
+  `users/{appId}` into owner-only `users/{appId}/private/self`; `ownsUser` redefined to read authUid
+  from the subdoc; `deleteAllMyData` now deletes the subdoc; Cloud Function `lookupUser` read-path
+  updated); **F3+F5** (additive field whitelists + lat/lon range + type + size caps on
+  locations/trail/users; monotonic `reqCount`/`reqWindowStart` on `links` update; `createdAt`
+  immutable on users update); **F10** (new `locations/{appId}/locReq/{requesterAppId}` subcollection
+  reusing CONDITION-1 — fixes the previously-broken on-demand request); **F7** (backup_rules.xml +
+  data_extraction_rules.xml excluding jog_prefs + app_log.txt, both manifests); **F8**
+  (`usesCleartextTraffic=false`, both manifests); **F14** (deleted dead non-dotted assetlinks copy).
+  Verified: `testDebugUnitTest` + Firebase `compileDebugKotlin` both BUILD SUCCESSFUL; both rules
+  copies byte-identical (SHA `39AD48…65F93`); both manifests in sync. Full per-finding note at
+  `.agents/tasks/buddy-security-harden/verification.md`; approved design at
+  `.agents/tasks/buddy-security-harden/design.md`. All edits ADDITIVE — CONDITION-1 + V1.49 intact.
+- **OPEN / NEXT STEPS for a new session:**
+  1. **PUSH `main`** (origin/main is still at `a279002`; HEAD `963e9a5` is 5 commits ahead, unpushed).
+  2. **DEPLOY the new rules**: `firebase deploy --only firestore:rules` — the hardening is INERT until
+     deployed. ⚠ Deploy the rules and ship an APK built from `963e9a5` TOGETHER: the client now writes
+     `authUid`/`fcmToken` to `users/{appId}/private/self` and the new rules whitelist the public doc,
+     so an OLD client against NEW rules (or vice-versa) can mismatch. Bump version + build + archive +
+     tag + publish when ready (no version bump was made this session).
+  3. **Emulator rules tests** (design §11) recommended before/after deploy — assertions listed in
+     verification.md (buddy can't read private/self; owner writes succeed; createdAt preserved; etc.).
+  4. **ROTATE the GitHub token** (F1 follow-up).
+  5. Still from the prior session: **on-device verify V1.51** (App Links open-the-app) on both phones.
+  - OUT OF SCOPE this session (flagged, not done): **F6** release signing / assetlinks cert.
+- ⚠ Cleaned up ALL stale worktrees this session except `.worktrees/v149-buddy-fix` (left per prior
+  note). `feat/buddy-security-harden` worktree+branch removed after the ff-merge.
+
+## 0b. PRIOR SESSION SUMMARY (2026-10-15)
+This session: shipped two follow-ups + V1.50 + V1.51, and ran a security gap analysis.
+- **Shipped V1.50** (live-map-on-enable fix + "buddy online" notification with tap-to-map + the
+  re-send-after-decline false "Request sent" fix). Published to GitHub, installed on the new phone.
+- **Shipped V1.51** (Buddy invite link reliably OPENS THE APP → existing Accept/Decline prompt +
+  friendlier share message). Pushed `main`, tag `V1.51`, GitHub release published, **and Firebase
+  Hosting deployed**. Fixed a real gotcha: Firebase intercepts `/.well-known/*` and served `[]`,
+  overriding the rewrite → moved the real statement to the actual dotted path
+  `firebase-hosting/public/.well-known/assetlinks.json` and removed the `"**/.*"` ignore glob.
+  VERIFIED LIVE: `https://joggin-a69a7.web.app/.well-known/assetlinks.json` now serves the real
+  Digital Asset Links statement (not `[]`).
+- **HEAD = `a279002` on `main`, pushed, in sync with origin.** Current app = **V1.51** (versionCode
+  51). `builds/joggin.apk` and `builds/joggin-v1.50.apk`/`joggin-v1.49.apk`/`joggin-v1.48.apk` +
+  `joggin-v1.51.apk` present.
+- **OPEN / NEXT STEPS for a new session:**
+  1. **On-device verify V1.51** (user was installing while we worked): install V1.51 on BOTH phones
+     (`adb install -r app\build\outputs\apk\debug\app-debug.apk` — current app-debug.apk IS V1.51),
+     then `adb shell pm get-app-links com.example.joggingapp` should show `verified` for
+     `joggin-a69a7.web.app`; real test = share code A→B via a chat app, tap link on B → app opens to
+     Accept/Decline. (A reinstall is what makes Android re-run App Links verification against the
+     now-fixed server.)
+  2. **Security gap analysis is DONE** — full report at `.agents/tasks/security-gap-analysis.md`
+     (14 findings, severity-ranked, file/line cited). NOT YET ACTED ON. Top items the user may want
+     next:
+     - **F1 (High, quick):** `.ghtoken` is a live-looking GitHub token in the repo root and is NOT
+       in `.gitignore` (currently untracked, so not committed — but one `git add .` would commit it).
+       Fix = gitignore it + ROTATE the token + move it out of the tree. (User decision needed to
+       rotate.)
+     - **F2+F9 (High/Med):** buddy `users/{appId}` docs leak `authUid` + `fcmToken` + full profile to
+       any linked (even pending) party because Firestore reads are whole-document → split sensitive
+       fields into an owner-only subdoc (data-model + rules change, needs redeploy).
+     - **F3+F5 (High/Med):** no server-side rate/size/field limits → a malicious anonymous client can
+       amplify Firestore cost on the free Spark plan; add field whitelists + size/type caps +
+       `reqCount` monotonicity to the rules.
+     - **F6 (Med):** verified App Link is pinned to a DEBUG signing cert; move to release signing for
+       anything beyond personal testing. **F7/F8:** `allowBackup=true` + `usesCleartextTraffic=true`.
+     - **F10:** the "request location now" feature is BROKEN (writes a doc the rules forbid, fails
+       closed) — worth fixing if that feature is wanted. **F14:** delete the dead non-dot
+       `public/well-known/assetlinks.json` copy (kept as a harmless fallback this session).
+  3. I recommended batching F2/F3/F5/F9 as one "Buddy Link rules + data-model hardening" change
+     (all touch `firestore.rules` + the user data model; needs a rules redeploy). Not started.
+- ⚠ The old `.agents/tasks/buddy-deeplink-investigation.md` is STALE (describes pre-fix state) —
+  ignore it; the App Links fix is live. The security report is the current authoritative doc.
+
 ## 2. Current version / build state
-- **V1.49** — `versionCode 49`, `versionName "1.49"` (`app/build.gradle`). PUBLISHED; **on-device
-  install PENDING** (device disconnected at release time). Install when plugged in:
+- **V1.51** — `versionCode 51`, `versionName "1.51"` (`app/build.gradle`). Bump committed `9391032`;
+  App Links serving fix committed `a279002`. **PUSHED to origin/main**, tag `V1.51` pushed, and
+  **PUBLISHED to GitHub Releases** (not draft, `joggin.apk` asset ~12.4 MB, release id 414305662).
+  Release URL: https://github.com/mikesibrahim1-ops/JogginApp/releases/tag/V1.51 — it is
+  `releases/latest`. **Firebase Hosting DEPLOYED** (`firebase deploy --only hosting`). V1.51 =
+  Buddy invite reliably opens the app → existing Accept/Decline prompt (routing/delivery fix) +
+  friendlier share message. HEAD on `main` = **`a279002`**.
+  ⚠ **App Links serving GOTCHA (now fixed — don't regress):** Firebase Hosting intercepts the
+  dotted `/.well-known/*` path with its OWN handler returning `[]`, which OVERRODE the
+  `firebase.json` rewrite from `/.well-known/assetlinks.json` → `/well-known/assetlinks.json` (that
+  rewrite served `[]` at the dotted path for two deploys). FIX: the real statement now lives at the
+  ACTUAL dotted path `firebase-hosting/public/.well-known/assetlinks.json`, the `firebase.json`
+  `ignore` glob `"**/.*"` was REMOVED (it was excluding the `.well-known` dir — that's why deploys
+  reported "found 4 files"; now "found 5"), and the rewrite was dropped. VERIFIED live:
+  `https://joggin-a69a7.web.app/.well-known/assetlinks.json` serves the real statement (package
+  `com.example.joggingapp` + debug SHA-256), NOT `[]`. The non-dotted `public/well-known/assetlinks.json`
+  is still present as a harmless fallback. ⚠ assetlinks carries the DEBUG cert SHA-256
+  (`24:0D:EE:CC:…99:0E:B0`) — a release-signing key would need its SHA-256 added too.
+  **On-device PENDING:** install V1.51 on both phones (`adb install -r app\build\outputs\apk\debug\app-debug.apk`
+  — current app-debug.apk IS V1.51), then `adb shell pm get-app-links com.example.joggingapp` should
+  show `verified` for `joggin-a69a7.web.app`; real test = share code A→B via a chat app, tap link on
+  B → Joggin opens to Accept/Decline. (ps1 scripts in repo root are blocked by execution policy —
+  run with `powershell -ExecutionPolicy Bypass -File .\x.ps1`, or copy APKs directly.)
+- **V1.50** — `versionCode 50`, `versionName "1.50"` (`app/build.gradle`). Committed `69117c1`,
+  pushed to `origin/main`, tag `V1.50` pushed, and **PUBLISHED to GitHub Releases** (not draft,
+  `joggin.apk` asset 12.4 MB, release id 413229474, published 2026-10-14). Release URL:
+  https://github.com/mikesibrahim1-ops/JogginApp/releases/tag/V1.50 — it is `releases/latest`, so
+  the install page and the in-app update check resolve to it. The user built the APK and ran the
+  publish (local shell was wedged on my side; the user ran `publish_v150.ps1`'s steps). V1.50 rolls
+  up `e4797d3` (re-send fix) + `292c501` (live-session-on-enable + buddy-online notification +
+  tap-to-map). **No Firestore rules change** (V1.49 rules already cover it) — no `firebase deploy`
+  needed. **on-device install PENDING** (install V1.50 on both phones to test the live-start +
+  online notification + tap-to-map). `builds/`: archived `joggin-v1.50.apk` + lowercase `joggin.apk`
+  (= V1.50). Build was green at the bump (assembleDebug + testDebugUnitTest → BUILD SUCCESSFUL).
+- **V1.49** — `versionCode 49`, `versionName "1.49"`. PUBLISHED (GitHub + Firestore rules deployed +
+  anon auth enabled). Superseded by V1.50 on `main`. Install when plugged in:
   `adb install -r app\build\outputs\apk\debug\app-debug.apk` (the app-debug.apk currently in the
   build output IS V1.49), or from the GitHub release / install page. **Both phones need V1.49** —
   V1.48 can no longer connect (its requestLink precheck is denied by the new rules).
-- Git: HEAD **`9c2c51b`** on `main`, pushed to `origin/main` (in sync). Tag **`V1.49`** pushed.
-  Earlier tags V1.40–V1.48 also exist.
+- Git: HEAD **`9cf48bc`** on `main`, **NOT yet pushed** (origin/main is at `69117c1` = V1.50, tag
+  `V1.50` pushed + published). `main` sits one+ commit ahead of the published V1.50; everything
+  through `9cf48bc` is code-complete, unpushed, and NOT in any shipped APK. Contents on top of
+  V1.50 (`69117c1`):
+  - **`9cf48bc` — Buddy "Share" sends the full localized (EN/EL) invite message** (not the bare
+    code): via `controller.buildInviteShareText` → `BuddyInvite.buildShareText` into `EXTRA_TEXT`
+    + localized `EXTRA_SUBJECT` (`buddyShareSubject`). `text/plain` + `createChooser` kept (system
+    share sheet). Copy/Connect/deep-link untouched. Build green, 77/77, review APPROVED.
+  - **Buddy Link invite "open the app" / App Links fix is ALSO already present in `main`** (at/below
+    `9cf48bc`). ⚠ The earlier `.agents/tasks/buddy-deeplink-investigation.md` is STALE — it
+    describes the pre-fix state (empty assetlinks, no autoVerify). Reality now in the main
+    workspace: `app/src/{main,firebase}/AndroidManifest.xml` have `android:autoVerify="true"` on
+    the https `/buddy` filter; `firebase-hosting/public/well-known/assetlinks.json` exists (package
+    `com.example.joggingapp`, DEBUG SHA-256 `24:0D:EE:CC:…99:0E:B0`); `firebase.json` rewrites
+    `/.well-known/assetlinks.json` → `/well-known/assetlinks.json` with `application/json` headers
+    (dodges the `**/.*` ignore glob); `firebase-hosting/public/buddy/index.html` uses an
+    `intent://…package=com.example.joggingapp;S.browser_fallback_url=…/get;end` with a raw
+    `joggin://` secondary. The shared message already leads with the `joggin://buddy/v1/<id>` link.
+    So "tap invite → app opens → Accept/Decline" is fully implemented in code; it just needs to be
+    DEPLOYED/SHIPPED (see TO SHIP below). A redundant workflow (`feature-buddy-invite-open-app`)
+    re-did this and FAILED — its coder correctly found "already implemented, byte-identical to
+    main"; nothing new to merge from it.
+  History (newest first): `a279002` (App Links serving fix) → `9391032` (V1.51 bump+notes) →
+  `9cf48bc` (full share message) → `69117c1` (V1.50 bump+notes) → `292c501` (live-start + online
+  notif + tap-to-map) → `e4797d3` (re-send fix) → `7ef93d3`/`9c2c51b` (V1.49, tag `V1.49`). Tags
+  V1.40–V1.51. ✅ V1.51 is SHIPPED (pushed, released, hosting deployed) — the V1.51 "TO SHIP" steps
+  are DONE; see the V1.51 entry at the top of §2.
+- ⚠ **LEFTOVER WORKTREES / branches to clean up** (the flaky shell wedged on every cleanup attempt
+  across these sessions). All fully merged into `main`, harmless to leave:
+  `.worktrees/buddy-share-invite` (branch `feat/buddy-share-invite-message`, merged as `9cf48bc`);
+  `.worktrees/buddy-invite-openapp` (branch `feat/buddy-invite-open-app` — redundant, nothing to
+  merge, the App Links work was already in main); `.worktrees/buddy-live-start` (orphan dir, branch
+  already deleted). When the shell cooperates: `git worktree remove <path> --force; git branch -D
+  <branch>; git worktree prune`, then delete the empty dirs. Plus scratch files in repo root +
+  worktrees (LOG*.txt, *.ps1, *.txt probes). Older pre-existing worktrees `personal-target-colors`,
+  `v147-updates-deeplink`, `v149-buddy-fix` are from prior sessions — leave them.
+- **Working tree has untracked scratch files** (gitignored or junk): `LOG.txt`, `apks.txt`,
+  `apks2.txt`, `fs_hits.txt`, `fscap.txt`, `.ghtoken`, `.agents/`, `.worktrees/`, plus a modified
+  `firebase-hosting/.firebase/hosting.*.cache`. None are part of the app; safe to leave or clean.
 - `minSdk 24`, `targetSdk 34`, `compileSdk 34`, Java/Kotlin 17, Compose compiler 1.5.10.
 - Last build: `assembleDebug` + `testDebugUnitTest` → **BUILD SUCCESSFUL** + `DONE_0` (debug-
   signed; 65/65 unit tests incl. new BuddyLinkDecisionsTest). Built with **`--no-daemon`** (see §3).
@@ -64,8 +215,59 @@ as a sideloaded APK: GitHub Releases hosts the APK; a Firebase Hosting install p
   composer group stack → `IndexOutOfBoundsException` in `Stack.pop`. Use if/else. (Caused a real
   crash earlier this project; now fixed. See AchievementsScreen.kt comment.)
 
-## 4. What was accomplished across recent sessions (all committed + pushed)
+## 4. What was accomplished across recent sessions (all committed; see §2 for push state)
 Newest first on `main`:
+- `292c501` — **Buddy Link: start live session on enable (no app restart) + "buddy online"
+  notification (tap → map)** (code change only — NO version bump, NOT yet pushed; not in any
+  published APK). Three user-requested items: (1) **Restart bug** — enabling Buddy Link + completing
+  the "I understand" consent did NOT start the live map until the app was closed+reopened. Root
+  cause (planner-traced, not assumed): `enableConfirmed()` already called `beginObserving()`, but
+  `BuddyLinkController.start()` set `started=true` even when disabled and `disable()` left listeners
+  attached, so the session/listener lifecycle was stale; plus the Compose map never re-evaluated
+  time-based `isLiveNow()`. Fix: a single idempotent `ensureSession()` (sign-in w/ bounded retry →
+  attach listeners) shared by BOTH `start()` (launch) and `enableConfirmed()` (consent); `disable()`
+  now cancels the listener Jobs + resets an `observing` flag so re-enable re-attaches cleanly; a
+  15s UI tick in `JogApp` re-evaluates liveness so the map repaints when a buddy appears — no
+  restart. (2) **"Your buddy, X, is online" local notification** fired ONLY on a genuine
+  offline→online transition — pure `BuddyTransitions.onlineEvents()/onlineSnapshot()` using the same
+  `isLiveNow` notion as the map, with initial-snapshot suppression (`prev==null` → silent baseline)
+  and carried-forward dedupe (one alert per transition); wired into the existing `observeBuddies`
+  diff + reused buddy-events notification channel. (3) **Tap the notification → open app on the MAP
+  centered on that buddy**: `BuddyNotifier` puts an `EXTRA_FOCUS_BUDDY_ID` on the open-app
+  PendingIntent; `MainActivity.onCreate/onNewIntent` reads it into a new `BuddyFocusBus` (mirrors the
+  existing `BuddyInviteBus` deep-link pattern); `JogApp` polls it, jumps the pager to the map page,
+  and `JogMap` animates/zooms to the buddy's fix (only when the live primary buddy matches the named
+  id). EN+EL strings added (`buddyNotifOnlineTitle`/`buddyNotifOnlineBody`). NO rules/manifest/Cloud
+  Function changes. Build verified green (`assembleDebug` + `testDebugUnitTest` → BUILD SUCCESSFUL +
+  DONE_0; **BuddyTransitionsTest 24/24**, total **77/77**, 0 failures — the coder's full run on the
+  exact committed content). Files: BuddyLinkController.kt, BuddyNotifier.kt, BuddyTransitions.kt,
+  JogMap.kt, MainActivity.kt, Strings.kt, BuddyTransitionsTest.kt (+295/−14). ⚠ Workflow note: the
+  implement-and-review workflow's code step HUNG for ~4h on the wedged shell AFTER its build
+  succeeded; I aborted it and finished manually (reviewed the diff myself, committed `292c501`,
+  ff-merged). The semantic-review gate did NOT run — I reviewed the four pieces by hand instead.
+  **Not verified: on-device** (needs the two phones; the map-focus + notification are runtime UI).
+- `e4797d3` — **Fix false "Request sent" when re-sending a Buddy Link invite after decline/removal**
+  (code change only — NO version bump, NOT yet pushed). Resolves the §4 known non-blocker flagged in
+  the V1.49 review. Root cause: `FirebaseBuddyRepository.requestLink`'s existing-doc branch bumped the
+  24h re-request counter but KEPT the existing `state`, so when the prior link was in a dead-end
+  `declined`/`removed` state the rules-allowed `tx.update` returned `Success` and the UI showed a
+  false "Request sent" — but no fresh pending request was ever created, so the recipient
+  (`observePendingRequests` filters `state=='pending'`) never saw it. Fix (client-only, NO rules
+  change): when the existing link is `declined`/`removed`, `ref.delete().await()` the dead-end doc,
+  then run the normal create transaction to make a genuinely fresh `pending` request. Both the delete
+  (either party may delete) and the create (side `a`, pending, `exists(users/{b})`) are permitted by
+  the ALREADY-DEPLOYED V1.49 rules; an in-place `declined→pending` reset is forbidden by the update
+  rule, which is why delete-then-create is used. The re-send decision is extracted as pure
+  `BuddyLinkDecisions.requestLinkAction(state) → RequestLinkAction {CREATE_NEW, BUMP_EXISTING,
+  RECREATE_PENDING}` and unit-tested (5 new cases). `pending`/`accepted` links keep the old
+  BUMP_EXISTING counter behavior (re-send to an existing buddy is still a no-op bump by design).
+  NO interface/NoOp/UI/Strings changes; `firestore.rules` + `firebase-hosting/firestore.rules`
+  untouched and still byte-identical → **no `firebase deploy` needed**. Build verified green
+  (`assembleDebug` + `testDebugUnitTest --rerun-tasks` → BUILD SUCCESSFUL; BuddyLinkDecisionsTest
+  **16/16**, fresh timestamp, 0 failures). **Not verified: real two-device re-send after a decline**
+  (needs 2 phones on V1.49). Files: `FirebaseBuddyRepository.kt`, `BuddyLinkDecisions.kt`,
+  `BuddyLinkDecisionsTest.kt` (+82/−1). ⚠ This fix is NOT in any published APK yet — it ships with
+  the next version bump.
 - `9c2c51b` — **V1.49: fix Buddy Link PERMISSION_DENIED + secure links rules + session auto-retry**
   (versionCode 49, bump + release notes in this commit). THE BIG FIX for "connect by code never
   worked / Firebase permission denied." Root cause (see
@@ -93,9 +295,8 @@ Newest first on `main`:
   (needs 2 phones both on V1.49). Files: FirebaseBuddyRepository.kt, BuddyLinkController.kt,
   BuddyLinkDecisions.kt (new), BuddyRepository.kt, NoOpBuddyRepository.kt, MainActivity.kt,
   Strings.kt, both firestore.rules, release-notes-v1.49.md, BuddyLinkDecisionsTest.kt (new).
-  ⚠ **KNOWN NON-BLOCKER (review-flagged, not yet fixed):** if a buddy declines/removes your invite
-  and you re-send, the app can show "Request sent" when the request didn't actually go through
-  (declined/removed dead-end). Candidate for a follow-up.
+  ✅ **KNOWN NON-BLOCKER — NOW FIXED in `e4797d3`** (see top of §4): the declined/removed re-send
+  false "Request sent" is resolved (delete-then-recreate a fresh pending request).
 - `e3fd0d6` — **V1.48: code-based Buddy Link invites + Accept/Ignore notification** (versionCode
   48, bump + release notes in this commit). Replaces the broken share-a-link invite with a
   CODE-BASED flow, all on the FREE Spark plan (no Cloud Functions, no paid push). Design (user-
@@ -220,9 +421,14 @@ the removal of the handover hook.
    `files/app_log.txt` via `adb exec-out run-as com.example.joggingapp cat files/app_log.txt`)
    shows "Firebase buddy op failed: <reason>"; the exact denied Firestore path is only in logcat
    tag `Firestore` (`adb logcat -d | Select-String Firestore`). Match timestamps to taps.
-3. Follow-up candidate (user-approved area): fix the declined/removed re-send "Request sent"
-   false-positive (§4 known non-blocker).
-- Still owed from earlier (lower priority): eyeball per-type target colours across the 4 themes.
+3. ✅ DONE — declined/removed re-send false-positive fixed in `e4797d3` (not pushed, not yet in a
+   published APK; ships with the next version bump). Verify on two devices when convenient: decline
+   an invite on phone B, then re-send from phone A → B should now actually receive a fresh pending
+   invite (previously silently nothing).
+4. **Push + release when ready:** `git push` `main`, then bump version + build + archive + tag +
+   publish if you want `e4797d3` in a shipped APK.
+- Still owed from earlier (lower priority): eyeball per-type target colours across the 4 themes
+  (visual, on-device — best done by the user).
 - **Optional (free):** enable true https App-Link auto-open by registering the app + debug SHA-256
   in the Firebase console (§4 V1.47 limitation). Not needed for invites to work.
 - **Cloud-function deploy still BLOCKED on Blaze** (§7); user avoids all cost. Everything shipped
