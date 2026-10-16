@@ -8,7 +8,9 @@ import android.content.Intent
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -177,29 +179,32 @@ fun BuddyLinkSection(controller: BuddyLinkController, userName: String) {
                     }
                     Spacer(Modifier.height(10.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        // Copy: filled button (c.primary bg / c.onPrimary text) so it
-                        // stands out against the pale c.primary-tinted card in all themes.
+                        // Copy: filled PILL button (c.primary bg / c.onPrimary text) with a
+                        // contrasting c.onSurface border so the pill outline is always visible
+                        // against the card background in every theme (does not blend in).
                         Box(
                             modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
+                                .clip(CircleShape)
                                 .background(c.primary)
+                                .border(BorderStroke(1.dp, c.onSurface.copy(alpha = 0.5f)), CircleShape)
                                 .clickable {
                                     val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                                     cm.setPrimaryClip(ClipData.newPlainText("Buddy code", myId))
                                     AppLogger.log(context, LogCategory.UI, "Buddy Link code copied")
                                     codeMsg = S.buddyCodeCopied
                                 }
-                                .padding(horizontal = 14.dp, vertical = 8.dp)
+                                .padding(horizontal = 16.dp, vertical = 8.dp)
                                 .semantics { contentDescription = S.buddyCodeCopy }
                         ) {
                             Text("📋 ${S.buddyCodeCopy}", fontSize = 12.sp, color = c.onPrimary,
                                 fontWeight = FontWeight.SemiBold)
                         }
-                        // Share: same filled button chrome, identical behaviour as before.
+                        // Share: same pill chrome + contrasting border, identical behaviour as before.
                         Box(
                             modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
+                                .clip(CircleShape)
                                 .background(c.primary)
+                                .border(BorderStroke(1.dp, c.onSurface.copy(alpha = 0.5f)), CircleShape)
                                 .clickable {
                                     AppLogger.log(context, LogCategory.UI, "Buddy Link code shared")
                                     val shareText = controller.buildInviteShareText(userName) { name, appLink, httpsLink ->
@@ -213,7 +218,7 @@ fun BuddyLinkSection(controller: BuddyLinkController, userName: String) {
                                     }
                                     context.startActivity(Intent.createChooser(send, S.buddyCodeShare))
                                 }
-                                .padding(horizontal = 14.dp, vertical = 8.dp)
+                                .padding(horizontal = 16.dp, vertical = 8.dp)
                                 .semantics { contentDescription = S.buddyCodeShare }
                         ) {
                             Text("↗ ${S.buddyCodeShare}", fontSize = 12.sp, color = c.onPrimary,
