@@ -39,6 +39,13 @@ object BuddyConstants {
      */
     const val TRAIL_MIN_SPACING_MS: Long = BROADCAST_INTERVAL_MS
 
+    /**
+     * SharedPreferences key (in `jog_prefs`) storing the sharer's [BuddyShareMode] wire
+     * value ("ping"/"route"). Single home referenced by BOTH [BuddyLinkController] and
+     * [BuddyLocationService] so the key never drifts.
+     */
+    const val PREFS_SHARE_MODE_KEY = "buddy_share_mode"
+
     /** Invite link scheme/host used by the deep link. Req 2.4, 3.1. */
     const val INVITE_SCHEME = "joggin"
     const val INVITE_PATH_PREFIX = "buddy/v1"

@@ -103,7 +103,7 @@ class FirebaseBuddyRepository(private val appContext: Context) : BuddyRepository
 
     override suspend fun updateMyUser(
         displayName: String?, photoRef: String?, buddyEnabled: Boolean?,
-        gpsOn: Boolean?, sharing: Boolean?, fcmToken: String?
+        gpsOn: Boolean?, sharing: Boolean?, fcmToken: String?, shareMode: BuddyShareMode?
     ): BuddyResult<Unit> = runCatching {
         val id = myAppId ?: return BuddyResult.Failure(BuddyResult.Reason.NOT_FOUND)
         val data = buildMap<String, Any> {
@@ -112,6 +112,9 @@ class FirebaseBuddyRepository(private val appContext: Context) : BuddyRepository
             buddyEnabled?.let { put("buddyEnabled", it) }
             gpsOn?.let { put("gpsOn", it) }
             sharing?.let { put("sharing", it) }
+            // Public-profile share mode ('ping'/'route'); read by the buddy's trail-read
+            // rule (design §7.2). Only written when non-null.
+            shareMode?.let { put("shareMode", it.wire) }
             put("updatedAt", FieldValue.serverTimestamp())
         }
         db.collection("users").document(id).set(data, SetOptions.merge()).await()
@@ -434,17 +437,22 @@ class FirebaseBuddyRepository(private val appContext: Context) : BuddyRepository
 
     // ── Location ──────────────────────────────────────────────────────────────
 
-    override suspend fun writeMyLocation(lat: Double, lon: Double, atMs: Long): BuddyResult<Unit> = runCatching {
+    override suspend fun writeMyLocation(
+        lat: Double, lon: Double, atMs: Long, mode: BuddyShareMode
+    ): BuddyResult<Unit> = runCatching {
         val me = myAppId ?: return BuddyResult.Failure(BuddyResult.Reason.NOT_FOUND)
         val expireAt = com.google.firebase.Timestamp(java.util.Date(atMs + BuddyConstants.RETENTION_MS))
         val at = com.google.firebase.Timestamp(java.util.Date(atMs))
         val locRef = db.collection("locations").document(me)
-        // Latest fix (overwritten each broadcast).
+        // Latest fix (the circle) — ALWAYS written in both modes.
         locRef.set(mapOf("lat" to lat, "lon" to lon, "at" to at, "expireAt" to expireAt)).await()
-        // Sparse trail point (one per broadcast; TTL purges after 7 days).
-        locRef.collection("trail").add(
-            mapOf("lat" to lat, "lon" to lon, "at" to at, "expireAt" to expireAt)
-        ).await()
+        // Sparse trail point (one per broadcast; TTL purges after 7 days) — only in
+        // ROUTE mode (write-gating, design §5). PING writes the circle only.
+        if (shouldAppendTrailPoint(mode)) {
+            locRef.collection("trail").add(
+                mapOf("lat" to lat, "lon" to lon, "at" to at, "expireAt" to expireAt)
+            ).await()
+        }
         BuddyResult.Success(Unit)
     }.getOrElse { mapError(it) }
 

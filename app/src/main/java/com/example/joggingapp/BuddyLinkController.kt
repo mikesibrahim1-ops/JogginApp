@@ -47,6 +47,19 @@ class BuddyLinkController(private val appContext: Context) {
     var showHistory by mutableStateOf(false); private set
 
     /**
+     * Persisted sharer location-sharing mode; PING by default (design §3). Single
+     * source of truth for write-gating (the service reads the same prefs key). Persists
+     * across Buddy Link enable/disable — only [deleteAllData] resets it.
+     */
+    var shareMode by mutableStateOf(
+        BuddyShareMode.fromWire(prefs.getString(BuddyConstants.PREFS_SHARE_MODE_KEY, null))
+    ); private set
+
+    /** Raised once each time Buddy Link is enabled while mode == ROUTE, so the UI can re-alert (req 5b). */
+    var routeActiveAlertPending by mutableStateOf(false); private set
+    fun consumeRouteActiveAlert() { routeActiveAlertPending = false }
+
+    /**
      * The trail to actually draw on the map: the observed [buddyTrail] only while the
      * user has history enabled AND a buddy is live; otherwise empty so the overlay is
      * hidden. Makes the trail a user-invoked "History" view rather than always-on.
@@ -56,6 +69,22 @@ class BuddyLinkController(private val appContext: Context) {
 
     /** Toggle the buddy history trail overlay (task 6.4). */
     fun toggleHistory() { showHistory = !showHistory }
+
+    /** Switch to ROUTE (called only AFTER the consent dialog is confirmed, §6). */
+    fun enableRouteMode() { applyShareMode(BuddyShareMode.ROUTE) }
+
+    /** Switch back to PING. Stops NEW trail writes; does NOT delete already-written points (§4). */
+    fun disableRouteMode() { applyShareMode(BuddyShareMode.PING) }
+
+    // Renamed from setShareMode to avoid a JVM signature clash with the auto-generated
+    // setter for `var shareMode` (both would be setShareMode(BuddyShareMode)).
+    private fun applyShareMode(mode: BuddyShareMode) {
+        if (shareMode == mode) return
+        shareMode = mode
+        prefs.edit().putString(BuddyConstants.PREFS_SHARE_MODE_KEY, mode.wire).apply()
+        AppLogger.log(appContext, LogCategory.PROFILE, "Buddy Link share mode -> ${mode.wire}")
+        scope.launch { repo.updateMyUser(shareMode = mode) }
+    }
 
     /** Derived: am I currently sharing? (mutual-on gate, CONDITION-1 — my side.) */
     val sharing: Boolean get() = enabled && gpsOn
@@ -274,8 +303,15 @@ class BuddyLinkController(private val appContext: Context) {
         // SAME idempotent path app launch uses so listeners + sharing come up IMMEDIATELY
         // (no app restart). ensureSession() handles session-retry-before-observe itself.
         scope.launch {
-            repo.updateMyUser(displayName = displayName, buddyEnabled = true, gpsOn = gpsOn, sharing = sharing)
+            repo.updateMyUser(
+                displayName = displayName, buddyEnabled = true, gpsOn = gpsOn,
+                sharing = sharing, shareMode = shareMode
+            )
         }
+        // Re-alert on EVERY enable while ROUTE is the persisted mode (req 5b): raise a
+        // one-shot flag the UI consumes. Set here (not a LaunchedEffect) so it fires once
+        // per explicit enable, not on every recomposition.
+        if (shareMode == BuddyShareMode.ROUTE) routeActiveAlertPending = true
         ensureSession()
         applySharingState()   // start the location foreground service when CONDITION-1 holds
     }
@@ -347,6 +383,10 @@ class BuddyLinkController(private val appContext: Context) {
         disable()
         // Clear local "member since" so a fresh identity starts a fresh account age.
         prefs.edit().remove(KEY_CREATED_AT).apply()
+        // Fresh identity -> fresh account state: reset the share mode to the default
+        // (design §3). This is the ONE place the mode resets; disable() must not.
+        prefs.edit().remove(BuddyConstants.PREFS_SHARE_MODE_KEY).apply()
+        shareMode = BuddyShareMode.DEFAULT
         appId = null
     }
 

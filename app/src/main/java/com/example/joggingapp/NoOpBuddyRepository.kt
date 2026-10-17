@@ -21,7 +21,7 @@ object NoOpBuddyRepository : BuddyRepository {
 
     override suspend fun updateMyUser(
         displayName: String?, photoRef: String?, buddyEnabled: Boolean?,
-        gpsOn: Boolean?, sharing: Boolean?, fcmToken: String?
+        gpsOn: Boolean?, sharing: Boolean?, fcmToken: String?, shareMode: BuddyShareMode?
     ): BuddyResult<Unit> = unavailable()
 
     override suspend fun refreshFcmToken(): BuddyResult<Unit> = unavailable()
@@ -43,7 +43,9 @@ object NoOpBuddyRepository : BuddyRepository {
     override suspend fun unblockUser(appId: String): BuddyResult<Unit> = unavailable()
     override fun observeBlocked(): Flow<List<String>> = flowOf(emptyList())
 
-    override suspend fun writeMyLocation(lat: Double, lon: Double, atMs: Long): BuddyResult<Unit> = unavailable()
+    override suspend fun writeMyLocation(
+        lat: Double, lon: Double, atMs: Long, mode: BuddyShareMode
+    ): BuddyResult<Unit> = unavailable()
     override suspend fun requestBuddyLocation(buddyAppId: String): BuddyResult<Unit> = unavailable()
     override fun observeLocationRequests(): Flow<List<String>> = flowOf(emptyList())
 

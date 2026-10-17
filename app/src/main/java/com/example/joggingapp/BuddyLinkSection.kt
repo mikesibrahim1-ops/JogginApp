@@ -61,6 +61,8 @@ fun BuddyLinkSection(controller: BuddyLinkController, userName: String) {
     var confirmBlock by remember { mutableStateOf<String?>(null) }
     // Drives the "delete all my data" confirmation dialog.
     var confirmDelete by remember { mutableStateOf(false) }
+    // Drives the consent dialog when switching the share mode PING -> ROUTE (req 5a).
+    var showRouteConsent by remember { mutableStateOf(false) }
 
     // Live background-location permission state (Req 6c). Re-checked on ON_RESUME so a
     // grant/revoke made in system settings is reflected when the user returns.
@@ -136,6 +138,37 @@ fun BuddyLinkSection(controller: BuddyLinkController, userName: String) {
         }
 
         if (controller.enabled) {
+            // ── Share-mode switch (Ping / Route) — design §11 ─────────────────
+            // Mirrors the master toggle's chrome. Turning ON (PING -> ROUTE) opens a
+            // consent dialog first; turning OFF (ROUTE -> PING) is immediate.
+            Spacer(Modifier.height(10.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
+                    .background(c.primary.copy(alpha = 0.15f)).padding(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(S.buddyShareModeLabel, fontSize = 13.sp, color = c.onSecondary, fontWeight = FontWeight.Medium)
+                    Text(
+                        if (controller.shareMode == BuddyShareMode.ROUTE) S.buddyShareModeRoute else S.buddyShareModePing,
+                        fontSize = 10.sp, color = c.onSecondary.copy(alpha = 0.7f)
+                    )
+                }
+                val isRoute = controller.shareMode == BuddyShareMode.ROUTE
+                Box(
+                    modifier = Modifier.size(40.dp, 24.dp).clip(RoundedCornerShape(12.dp))
+                        .background(if (isRoute) c.success else c.divider)
+                        .clickable {
+                            if (isRoute) controller.disableRouteMode() else showRouteConsent = true
+                        }
+                        .semantics { contentDescription = S.buddyShareModeDesc(isRoute) },
+                    contentAlignment = if (isRoute) Alignment.CenterEnd else Alignment.CenterStart
+                ) {
+                    Box(modifier = Modifier.size(20.dp).padding(2.dp).clip(CircleShape).background(Color.White))
+                }
+            }
+
             // Background-location permission note (Req 6c). Shown when enabled but the
             // permission was denied or later revoked — broadcasting can't run without it.
             if (!bgGranted) {
@@ -468,6 +501,31 @@ fun BuddyLinkSection(controller: BuddyLinkController, userName: String) {
                 controller.deleteAllData(); confirmDelete = false
             },
             onDismiss = { confirmDelete = false }
+        )
+    }
+
+    // ── Route-share consent (switch PING -> ROUTE, req 5a) ───────────────────
+    if (showRouteConsent) {
+        BuddyDialog(
+            title = S.buddyRouteConsentTitle,
+            body = S.buddyRouteConsentBody,
+            confirmLabel = S.buddyRouteConsentAgree,
+            dismissLabel = S.buddyRouteConsentDecline,
+            onConfirm = { controller.enableRouteMode(); showRouteConsent = false },
+            onDismiss = { showRouteConsent = false }
+        )
+    }
+
+    // ── Route-active re-alert (fires on each enable while ROUTE, req 5b) ──────
+    // A notice, not a choice: both actions just dismiss (consume the one-shot flag).
+    if (controller.routeActiveAlertPending) {
+        BuddyDialog(
+            title = S.buddyRouteActiveTitle,
+            body = S.buddyRouteActiveBody,
+            confirmLabel = S.buddyRouteActiveAck,
+            dismissLabel = S.buddyRouteActiveAck,
+            onConfirm = { controller.consumeRouteActiveAlert() },
+            onDismiss = { controller.consumeRouteActiveAlert() }
         )
     }
 }

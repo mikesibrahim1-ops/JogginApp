@@ -228,6 +228,18 @@ data class AppStrings(
     val buddyChannelName: String,          // notification channel name for broadcast service
     val buddyJustNow: String,              // "updated just now" (fresh fix)
     val buddyMinutesAgo: (Int) -> String,  // "updated N min ago"
+    // ── Buddy Link share mode (Ping / Route) ──────────────────────────────────
+    val buddyShareModeLabel: String,       // row label for the mode switch
+    val buddyShareModePing: String,        // sublabel/state when PING
+    val buddyShareModeRoute: String,       // sublabel/state when ROUTE
+    val buddyRouteConsentTitle: String,    // consent dialog title (switch to Route)
+    val buddyRouteConsentBody: String,     // consent body
+    val buddyRouteConsentAgree: String,    // consent confirm
+    val buddyRouteConsentDecline: String,  // consent cancel
+    val buddyRouteActiveTitle: String,     // re-alert title
+    val buddyRouteActiveBody: String,      // re-alert body
+    val buddyRouteActiveAck: String,       // re-alert dismiss ("Got it")
+    val buddyShareModeDesc: (Boolean) -> String, // a11y: "Share route, on/off. Double-tap to toggle."
     // ── Exercise Targets ──────────────────────────────────────────────────────
     val exerciseTargets: String,           // section / screen title
     val exerciseTargetsSubtitle: String,   // options-pane row subtitle
@@ -495,6 +507,17 @@ val EnglishStrings = AppStrings(
     buddyChannelName = "Buddy Link",
     buddyJustNow = "updated just now",
     buddyMinutesAgo = { min -> "updated $min min ago" },
+    buddyShareModeLabel = "Share my route",
+    buddyShareModePing = "Location only (ping)",
+    buddyShareModeRoute = "Route (path)",
+    buddyRouteConsentTitle = "Share your route?",
+    buddyRouteConsentBody = "Turning this on shows your buddy the actual path you take, drawn on their map, until you turn Buddy Link off or switch back to location-only. It updates about every 5 minutes.",
+    buddyRouteConsentAgree = "I understand, share route",
+    buddyRouteConsentDecline = "Cancel",
+    buddyRouteActiveTitle = "Route sharing is on",
+    buddyRouteActiveBody = "Buddy Link is on and you're sharing your route. Your buddy can see the path you take until you switch back to location-only or turn Buddy Link off.",
+    buddyRouteActiveAck = "Got it",
+    buddyShareModeDesc = { route -> "Share route, ${if (route) "on" else "off"}. Double-tap to toggle." },
     exerciseTargets = "Exercise Targets",
     exerciseTargetsSubtitle = "Set at-home goals and track your progress",
     exerciseTargetsEmpty = "No targets yet. Add one to start tracking your at-home exercises and distance goals.",
@@ -761,6 +784,17 @@ val GreekStrings = AppStrings(
     buddyChannelName = "Σύνδεσμος Φίλου",
     buddyJustNow = "ενημερώθηκε μόλις τώρα",
     buddyMinutesAgo = { min -> "ενημερώθηκε πριν $min λεπτά" },
+    buddyShareModeLabel = "Κοινή χρήση διαδρομής",
+    buddyShareModePing = "Μόνο τοποθεσία (ping)",
+    buddyShareModeRoute = "Διαδρομή (πορεία)",
+    buddyRouteConsentTitle = "Κοινή χρήση διαδρομής;",
+    buddyRouteConsentBody = "Ενεργοποιώντας το, ο φίλος σας βλέπει την πραγματική διαδρομή που ακολουθείτε, σχεδιασμένη στον χάρτη του, μέχρι να απενεργοποιήσετε τον Σύνδεσμο Φίλου ή να επιστρέψετε σε μόνο τοποθεσία. Ενημερώνεται περίπου κάθε 5 λεπτά.",
+    buddyRouteConsentAgree = "Κατάλαβα, κοινή χρήση",
+    buddyRouteConsentDecline = "Άκυρο",
+    buddyRouteActiveTitle = "Η κοινή χρήση διαδρομής είναι ενεργή",
+    buddyRouteActiveBody = "Ο Σύνδεσμος Φίλου είναι ενεργός και μοιράζεστε τη διαδρομή σας. Ο φίλος σας βλέπει την πορεία σας μέχρι να επιστρέψετε σε μόνο τοποθεσία ή να τον απενεργοποιήσετε.",
+    buddyRouteActiveAck = "Το κατάλαβα",
+    buddyShareModeDesc = { route -> "Κοινή χρήση διαδρομής, ${if (route) "ενεργή" else "ανενεργή"}. Πατήστε δύο φορές για εναλλαγή." },
     exerciseTargets = "Στόχοι Άσκησης",
     exerciseTargetsSubtitle = "Ορίστε στόχους στο σπίτι και παρακολουθήστε την πρόοδό σας",
     exerciseTargetsEmpty = "Δεν υπάρχουν στόχοι ακόμη. Προσθέστε έναν για να παρακολουθείτε τις ασκήσεις σας και τους στόχους απόστασης.",

@@ -28,14 +28,15 @@ interface BuddyRepository {
      */
     suspend fun ensureSession(appId: String): BuddyResult<Unit>
 
-    /** Updates this user's profile/presence fields (name, photo ref, toggle, gps). */
+    /** Updates this user's profile/presence fields (name, photo ref, toggle, gps, share mode). */
     suspend fun updateMyUser(
         displayName: String? = null,
         photoRef: String? = null,
         buddyEnabled: Boolean? = null,
         gpsOn: Boolean? = null,
         sharing: Boolean? = null,
-        fcmToken: String? = null
+        fcmToken: String? = null,
+        shareMode: BuddyShareMode? = null
     ): BuddyResult<Unit>
 
     /**
@@ -113,8 +114,15 @@ interface BuddyRepository {
 
     // ── Location ──────────────────────────────────────────────────────────────
 
-    /** Writes my latest fix and appends a sparse trail point. Req 6.1, 5b. */
-    suspend fun writeMyLocation(lat: Double, lon: Double, atMs: Long): BuddyResult<Unit>
+    /**
+     * Writes my latest fix (the circle, always) and — only in [BuddyShareMode.ROUTE] —
+     * appends a sparse trail point (design §5). The [mode] defaults to PING (fail-safe:
+     * circle only, never leak a trail for an omitted mode). Req 6.1, 5b.
+     */
+    suspend fun writeMyLocation(
+        lat: Double, lon: Double, atMs: Long,
+        mode: BuddyShareMode = BuddyShareMode.PING
+    ): BuddyResult<Unit>
 
     /** Ask a buddy for a fresh fix now (on-demand). Req 6.1b. */
     suspend fun requestBuddyLocation(buddyAppId: String): BuddyResult<Unit>

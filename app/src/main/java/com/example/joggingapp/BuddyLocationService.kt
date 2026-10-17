@@ -151,7 +151,14 @@ class BuddyLocationService : Service() {
 
     private fun writeFix(loc: Location, reason: String) {
         scope.launch {
-            val res = repo.writeMyLocation(loc.latitude, loc.longitude, System.currentTimeMillis())
+            // Read the sharer's current mode from prefs at write time so a mid-activity
+            // mode flip takes effect on the next broadcast (design §5.3). Absent/unknown
+            // -> PING (fail-safe to the privacy-preserving mode).
+            val mode = BuddyShareMode.fromWire(
+                getSharedPreferences("jog_prefs", Context.MODE_PRIVATE)
+                    .getString(BuddyConstants.PREFS_SHARE_MODE_KEY, null)
+            )
+            val res = repo.writeMyLocation(loc.latitude, loc.longitude, System.currentTimeMillis(), mode)
             when (res) {
                 is BuddyResult.Success ->
                     AppLogger.log(this@BuddyLocationService, LogCategory.SERVICE,

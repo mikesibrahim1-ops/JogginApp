@@ -86,12 +86,15 @@ service cloud.firestore {
       // to private/self, design §3). Whitelist + type-check; authUid/fcmToken rejected.
       allow create: if mappedToMe(appId)
                     && request.resource.data.keys().hasOnly(
-                         ['displayName','photoRef','buddyEnabled','gpsOn','sharing','createdAt','updatedAt'])
+                         ['displayName','photoRef','buddyEnabled','gpsOn','sharing','shareMode','createdAt','updatedAt'])
                     && (!('displayName' in request.resource.data) || request.resource.data.displayName is string)
                     && (!('photoRef' in request.resource.data) || request.resource.data.photoRef is string)
                     && (!('buddyEnabled' in request.resource.data) || request.resource.data.buddyEnabled is bool)
                     && (!('gpsOn' in request.resource.data) || request.resource.data.gpsOn is bool)
                     && (!('sharing' in request.resource.data) || request.resource.data.sharing is bool)
+                    && (!('shareMode' in request.resource.data)
+                        || (request.resource.data.shareMode is string
+                            && request.resource.data.shareMode in ['ping','route']))
                     && (!('createdAt' in request.resource.data) || request.resource.data.createdAt is timestamp)
                     && (!('updatedAt' in request.resource.data) || request.resource.data.updatedAt is timestamp)
                     && request.resource.size() < 10;
@@ -100,12 +103,15 @@ service cloud.firestore {
       // existing doc is rejected, preserving the real "member since".
       allow update: if ownsUser(appId)
                     && request.resource.data.keys().hasOnly(
-                         ['displayName','photoRef','buddyEnabled','gpsOn','sharing','createdAt','updatedAt'])
+                         ['displayName','photoRef','buddyEnabled','gpsOn','sharing','shareMode','createdAt','updatedAt'])
                     && (!('displayName' in request.resource.data) || request.resource.data.displayName is string)
                     && (!('photoRef' in request.resource.data) || request.resource.data.photoRef is string)
                     && (!('buddyEnabled' in request.resource.data) || request.resource.data.buddyEnabled is bool)
                     && (!('gpsOn' in request.resource.data) || request.resource.data.gpsOn is bool)
                     && (!('sharing' in request.resource.data) || request.resource.data.sharing is bool)
+                    && (!('shareMode' in request.resource.data)
+                        || (request.resource.data.shareMode is string
+                            && request.resource.data.shareMode in ['ping','route']))
                     && (!('createdAt' in request.resource.data) || request.resource.data.createdAt is timestamp)
                     && (!('updatedAt' in request.resource.data) || request.resource.data.updatedAt is timestamp)
                     && (!('createdAt' in request.resource.data)
@@ -234,7 +240,11 @@ service cloud.firestore {
           && userDoc(appId).sharing == true
           && userDoc(myAppId()).sharing == true
           && !hasBlocked(appId, myAppId())
-          && !hasBlocked(myAppId(), appId);
+          && !hasBlocked(myAppId(), appId)
+          // ADDED (design §7.2): the sharer (appId) must currently be in ROUTE mode.
+          // Added as an extra conjunct to CONDITION-1 — never weakening the existing
+          // checks. Absent/'ping' shareMode => trail unreadable (privacy-safe default).
+          && userDoc(appId).shareMode == 'route';
       }
 
       // On-demand location-request markers (design §5, F10). Owner reads incoming
