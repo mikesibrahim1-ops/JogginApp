@@ -11,9 +11,52 @@ Android GPS fitness tracker (walk/run/cycle) at `c:\Users\INFINITI\Documents\Kir
 (project `joggin-a69a7`) powers **Buddy Link** (opt-in 1:1 live-location sharing). Distributed
 as a sideloaded APK: GitHub Releases hosts the APK; a Firebase Hosting install page links to it.
 
-## 0. LATEST SESSION SUMMARY (read this first — 2026-10-15, security session)
-This session acted on the security gap analysis. Landed on `main` (local, **NOT pushed**, **NOT
-in any APK**, **rules NOT deployed**):
+## 0. LATEST SESSION SUMMARY (read this first — 2026-10-17, V1.52 ship session)
+This session SHIPPED **V1.52** and fixed the long-standing flaky-terminal problem. All work is on
+`main`, **pushed**, **tagged**, **released**, and the **rules are DEPLOYED**.
+- **✅ Terminal wedge ROOT-CAUSED and FIXED.** The char-by-char echo + `exit -1` wedge was Windows
+  PowerShell **5.1** running **PSReadLine 2.0.0** (broken shell-integration markers). Fix: updated
+  PSReadLine to 2.4.5 (helped short cmds), then installed **PowerShell 7.6.7** via winget and set it
+  as Kiro's default terminal (`terminal.integrated.defaultProfile.windows` = "PowerShell 7",
+  profile path `C:\Users\INFINITI\AppData\Local\Microsoft\WindowsApps\pwsh.exe` — it installed as a
+  per-user App Execution Alias, NOT in `C:\Program Files\PowerShell\7`). Verified: full streaming
+  Gradle builds now run with correct exit codes, no echo. **The §3 file-redirect workaround is no
+  longer needed** — the shell is reliable now.
+- **✅ Merged the Buddy Route-mode feature** (`a88f6e2`): new `BuddyShareMode` enum (PING/ROUTE),
+  mode toggle in `BuddyLinkSection`, consent-gated `enableRouteMode`/`disableRouteMode` via
+  `applyShareMode` (renamed from `setShareMode` to avoid a JVM setter clash), wired through the
+  repos + `BuddyLocationService`, trail rendered in `JogMap`, `BuddyShareModeTest` added. Rebased
+  onto `main` over the pill-button commit (`ff5b597`) — the expected `BuddyLinkSection.kt` overlap
+  auto-merged (kept both). Compile + unit tests green. Detail:
+  `.agents/tasks/buddy-route-mode/verification.md`.
+- **✅ Shipped V1.52** (`197c29e`, tag `V1.52`): bumped versionCode 51→52 / versionName "1.52",
+  wrote `.kiro/specs/release-notes-v1.52.md`, built (`assembleDebug` + `testDebugUnitTest` → BUILD
+  SUCCESSFUL), archived `builds/joggin-v1.52.apk`, copied to `builds/joggin.apk`. **Pushed `main`,
+  pushed tag `V1.52`, PUBLISHED GitHub Release** (`releases/latest`, asset `joggin.apk` 12,383,998
+  bytes): https://github.com/mikesibrahim1-ops/JogginApp/releases/tag/V1.52 . **DEPLOYED Firestore
+  rules** (`firebase deploy --only firestore:rules` from `firebase-hosting/` → "released", compiled
+  OK). V1.52 rolls up: route-mode + the security hardening (`963e9a5`) + UI polish (pill
+  Copy/Share buttons `ff5b597`, swipe labels/arrows `d98d07c`, shared-route map inset `f691e30`).
+  Ship order used: published the APK FIRST, then deployed rules (minimizes the old-client/new-rules
+  mismatch window the security session warned about).
+- **✅ Cleaned up ALL stale worktrees** — `.worktrees/buddy-route-mode` and `.worktrees/v149-buddy-fix`
+  removed (dirs + branches `feat/buddy-route-mode`, `fix/v149-buddy-permission` deleted, pruned). No
+  worktrees remain except the main checkout. All scratch probe files cleaned.
+- **OPEN / NEXT STEPS for a new session:**
+  1. **On-device test V1.52 on both phones** — install (`adb install -r app\build\outputs\apk\debug\app-debug.apk`,
+     current app-debug.apk IS V1.52), then verify Buddy flows WORK AGAINST THE NEWLY-DEPLOYED RULES:
+     route-mode PING↔ROUTE toggle + consent, connect-by-code, Accept/Decline, live map. We did NOT
+     run emulator rules tests (no harness exists in the repo), so on-device is the real validation.
+     ⚠ If a buddy feature breaks against the new rules, a rules rollback is quick (redeploy a prior
+     `firestore.rules` from git history).
+  2. **ROTATE the GitHub token** (F1 follow-up) — `.ghtoken` sat in the working tree (now gitignored,
+     never committed). gh CLI uses the OS keyring, so the file isn't needed anyway.
+  3. **F6 (deferred):** release signing key + its SHA-256 in assetlinks (currently debug-signed only).
+- --- below this line is the PRIOR (2026-10-15 security) session summary, kept for history ---
+
+## 0a. PRIOR SESSION SUMMARY (2026-10-15, security session)
+This session acted on the security gap analysis. Landed on `main` (then local; **now shipped in
+V1.52 this session** — pushed + rules deployed):
 - **`faffec8` — F1:** `.ghtoken` now gitignored (`*token*` etc.) + scratch patterns. Verified it was
   NEVER committed to history (`git log --all -- .ghtoken` empty). ⚠ **USER STILL MUST ROTATE the
   token** on github.com (it sat in the working tree) and move it outside the repo.
@@ -92,6 +135,20 @@ This session: shipped two follow-ups + V1.50 + V1.51, and ran a security gap ana
   ignore it; the App Links fix is live. The security report is the current authoritative doc.
 
 ## 2. Current version / build state
+- **V1.52 (CURRENT — SHIPPED 2026-10-17)** — `versionCode 52`, `versionName "1.52"`
+  (`app/build.gradle`). HEAD on `main` = **`197c29e`**, tag **`V1.52`**, pushed + in sync with
+  origin. **PUBLISHED to GitHub Releases** (not draft, `releases/latest`, asset `joggin.apk`
+  12,383,998 bytes): https://github.com/mikesibrahim1-ops/JogginApp/releases/tag/V1.52 .
+  **Firestore rules DEPLOYED** (`firebase deploy --only firestore:rules`). Hosting NOT redeployed
+  (no assetlinks/hosting change since V1.51). V1.52 = Buddy Ping/Route sharing mode (`a88f6e2`) +
+  Buddy Link security hardening (`963e9a5`, F2/F3/F5/F7/F8/F9/F10/F14) + UI polish (pill Copy/Share
+  `ff5b597`, swipe labels/arrows `d98d07c`, shared-route map inset `f691e30`). Build green
+  (`assembleDebug` + `testDebugUnitTest` → BUILD SUCCESSFUL, run on pwsh 7). `builds/`:
+  `joggin-v1.52.apk` archived (newest 4 kept: v1.49–v1.52; v1.48 pruned) + `joggin.apk` (= V1.52).
+  Release notes: `.kiro/specs/release-notes-v1.52.md`. **On-device PENDING** — install on both
+  phones and verify buddy flows against the newly-deployed rules (see §0 open steps).
+  ⚠ assetlinks still carries the DEBUG cert SHA-256 — a release-signing key (F6) would need its
+  SHA-256 added too.
 - **V1.51** — `versionCode 51`, `versionName "1.51"` (`app/build.gradle`). Bump committed `9391032`;
   App Links serving fix committed `a279002`. **PUSHED to origin/main**, tag `V1.51` pushed, and
   **PUBLISHED to GitHub Releases** (not draft, `joggin.apk` asset ~12.4 MB, release id 414305662).
@@ -158,15 +215,10 @@ This session: shipped two follow-ups + V1.50 + V1.51, and ran a security gap ana
   notif + tap-to-map) → `e4797d3` (re-send fix) → `7ef93d3`/`9c2c51b` (V1.49, tag `V1.49`). Tags
   V1.40–V1.51. ✅ V1.51 is SHIPPED (pushed, released, hosting deployed) — the V1.51 "TO SHIP" steps
   are DONE; see the V1.51 entry at the top of §2.
-- ⚠ **LEFTOVER WORKTREES / branches to clean up** (the flaky shell wedged on every cleanup attempt
-  across these sessions). All fully merged into `main`, harmless to leave:
-  `.worktrees/buddy-share-invite` (branch `feat/buddy-share-invite-message`, merged as `9cf48bc`);
-  `.worktrees/buddy-invite-openapp` (branch `feat/buddy-invite-open-app` — redundant, nothing to
-  merge, the App Links work was already in main); `.worktrees/buddy-live-start` (orphan dir, branch
-  already deleted). When the shell cooperates: `git worktree remove <path> --force; git branch -D
-  <branch>; git worktree prune`, then delete the empty dirs. Plus scratch files in repo root +
-  worktrees (LOG*.txt, *.ps1, *.txt probes). Older pre-existing worktrees `personal-target-colors`,
-  `v147-updates-deeplink`, `v149-buddy-fix` are from prior sessions — leave them.
+- ✅ **WORKTREES CLEANED UP (2026-10-17).** `git worktree list` now shows ONLY the main checkout.
+  `.worktrees/buddy-route-mode` and `.worktrees/v149-buddy-fix` were removed (dirs + branches
+  `feat/buddy-route-mode`, `fix/v149-buddy-permission` deleted + pruned). All earlier stale
+  worktrees from prior sessions were already gone. Scratch probe files cleaned from repo root.
 - **Working tree has untracked scratch files** (gitignored or junk): `LOG.txt`, `apks.txt`,
   `apks2.txt`, `fs_hits.txt`, `fscap.txt`, `.ghtoken`, `.agents/`, `.worktrees/`, plus a modified
   `firebase-hosting/.firebase/hosting.*.cache`. None are part of the app; safe to leave or clean.
@@ -186,11 +238,17 @@ This session: shipped two follow-ups + V1.50 + V1.51, and ran a security gap ana
   and `joggin.apk` (lowercase release copy = V1.49).
 
 ## 3. Environment notes (IMPORTANT — avoids wasted time)
-- **Terminal is very flaky.** PowerShell echoes commands char-by-char and reports **exit -1
-  even on success**. Do NOT trust stdout/exit code — redirect to a file (`*> file.txt 2>&1`)
-  and read it with the file tools. The shell also WEDGES entirely at times (no output, no file
-  written even for `Out-File`); when that happens, wait and retry, or use a fresh background
-  process. `list_directory`/`file_search`/`read_file` still work when the shell is wedged.
+- **✅ TERMINAL IS FIXED (2026-10-17).** Kiro now runs **PowerShell 7.6.7** (set as default profile
+  in `%APPDATA%\Kiro\User\settings.json`). Streaming commands run normally with correct exit codes.
+  The old char-by-char echo + `exit -1` wedge was Windows PowerShell 5.1 + PSReadLine 2.0.0.
+  **You no longer need the file-redirect workaround** described below — run gradle/git directly and
+  trust stdout + exit codes.
+  - If the wedge EVER returns, confirm the terminal is pwsh 7 (`$PSVersionTable.PSVersion` should be
+    7.x, Edition Core). If it reverted to 5.1, re-select the "PowerShell 7" default profile. The
+    pwsh 7 binary is at `C:\Users\INFINITI\AppData\Local\Microsoft\WindowsApps\pwsh.exe`.
+  - LEGACY WORKAROUND (only if pwsh 7 is somehow unavailable): PowerShell 5.1 wedges — redirect
+    output to a file (`*> file.txt 2>&1`) and read it with the file tools; `list_directory` /
+    `file_search` / `read_file` work even when the shell is wedged.
 - **Build pattern:** background process running
   `.\gradlew.bat assembleDebug [testDebugUnitTest] --console=plain *> LOG.txt; "DONE_$LASTEXITCODE" | Out-File -Append LOG.txt`,
   then poll LOG.txt. Success = `BUILD SUCCESSFUL` + `DONE_0`. The log is UTF-16-ish; the file
