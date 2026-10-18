@@ -8,6 +8,7 @@ import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
@@ -280,6 +281,10 @@ fun AchievementsScreen(routes: List<SavedRoute>, onBack: () -> Unit) {
             LaunchedEffect(sortMode, sortAscending) {
                 gridState.animateScrollToItem(0)
             }
+            // Partition the already-sorted list into Earned (has earnedDate) and
+            // Outstanding (no earnedDate), preserving in-group sort order.
+            val earnedItems = filtered.filter { it.earnedDate != null }
+            val outstandingItems = filtered.filter { it.earnedDate == null }
             LazyVerticalGrid(
                 state = gridState,
                 columns = GridCells.Fixed(2),
@@ -288,13 +293,31 @@ fun AchievementsScreen(routes: List<SavedRoute>, onBack: () -> Unit) {
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                items(filtered, key = { it.achievement.id }) { ap ->
-                    AchievementCard(ap)
+                if (earnedItems.isNotEmpty()) {
+                    item(span = { GridItemSpan(maxLineSpan) }) { SectionHeader(S.achEarnedHeader) }
+                    items(earnedItems, key = { "earned-" + it.achievement.id }) { ap ->
+                        AchievementCard(ap)
+                    }
+                }
+                if (outstandingItems.isNotEmpty()) {
+                    item(span = { GridItemSpan(maxLineSpan) }) { SectionHeader(S.achOutstandingHeader) }
+                    items(outstandingItems, key = { "outstanding-" + it.achievement.id }) { ap ->
+                        AchievementCard(ap)
+                    }
                 }
             }
         }
         } // end else (medals view)
     }
+}
+
+// ── Section header (full-width bucket label in the grid) ───────────────────────
+
+@Composable
+private fun SectionHeader(text: String) {
+    val c = JogginTheme.colors
+    Text(text, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = c.onBackground,
+        modifier = Modifier.fillMaxWidth().padding(start = 4.dp, end = 4.dp, top = 8.dp, bottom = 4.dp))
 }
 
 // ── Filter tab ────────────────────────────────────────────────────────────────
