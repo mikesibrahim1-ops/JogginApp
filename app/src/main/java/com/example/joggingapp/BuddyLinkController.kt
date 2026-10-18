@@ -38,6 +38,21 @@ class BuddyLinkController(private val appContext: Context) {
     var gpsOn by mutableStateOf(false); private set
     var backendAvailable by mutableStateOf(false); private set
     var buddies by mutableStateOf<List<BuddyView>>(emptyList()); private set
+    /**
+     * Compose-observable liveness tick. Holds the current wall-clock time in millis and
+     * is bumped every [LIVENESS_TICK_MS] by a coroutine started in [beginObserving] and
+     * cancelled in [disable]/[dispose] (tied to the same lifecycle as the Firestore
+     * listeners, so it never leaks and stops when the controller stops observing).
+     *
+     * Because [BuddyView.isLiveNow] is a function of wall-clock time — a value Compose
+     * cannot observe directly — any derived "is this buddy live?" read must touch this
+     * state to be re-evaluated as time passes AND as the separate user/location
+     * emissions land. Reading it inside [primaryBuddyView]/[isBuddyLive] subscribes the
+     * caller, so the map and the buddy list refresh within one tick of a buddy going
+     * live, with no swipe/restart. The value IS a timestamp, so it's also passed
+     * straight to isLiveNow(nowMs) — reactive and correct at once.
+     */
+    var livenessTick by mutableStateOf(System.currentTimeMillis()); private set
     var pending by mutableStateOf<List<BuddyLink>>(emptyList()); private set
     var blocked by mutableStateOf<List<String>>(emptyList()); private set
     var watchers by mutableStateOf<List<BuddyUser>>(emptyList()); private set
@@ -104,7 +119,15 @@ class BuddyLinkController(private val appContext: Context) {
      * (mutually sharing + a fix newer than 15 min). Null when no buddy is live, so
      * the map simply draws no buddy overlay. (v1 is 1:1, so at most one.)
      */
-    val primaryBuddyView: BuddyView? get() = buddies.firstOrNull { it.isLiveNow() }
+    val primaryBuddyView: BuddyView? get() = buddies.firstOrNull { it.isLiveNow(livenessTick) }
+
+    /**
+     * Tick-driven liveness check for the buddy list rows. Reads [livenessTick] so the
+     * calling composable re-evaluates on every tick (and on each buddies emission),
+     * then checks liveness at that instant. The tick IS a current-millis snapshot, so
+     * passing it as nowMs to [BuddyView.isLiveNow] is both reactive and correct.
+     */
+    fun isBuddyLive(view: BuddyView): Boolean = view.isLiveNow(livenessTick)
 
     // Separate from [observing]: [started] guards the one-time launch entry so the
     // DisposableEffect only kicks the session once, while [observing] guards whether
@@ -183,6 +206,12 @@ class BuddyLinkController(private val appContext: Context) {
     // re-enable re-attaches a fresh set rather than doubling up.
     private val observeJobs = ArrayList<Job>()
 
+    // The liveness-tick coroutine. Started alongside the listeners in [beginObserving]
+    // and cancelled in [disable]/[dispose] so it shares the listeners' lifecycle and
+    // never outlives the observing session. Guarded (null) so a re-observe doesn't
+    // start a second ticker.
+    private var livenessTickJob: Job? = null
+
     private fun beginObserving() {
         if (observing) return   // already attached — avoid duplicate listeners/diffs
         observing = true
@@ -198,6 +227,20 @@ class BuddyLinkController(private val appContext: Context) {
         }.launchIn(scope)
         observeJobs += repo.observeBlocked().onEach { blocked = it }.launchIn(scope)
         observeJobs += repo.observeWatchers().onEach { watchers = it }.launchIn(scope)
+        // Liveness ticker: bump the Compose-observable tick every few seconds so the
+        // time-based isLiveNow() reads in primaryBuddyView/isBuddyLive re-evaluate as
+        // time passes (and after later partial emissions), making the map + buddy list
+        // refresh reactively. Tied to this observing session's lifecycle (cancelled in
+        // disable()/dispose()) so it can't leak. Only re-reads in-memory state — not a
+        // network poll; the Firestore listeners above remain push-based.
+        if (livenessTickJob == null) {
+            livenessTickJob = scope.launch {
+                while (true) {
+                    delay(LIVENESS_TICK_MS)
+                    livenessTick = System.currentTimeMillis()
+                }
+            }
+        }
         // Store the FCM token for future server-side push (best-effort, non-blocking).
         scope.launch { repo.refreshFcmToken() }
     }
@@ -325,6 +368,7 @@ class BuddyLinkController(private val appContext: Context) {
         // Cancel the attached listeners and reset the observing flag so a later
         // re-enable re-attaches a fresh set (no duplicate listeners / doubled diffs).
         observeJobs.forEach { it.cancel() }; observeJobs.clear(); observing = false
+        livenessTickJob?.cancel(); livenessTickJob = null
         // Clear observed lists so the UI doesn't show stale buddies while off.
         buddies = emptyList(); pending = emptyList(); watchers = emptyList()
         trailJob?.cancel(); trailJob = null; trailBuddyId = null; buddyTrail = emptyList()
@@ -399,10 +443,13 @@ class BuddyLinkController(private val appContext: Context) {
         return BuddyInvite.buildShareText(id, userName, messageBuilder)
     }
 
-    fun dispose() { scope.cancel() }
+    fun dispose() { livenessTickJob?.cancel(); livenessTickJob = null; scope.cancel() }
 
     companion object {
         private const val KEY_ENABLED = "buddy_enabled"
         private const val KEY_CREATED_AT = "buddy_created_at"
+        // Interval for the Compose-observable liveness tick. 3s keeps the perceived
+        // latency for a buddy appearing low while costing only in-memory re-reads.
+        private const val LIVENESS_TICK_MS = 3000L
     }
 }

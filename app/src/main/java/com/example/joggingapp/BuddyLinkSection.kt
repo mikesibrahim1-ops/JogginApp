@@ -402,6 +402,10 @@ fun BuddyLinkSection(controller: BuddyLinkController, userName: String) {
                 Text("—", fontSize = 12.sp, color = c.onSecondary.copy(alpha = 0.5f))
             } else {
                 controller.buddies.forEach { view ->
+                    // Reads the controller's 3s livenessTick (inside isBuddyLive) so this
+                    // row re-evaluates time-based liveness reactively — the list now
+                    // refreshes within ~3s of a buddy going live, no swipe/restart.
+                    val isLive = controller.isBuddyLive(view)
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -415,7 +419,7 @@ fun BuddyLinkSection(controller: BuddyLinkController, userName: String) {
                                     fontSize = 10.sp, color = c.onSecondary.copy(alpha = 0.6f))
                             }
                             val status = when {
-                                view.isLiveNow() -> S.buddyStatusSharing
+                                isLive -> S.buddyStatusSharing
                                 view.link?.state == BuddyLinkState.PENDING -> S.buddyStatusPending
                                 else -> S.buddyStatusUnavailable
                             }
@@ -437,7 +441,7 @@ fun BuddyLinkSection(controller: BuddyLinkController, userName: String) {
                         }
                     }
                     // Secondary actions: request-now + history, only useful when live.
-                    if (view.isLiveNow()) {
+                    if (isLive) {
                         Row(
                             modifier = Modifier.fillMaxWidth().padding(top = 2.dp, bottom = 6.dp),
                             horizontalArrangement = Arrangement.spacedBy(16.dp)

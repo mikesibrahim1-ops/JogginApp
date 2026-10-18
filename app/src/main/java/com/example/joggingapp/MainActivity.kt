@@ -471,16 +471,10 @@ fun JogApp(context: Context) {
     var buddyFocusNonce by remember { mutableStateOf(0L) }
     var buddyFocusId by remember { mutableStateOf<String?>(null) }
 
-    // Periodic tick so the map re-evaluates time-based liveness (isLiveNow) and repaints
-    // when a buddy appears/goes stale WITHOUT needing an app restart. Mirrors the nowTick
-    // pattern in BuddyLinkSection.kt.
-    var buddyTick by remember { mutableStateOf(0L) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            delay(15000L)
-            buddyTick = System.currentTimeMillis()
-        }
-    }
+    // Time-based liveness (isLiveNow) is now driven reactively by the controller's own
+    // 3s livenessTick (BuddyLinkController), which primaryBuddyView reads — so the map
+    // repaints within ~3s of a buddy going live with no app restart. The old coarse 15s
+    // buddyTick hack (292c501) is gone; no duplicate ticker here.
 
     // Poll the process-wide focus bus (same lifecycle as the invite bus): when a buddy
     // online notification was tapped, record the buddy id and bump the nonce.
@@ -714,10 +708,11 @@ fun JogApp(context: Context) {
                         0 -> {
                             Column(modifier = Modifier.fillMaxSize()) {
                                 Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
-                                    // Read buddyTick so time-based liveness (isLiveNow)
-                                    // is re-evaluated periodically and the map repaints
-                                    // when a buddy comes/goes live without an app restart.
-                                    val primaryBuddy = run { buddyTick; buddyController.primaryBuddyView }
+                                    // primaryBuddyView reads the controller's 3s
+                                    // livenessTick internally, so this read re-evaluates
+                                    // time-based liveness and the map repaints when a
+                                    // buddy comes/goes live — no local tick needed.
+                                    val primaryBuddy = buddyController.primaryBuddyView
                                     // Only honour the focus request when the live primary
                                     // buddy is the one the notification named.
                                     val focusNonce = if (buddyFocusId != null &&
