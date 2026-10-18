@@ -93,6 +93,15 @@ class BuddyLocationService : Service() {
     /** Periodic ~5-min broadcast of my latest fix while the service runs (Req 6.1). */
     private fun startBroadcastLoop() {
         broadcastLoop = scope.launch {
+            // V1.58 belt-and-braces ordering guard: the service is started via
+            // applySharingState() independently of the controller's observe path, so its
+            // first writeMyLocation could otherwise run before users/{appId}/private/self
+            // exists and be DENIED. Await ensureSession once here (idempotent set-merge,
+            // reuses the cached anon session; NoOp returns an inert Failure we ignore)
+            // BEFORE the broadcast loop so the first fix can never precede provisioning.
+            BuddyIdentity.getId(applicationContext)?.let { id ->
+                repo.ensureSession(id)
+            }
             while (true) {
                 pushFreshFix(reason = "interval")
                 delay(BuddyConstants.BROADCAST_INTERVAL_MS)

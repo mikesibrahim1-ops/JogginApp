@@ -96,6 +96,14 @@ class FirebaseBuddyRepository(private val appContext: Context) : BuddyRepository
         val sessionData = buildMap<String, Any> {
             put("updatedAt", FieldValue.serverTimestamp())
             if (needsCreatedAt) put("createdAt", FieldValue.serverTimestamp())
+            // V1.58 post-merge migration: authUid & fcmToken moved to the private subdoc
+            // (§3). A pre-V1.52 public user doc may still carry stale copies of these
+            // fields, and the V1.52 ownsUser()/hasOnly() update rule rejects a write that
+            // leaves them present. Delete them here so the public doc converges to the
+            // whitelisted field set. FieldValue.delete() on an absent field is a no-op,
+            // so this is idempotent for already-migrated accounts.
+            put("authUid", FieldValue.delete())
+            put("fcmToken", FieldValue.delete())
         }
         userRef.set(sessionData, SetOptions.merge()).await()
         BuddyResult.Success(Unit)
@@ -116,6 +124,11 @@ class FirebaseBuddyRepository(private val appContext: Context) : BuddyRepository
             // rule (design §7.2). Only written when non-null.
             shareMode?.let { put("shareMode", it.wire) }
             put("updatedAt", FieldValue.serverTimestamp())
+            // V1.58 belt-and-braces migration (same as ensureSession): strip any stale
+            // authUid/fcmToken off the public doc so the hasOnly() update rule accepts
+            // this merge on a pre-V1.52 account. Idempotent no-op when already absent.
+            put("authUid", FieldValue.delete())
+            put("fcmToken", FieldValue.delete())
         }
         db.collection("users").document(id).set(data, SetOptions.merge()).await()
         // fcmToken moved to the owner-only private subdoc (design §3). Defensive-only:

@@ -151,12 +151,16 @@ class BuddyLinkController(private val appContext: Context) {
      * [beginObserving] early-returns while already observing.
      */
     private fun ensureSession() {
-        // V1.49 session auto-retry: if the first-ever sign-in failed there is no
-        // persisted session, so re-run ensureSession (off the main thread, bounded
-        // backoff) BEFORE attaching listeners — a listener attached while signed out
-        // is denied and terminated by the SDK. NoOp backend: needsSession() is false.
+        // V1.58: provisioning is now UNCONDITIONAL. Whenever Buddy Link is enabled we
+        // ALWAYS run ensureSessionWithRetry(id) BEFORE attaching listeners — even when a
+        // cached anon session already exists (needsSession()==false). ensureSession
+        // reuses the existing anon session (no forced new sign-in, no loop) and only
+        // re-runs the idempotent subdoc set-merge, so a returning / pre-V1.52 device
+        // backfills users/{appId}/private/self before any owner-gated buddy read/write —
+        // the migration hole that caused PERMISSION_DENIED. Off the main thread on scope.
+        // NoOp backend returns an inert Failure and shouldRetry stops the loop.
         val id = appId
-        if (id != null && repo.needsSession()) {
+        if (id != null) {
             scope.launch {
                 ensureSessionWithRetry(id)
                 if (enabled) beginObserving()
