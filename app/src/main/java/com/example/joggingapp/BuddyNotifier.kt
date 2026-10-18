@@ -33,6 +33,7 @@ object BuddyNotifier {
 
     private const val CHANNEL_ID = "joggin_buddy_events"
     private const val CHANNEL_ID_LOW = "joggin_buddy_events_low"
+    private const val CHANNEL_ID_ACHIEVEMENTS = "joggin_achievements"
     // Distinct id space from the broadcast service (NOTIF_ID = 2) and workout notifs.
     // `internal` so BuddyInviteActionReceiver can cancel the request notification.
     internal const val NOTIF_ID_REQUEST = 3001
@@ -40,6 +41,9 @@ object BuddyNotifier {
     private const val NOTIF_ID_UNLINKED = 3003
     private const val NOTIF_ID_LOCATION_SHARED = 3004
     private const val NOTIF_ID_ONLINE = 3005
+    // Distinct id space from the buddy social notifs (3001–3005); a per-achievement
+    // offset keeps multiple unlocks in one session from overwriting each other.
+    private const val NOTIF_ID_ACHIEVEMENT = 4001
 
     /** Intent extra carrying the appId of the buddy to focus on the map when a
      *  "buddy online" notification is tapped. Read by MainActivity.handleIntent. */
@@ -126,6 +130,24 @@ object BuddyNotifier {
         )
     }
 
+    /**
+     * An achievement was just unlocked. Posts on a dedicated default-importance
+     * achievements channel (separate from the buddy-events channel so medal alerts are
+     * distinguishable and separately controllable). Reuses the existing [post] path, so
+     * the POST_NOTIFICATIONS no-op guard, tap-opens-app, and auto-cancel come for free.
+     * A per-achievement notif id (derived from [achievementId]) avoids collapsing
+     * multiple unlocks earned in the same session into one.
+     */
+    fun notifyAchievementUnlocked(context: Context, achievementName: String, achievementId: String) {
+        val s = stringsFor(loadLanguage(context))
+        val id = NOTIF_ID_ACHIEVEMENT + (achievementId.hashCode() and 0xFFFF)
+        post(
+            context, id,
+            s.achievementNotifTitle, s.achievementNotifBody(achievementName),
+            channelId = createAchievementChannel(context)
+        )
+    }
+
     // ── Internals ───────────────────────────────────────────────────────────────
 
     private fun post(
@@ -177,6 +199,22 @@ object BuddyNotifier {
             nm.createNotificationChannel(channel)
         }
         return CHANNEL_ID
+    }
+
+    /** Default-importance channel for achievement-unlock alerts (mirrors [createChannel]). */
+    private fun createAchievementChannel(context: Context): String {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val s = stringsFor(loadLanguage(context))
+            val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            val channel = NotificationChannel(
+                CHANNEL_ID_ACHIEVEMENTS, s.achievementChannelName, NotificationManager.IMPORTANCE_DEFAULT
+            ).apply {
+                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+                setShowBadge(true)
+            }
+            nm.createNotificationChannel(channel)
+        }
+        return CHANNEL_ID_ACHIEVEMENTS
     }
 
     /** Low-importance channel for transparent, non-nuisance alerts (on-demand share). */

@@ -169,7 +169,10 @@ fun AchievementsScreen(routes: List<SavedRoute>, onBack: () -> Unit) {
         } else {
 
         // ── Completed medals showcase ─────────────────────────────────────────
-        val earned = progressList.filter { it.earnedDate != null }
+        // Strictly earned = has an earned date. Near-complete items (progress > 0f but
+        // earnedDate == null) belong ONLY to the grid below, never the medals showcase.
+        fun isEarned(ap: AchievementProgress) = ap.earnedDate != null
+        val earned = progressList.filter { isEarned(it) }
         var selectedMedal by remember { mutableStateOf<AchievementProgress?>(null) }
         if (earned.isNotEmpty()) {
             Column(modifier = Modifier.fillMaxWidth().background(c.surface).padding(horizontal = 16.dp, vertical = 12.dp)) {

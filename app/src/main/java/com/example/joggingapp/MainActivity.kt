@@ -265,6 +265,20 @@ fun JogApp(context: Context) {
     // Language is declared here (early) so activity labels can be localized. The actual
     // CompositionLocalProvider is set up further down when the UI tree is built.
     var appLanguage by remember { mutableStateOf(loadLanguage(context)) }
+    // Achievement-unlock notifications: fire once on each genuine not-earned → earned
+    // transition. Keyed on `savedRoutes` (the single source of truth, re-assigned after
+    // every route save) — NOT recomposition — so opening AchievementsScreen never
+    // re-fires. Null baseline suppresses alerts for achievements already earned at launch
+    // (mirrors BuddyLinkController's prevOnlineIds initial-snapshot pattern).
+    var prevEarnedIds by remember { mutableStateOf<Set<String>?>(null) }
+    LaunchedEffect(savedRoutes) {
+        val progress = evaluateAchievements(savedRoutes)
+        AchievementTransitions.newlyEarned(prevEarnedIds, progress).forEach { ap ->
+            val name = localizedAchievementTitle(appLanguage, ap.achievement.id, ap.achievement.title)
+            BuddyNotifier.notifyAchievementUnlocked(context, name, ap.achievement.id)
+        }
+        prevEarnedIds = AchievementTransitions.earnedSnapshot(progress)
+    }
     val S = stringsFor(appLanguage)
     val activityLabel = labelForMode(activityMode, S)
     // Blended emoji: if more than one activity type was used during the run, show them combined

@@ -22,6 +22,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.semantics.contentDescription
@@ -193,6 +194,9 @@ fun BuddyLinkSection(controller: BuddyLinkController, userName: String) {
                 Spacer(Modifier.height(12.dp))
                 // Transient status line under the card (copied / connect result).
                 var codeMsg by remember { mutableStateOf<String?>(null) }
+                // Buddy code is HIDDEN by default; revealed only on double-tap of the
+                // "Show Buddy Code" control (saves space / keeps the code private).
+                var codeRevealed by remember { mutableStateOf(false) }
                 Column(
                     modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
                         .background(c.primary.copy(alpha = 0.10f)).padding(14.dp)
@@ -200,11 +204,51 @@ fun BuddyLinkSection(controller: BuddyLinkController, userName: String) {
                     Text(S.buddyYourCode, fontSize = 11.sp, color = c.onSecondary.copy(alpha = 0.7f),
                         fontWeight = FontWeight.Medium)
                     Spacer(Modifier.height(6.dp))
-                    Text(
-                        formatBuddyCode(myId), fontSize = 15.sp, color = c.onSecondary,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.semantics { contentDescription = S.buddyYourCode }
-                    )
+                    if (!codeRevealed) {
+                        // Default: a tappable PILL (obvious it's clickable) that reveals the
+                        // code. Reveal-only — tapping the pill shows the code and swaps the pill
+                        // out, so there's no accidental hide-again. Same pill chrome as Copy/Share.
+                        Box(
+                            modifier = Modifier
+                                .clip(CircleShape)
+                                .background(c.primary)
+                                .border(BorderStroke(1.dp, c.onSurface.copy(alpha = 0.5f)), CircleShape)
+                                .clickable { codeRevealed = true }
+                                .padding(horizontal = 16.dp, vertical = 8.dp)
+                                .semantics { contentDescription = S.buddyShowCode }
+                        ) {
+                            Text(
+                                "👁 ${S.buddyShowCode}", fontSize = 12.sp, color = c.onPrimary,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                        controller.myCreatedAt?.let { createdAt ->
+                            Spacer(Modifier.height(4.dp))
+                            Text(S.buddyMemberSince(formatMemberDate(createdAt)), fontSize = 10.sp,
+                                color = c.onSecondary.copy(alpha = 0.6f))
+                        }
+                    } else {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            formatBuddyCode(myId), fontSize = 15.sp, color = c.onSecondary,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.semantics { contentDescription = S.buddyYourCode }
+                        )
+                        // Small "Hide" affordance so the revealed code can be collapsed again.
+                        Text(
+                            S.buddyHideCode, fontSize = 11.sp, color = c.primary,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable { codeRevealed = false }
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                                .semantics { contentDescription = S.buddyHideCode }
+                        )
+                    }
                     controller.myCreatedAt?.let { createdAt ->
                         Spacer(Modifier.height(4.dp))
                         Text(S.buddyMemberSince(formatMemberDate(createdAt)), fontSize = 10.sp,
@@ -258,11 +302,23 @@ fun BuddyLinkSection(controller: BuddyLinkController, userName: String) {
                                 fontWeight = FontWeight.SemiBold)
                         }
                     }
+                    } // end codeRevealed else-branch
                 }
 
-                // ── Connect: enter a friend's code ─────────────────────────────
+                // ── Add a buddy: enter a friend's code ─────────────────────────
+                // Hidden by default behind a reveal control to save space.
                 Spacer(Modifier.height(12.dp))
+                var addByCodeRevealed by remember { mutableStateOf(false) }
                 var codeInput by remember { mutableStateOf("") }
+                if (!addByCodeRevealed) {
+                    Text(
+                        S.buddyAddByCode, fontSize = 13.sp, color = c.primary,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier
+                            .clickable { addByCodeRevealed = true }
+                            .semantics { contentDescription = S.buddyAddByCode }
+                    )
+                } else {
                 androidx.compose.material.TextField(
                     value = codeInput,
                     onValueChange = { codeInput = it },
@@ -305,6 +361,7 @@ fun BuddyLinkSection(controller: BuddyLinkController, userName: String) {
                     Text("🔗", fontSize = 20.sp)
                     Text(S.buddyConnect, fontSize = 13.sp, color = c.onSecondary, fontWeight = FontWeight.SemiBold)
                 }
+                } // end addByCodeRevealed else-branch
                 codeMsg?.let { msg ->
                     Spacer(Modifier.height(8.dp))
                     Text(msg, fontSize = 11.sp, color = c.onSecondary.copy(alpha = 0.85f))
