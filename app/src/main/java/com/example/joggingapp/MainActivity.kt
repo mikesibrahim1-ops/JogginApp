@@ -986,15 +986,16 @@ fun HistoryRunCard(route: SavedRoute, onDelete: () -> Unit, onTitleChanged: (Str
         isBlended -> (route.activityTypes ?: emptyList()).distinct().joinToString("") { emojiForMode(it) }
         route.activityType == 2 -> "🚴"
         route.activityType == 1 -> "🏃"
-        // Infer for old routes that don't have activityType: avg > 5 km/h = run
-        route.activityType == 0 && route.avgSpeed * 3.6f > 5f -> "🏃"
+        // Infer for walk-mode / old routes without an explicit type: avg > 6.5 km/h = run.
+        // (Brisk walking tops out ~6.4 km/h, so a walk stays a walk below 6.5.)
+        route.activityType == 0 && route.avgSpeed * 3.6f > 6.5f -> "🏃"
         else -> "🚶"
     }
     val actLabel = when {
         isBlended -> (route.activityTypes ?: emptyList()).distinct().joinToString(" + ") { labelForMode(it, S) }
         route.activityType == 2 -> S.cycle
         route.activityType == 1 -> S.run
-        route.activityType == 0 && route.avgSpeed * 3.6f > 5f -> S.run
+        route.activityType == 0 && route.avgSpeed * 3.6f > 6.5f -> S.run
         else -> S.walk
     }
 
@@ -1002,7 +1003,7 @@ fun HistoryRunCard(route: SavedRoute, onDelete: () -> Unit, onTitleChanged: (Str
         isBlended -> c.blend
         route.activityType == 2 -> c.cycling
         route.activityType == 1 -> c.running
-        route.activityType == 0 && route.avgSpeed * 3.6f > 5f -> c.running
+        route.activityType == 0 && route.avgSpeed * 3.6f > 6.5f -> c.running
         else -> c.walking
     }
 
