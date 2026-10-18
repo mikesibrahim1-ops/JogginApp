@@ -11,7 +11,69 @@ Android GPS fitness tracker (walk/run/cycle) at `c:\Users\INFINITI\Documents\Kir
 (project `joggin-a69a7`) powers **Buddy Link** (opt-in 1:1 live-location sharing). Distributed
 as a sideloaded APK: GitHub Releases hosts the APK; a Firebase Hosting install page links to it.
 
-## 0. LATEST SESSION SUMMARY (read this first — 2026-10-17, V1.52 ship session)
+## 0. LATEST SESSION SUMMARY (read this first — 2026-10-17, V1.53→V1.55 session)
+Continued from the V1.52 ship (see §0-prev below). Fixed a V1.52 launch crash and shipped three
+more releases. **Current shipped version = V1.55** (`c560e41`, tag `V1.55`, pushed, released,
+`releases/latest`). No Firestore rules change in any of these (rules stay as deployed at V1.52).
+Terminal is PowerShell 7.6.7 and reliable (see §3).
+
+- **✅ V1.53 — launch-crash HOTFIX (CRITICAL; the big lesson of this session).** V1.52 crashed on
+  launch on ALL devices with `java.lang.VerifyError` in `StringsKt.<clinit>`. ROOT CAUSE: `AppStrings`
+  had grown to 226 fields as a Kotlin **`data class`** — the compiler-generated `copy` /
+  `copy$default` / `<init>$default` methods each pass ALL 226 args in one invocation, which exceeds
+  this device's ART bytecode-verifier per-method **16-argument-register cap**. EVERY construction
+  path through a data class hits it. Approaches that DO NOT work (don't retry): `by lazy`, wrapping
+  in a function, chunked `.copy()` — chunk size is NOT the lever, because `copy$default` itself takes
+  all fields. **THE FIX:** converted `AppStrings` from a `data class` to a plain **`class`** with 226
+  (now ~235) body-level `var` properties each defaulted (e.g. `var x: String = ""`, function types
+  get arity-correct stub defaults like `{ _ -> "" }`, `List` → `emptyList()`), and build the EN/EL
+  instances via `AppStrings().apply { field = value; ... }` so each assignment is a tiny individual
+  `iput` — no mega-invoke. ⚠⚠ **DO NOT convert AppStrings back to a data class, EVER** — it
+  reintroduces the crash. Add new strings as `var` fields + set them in the two `.apply { }` blocks.
+  Commit `a154925`, tag `V1.53`. (Also: Strings.kt has UTF-8 emoji + Greek — only ever edit it with
+  surgical byte-preserving edits; a PowerShell/Set-Content rewrite corrupts the multibyte chars.)
+- **✅ V1.54 — Buddy section tidy + achievement notifications + earned-only medals** (`3e39a45`, tag
+  `V1.54`). Three bundled changes:
+  1. **Buddy Link section tidy** (`BuddyLinkSection.kt`): the user's Buddy code is HIDDEN by default
+     behind a tappable pill **"👁 Show Buddy Code"** (single tap reveals, a small "Hide" collapses);
+     the add-a-buddy-by-code input is tucked behind a reveal control; buttons renamed **"Share" →
+     "Send Buddy Invite"** and **"Connect" → "Add Buddy"**. (Earlier double-tap reveal was replaced
+     with single-tap-on-a-pill because double-tap misbehaved.)
+  2. **Achievement-earned notifications** (were MISSING, now on): fire exactly ONCE on the
+     not-earned→earned transition. New pure `AchievementTransitions.kt` (+ `AchievementTransitionsTest`),
+     `BuddyNotifier.notifyAchievementUnlocked` on a dedicated `joggin_achievements` channel (reuses
+     the existing POST_NOTIFICATIONS guard), fired from a `LaunchedEffect(savedRoutes)` in
+     MainActivity with null-baseline suppression (no spam for already-earned on launch).
+  3. **Earned medals = strictly earned**: the "Completed medals" showcase now filters on
+     `earnedDate != null` only (near-complete items no longer leak in).
+- **✅ V1.55 — Achievements grid grouped into Earned / Outstanding sections** (`c560e41`, tag
+  `V1.55`). `AchievementsScreen.kt`: the main `LazyVerticalGrid` is now split into two labeled
+  sections in one scroll — an **"Earned"** header + all `earnedDate != null` cards, then an
+  **"Outstanding"** header + the rest — via full-width `item(span = { GridItemSpan(maxLineSpan) })`
+  headers and a new private `SectionHeader` composable. Existing sort/category-filter preserved
+  within each group. New strings `achEarnedHeader`/`achOutstandingHeader` (EN "Earned"/"Outstanding",
+  EL "Κερδισμένα"/"Σε εξέλιξη"). ⚠ The file documents a Compose gotcha: never use `return@Column`
+  inside the screen's Column content lambda (corrupts the composer group stack → runtime crash).
+- **Process note:** these were shipped via bounded workflow loops (max 3–4 iterations,
+  abort/pause on exhaustion) with a MANDATORY on-device adb launch-verify gate
+  (`adb install -r … ; monkey launch ; logcat check for VerifyError/FATAL ; pidof`), per the user's
+  "don't let fixes run for hours" constraint. adb crash-check must EXCLUDE Samsung `Forest*` logcat
+  noise (filter `Select-String "Forest" -NotMatch`) — it contains the word "FatalError" and false-
+  positives the crash grep.
+- **DEVICES:** three phones — `R5CR100AY2V` (SM-G991B), `RZCW71PL1YB` (SM-A546B), `R5CYA28THHF`
+  (SM-A176B). As of this session: **phone 1 `R5CR100AY2V` is on V1.55**; phones 2 & 3 were last put on
+  V1.53 and NOT yet updated to V1.55 (roll out when connected: `adb -s <id> install -r builds\joggin.apk`).
+- **OPEN / NEXT STEPS:**
+  1. **On-device VISUAL verify V1.55** (runtime behaviors adb can't confirm headlessly): Achievements
+     screen shows the Earned/Outstanding buckets correctly separated; the achievement notification
+     actually fires when a NEW achievement is earned; the Buddy "Show Buddy Code" pill reveal works.
+  2. **Roll V1.55 to phones 2 & 3.**
+  3. Carried over, still not done: **ROTATE the GitHub token** (F1); **F6** release signing key +
+     assetlinks SHA-256 (still debug-signed). Buddy-on-by-default change was raised then dropped by
+     the user (out of scope — not implemented).
+- --- below this line is the PRIOR (V1.52 ship) session summary, kept for history ---
+
+## 0-prev. V1.52 SHIP SESSION (2026-10-17)
 This session SHIPPED **V1.52** and fixed the long-standing flaky-terminal problem. All work is on
 `main`, **pushed**, **tagged**, **released**, and the **rules are DEPLOYED**.
 - **✅ Terminal wedge ROOT-CAUSED and FIXED.** The char-by-char echo + `exit -1` wedge was Windows
@@ -135,7 +197,20 @@ This session: shipped two follow-ups + V1.50 + V1.51, and ran a security gap ana
   ignore it; the App Links fix is live. The security report is the current authoritative doc.
 
 ## 2. Current version / build state
-- **V1.52 (CURRENT — SHIPPED 2026-10-17)** — `versionCode 52`, `versionName "1.52"`
+- **V1.55 (CURRENT — SHIPPED 2026-10-17)** — `versionCode 55`, `versionName "1.55"`. HEAD on `main`
+  = **`c560e41`**, tag **`V1.55`**, pushed + in sync with origin. PUBLISHED to GitHub Releases
+  (`releases/latest`, asset `joggin.apk`): https://github.com/mikesibrahim1-ops/JogginApp/releases/tag/V1.55 .
+  No Firestore rules change (rules as deployed at V1.52). V1.55 = Achievements grid grouped into
+  Earned/Outstanding sections. Launch-verified on `R5CR100AY2V` (no crash, versionCode 55).
+- **V1.54** — `versionCode 54` (`3e39a45`, tag `V1.54`). Buddy section tidy (Show-Buddy-Code pill,
+  "Send Buddy Invite"/"Add Buddy" renames, add-by-code reveal) + achievement-earned notifications
+  (once per not-earned→earned transition, `joggin_achievements` channel) + earned-only medals
+  showcase. Release notes `.kiro/specs/release-notes-v1.54.md`.
+- **V1.53** — `versionCode 53` (`a154925`, tag `V1.53`). LAUNCH-CRASH HOTFIX: V1.52 crashed on launch
+  (`VerifyError` — 226-field data class exceeded the ART verifier's 16-arg-register cap). Fixed by
+  converting `AppStrings` from a `data class` to a plain `class` with defaulted `var` props built via
+  `.apply { }`. ⚠ DO NOT revert AppStrings to a data class. Release notes `.kiro/specs/release-notes-v1.53.md`.
+- **V1.52** — `versionCode 52`, `versionName "1.52"`
   (`app/build.gradle`). HEAD on `main` = **`197c29e`**, tag **`V1.52`**, pushed + in sync with
   origin. **PUBLISHED to GitHub Releases** (not draft, `releases/latest`, asset `joggin.apk`
   12,383,998 bytes): https://github.com/mikesibrahim1-ops/JogginApp/releases/tag/V1.52 .
