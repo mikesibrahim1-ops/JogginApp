@@ -56,6 +56,10 @@ keystore.properties
 # Cloud Functions deps
 firebase-hosting/functions/node_modules/
 
+# Firebase CLI deploy cache (build artifact, regenerated on deploy)
+firebase-hosting/.firebase/
+.firebase/
+
 # Agent/session scratch (not part of the app)
 .agents/
 .worktrees/

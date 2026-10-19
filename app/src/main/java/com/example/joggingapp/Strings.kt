@@ -66,8 +66,6 @@ class AppStrings {
     var share: String = ""
     var remove: String = ""
     // Editable run title
-    var untitledRun: String = ""               // default title when none set
-    var editTitle: String = ""                 // accessibility / hint for the pencil
     var titlePlaceholder: String = ""          // TextField placeholder
     // Summary screen
     var complete: (String) -> String = { _ -> "" }      // "Run Complete"
@@ -157,8 +155,6 @@ class AppStrings {
     // Motivational quotes
     var motivations: List<String> = emptyList()
     // Toasts
-    var noRunsToBackup: String = ""
-    var inviteCopied: String = ""
     // ── Buddy Link ──────────────────────────────────────────────────────────
     var buddyLink: String = ""                 // section title
     var buddyLinkEnable: String = ""           // master toggle label
@@ -166,8 +162,6 @@ class AppStrings {
     var buddyLinkConsentBody: String = ""      // what's shared / with whom / how to stop
     var buddyLinkConsentAgree: String = ""
     var buddyLinkConsentDecline: String = ""
-    var buddyInvite: String = ""               // "Invite Buddy"
-    var buddyInviteShare: String = ""          // share-sheet chooser title
     // Invite share body: (name, appLink joggin://, httpsLink https://) -> message
     var buddyInviteShareBody: (String, String, String) -> String = { _, _, _ -> "" }
     var buddyInviteDialogTitle: String = ""    // Accept/Ignore dialog title
@@ -181,7 +175,6 @@ class AppStrings {
     var buddyInviteRequestSent: (String) -> String = { _ -> "" } // "Request sent — {who} needs to accept"
     var buddyInviteNeedsEnable: String = ""    // shown when invite arrives before enable
     var buddyBuddies: String = ""              // "Buddies"
-    var buddyPending: String = ""              // "Pending requests"
     var buddyBlocked: String = ""              // "Blocked"
     var buddyAccept: String = ""
     var buddyDecline: String = ""
@@ -197,7 +190,6 @@ class AppStrings {
     var buddyStatusSharing: String = ""        // "Sharing"
     var buddyStatusUnavailable: String = ""    // "Unavailable"
     var buddyStatusPending: String = ""        // "Waiting to accept"
-    var buddyUpdatedAgo: (String) -> String = { _ -> "" } // "updated {x} ago"
     var buddyRequestLocation: String = ""      // "Request location now"
     var buddyBroadcastOn: String = ""          // "Buddy Link active — broadcast on"
     var buddyEyesOnYou: String = ""            // eye-indicator label / tooltip
@@ -287,8 +279,6 @@ class AppStrings {
     var exProgressReps: (Int, Int) -> String = { _, _ -> "" }   // "{cur} / {goal} reps"
     var exProgressKm: (String, String) -> String = { _, _ -> "" }// "{cur} / {goal} km"
     var exDone: String = ""                    // "Goal met!" badge
-    var exDelete: String = ""                  // delete a target
-    var exAdd: String = ""                     // confirm add in the form
     var exAutoTracked: String = ""             // note under distance targets
     var exLogAmountHint: String = ""           // placeholder in the log dialog ("Reps done")
     var exCongratsTitle: String = ""           // completion celebration title
@@ -360,8 +350,7 @@ private fun buildEnglishStrings(): AppStrings = AppStrings().apply {
     stepsCount = { n -> "👟 $n steps" }
     share = "Share"
     remove = "Remove"
-    untitledRun = "Untitled run"
-    editTitle = "Edit title"
+
     titlePlaceholder = "Name this run"
     complete = { label -> "$label Complete" }
     activity = "Activity"
@@ -444,8 +433,7 @@ private fun buildEnglishStrings(): AppStrings = AppStrings().apply {
         "Legends are made one activity at a time! ⚡",
         "Your next badge is just around the corner! 🏅",
     )
-    noRunsToBackup = "No runs to backup"
-    inviteCopied = "Invite message copied — paste it with the file"
+
     // ── Buddy Link ──────────────────────────────────────────────────────────
     buddyLink = "Buddy Link"
     buddyLinkEnable = "Enable Buddy Link"
@@ -453,8 +441,6 @@ private fun buildEnglishStrings(): AppStrings = AppStrings().apply {
     buddyLinkConsentBody = "When on, your location is shared with a linked buddy so they can keep you safe — only while both of you have Buddy Link on and GPS enabled. Either of you can stop or unlink at any time."
     buddyLinkConsentAgree = "I understand, enable"
     buddyLinkConsentDecline = "Not now"
-    buddyInvite = "Invite Buddy"
-    buddyInviteShare = "Share your Buddy Link invite"
     buddyInviteShareBody = { name, appLink, httpsLink ->
         "$name wants to link with you on Joggin as a safety buddy.\n\n" +
         "Already have Joggin installed? Tap to open the app and connect:\n$appLink\n\n" +
@@ -471,7 +457,6 @@ private fun buildEnglishStrings(): AppStrings = AppStrings().apply {
     buddyInviteRequestSent = { who -> "Request sent — $who needs to accept" }
     buddyInviteNeedsEnable = "Turn on Buddy Link to accept this invite."
     buddyBuddies = "Buddies"
-    buddyPending = "Pending requests"
     buddyBlocked = "Blocked"
     buddyAccept = "Accept"
     buddyDecline = "Decline"
@@ -487,7 +472,6 @@ private fun buildEnglishStrings(): AppStrings = AppStrings().apply {
     buddyStatusSharing = "Sharing"
     buddyStatusUnavailable = "Unavailable"
     buddyStatusPending = "Waiting to accept"
-    buddyUpdatedAgo = { ago -> "updated $ago ago" }
     buddyRequestLocation = "Request location now"
     buddyBroadcastOn = "Buddy Link active — broadcast on"
     buddyEyesOnYou = "A buddy can see your location"
@@ -574,8 +558,6 @@ private fun buildEnglishStrings(): AppStrings = AppStrings().apply {
     exProgressReps = { cur, goal -> "$cur / $goal reps" }
     exProgressKm = { cur, goal -> "$cur / $goal km" }
     exDone = "Goal met! 🎉"
-    exDelete = "Delete"
-    exAdd = "Add"
     exAutoTracked = "Auto-tracked from your runs"
     exLogAmountHint = "Reps done (use - to deduct)"
     exCongratsTitle = "🎉 Target smashed!"
@@ -647,8 +629,7 @@ private fun buildGreekStrings(): AppStrings = AppStrings().apply {
     stepsCount = { n -> "👟 $n βήματα" }
     share = "Κοινοποίηση"
     remove = "Διαγραφή"
-    untitledRun = "Δρομολόγιο χωρίς τίτλο"
-    editTitle = "Επεξεργασία τίτλου"
+
     titlePlaceholder = "Ονομάστε αυτό το δρομολόγιο"
     complete = { label -> "$label — Ολοκληρώθηκε" }
     activity = "Δραστηριότητα"
@@ -731,8 +712,7 @@ private fun buildGreekStrings(): AppStrings = AppStrings().apply {
         "Οι θρύλοι δημιουργούνται μία δραστηριότητα τη φορά! ⚡",
         "Το επόμενο διακριτικό σας είναι πολύ κοντά! 🏅",
     )
-    noRunsToBackup = "Δεν υπάρχουν δραστηριότητες για αντίγραφο"
-    inviteCopied = "Το μήνυμα πρόσκλησης αντιγράφηκε — επικολλήστε το με το αρχείο"
+
     // ── Buddy Link ──────────────────────────────────────────────────────────
     buddyLink = "Σύνδεσμος Φίλου"
     buddyLinkEnable = "Ενεργοποίηση Συνδέσμου Φίλου"
@@ -740,8 +720,6 @@ private fun buildGreekStrings(): AppStrings = AppStrings().apply {
     buddyLinkConsentBody = "Όταν είναι ενεργό, η τοποθεσία σας μοιράζεται με έναν συνδεδεμένο φίλο για την ασφάλειά σας — μόνο όσο και οι δύο έχετε τον Σύνδεσμο Φίλου ενεργό και το GPS ανοιχτό. Ο καθένας μπορεί να το σταματήσει ή να αποσυνδεθεί ανά πάσα στιγμή."
     buddyLinkConsentAgree = "Κατάλαβα, ενεργοποίηση"
     buddyLinkConsentDecline = "Όχι τώρα"
-    buddyInvite = "Πρόσκληση Φίλου"
-    buddyInviteShare = "Μοιραστείτε την πρόσκλησή σας"
     buddyInviteShareBody = { name, appLink, httpsLink ->
         "Ο/Η $name θέλει να συνδεθεί μαζί σας στο Joggin ως φίλος ασφαλείας.\n\n" +
         "Έχετε ήδη το Joggin; Πατήστε για να ανοίξει η εφαρμογή και να συνδεθείτε:\n$appLink\n\n" +
@@ -758,7 +736,6 @@ private fun buildGreekStrings(): AppStrings = AppStrings().apply {
     buddyInviteRequestSent = { who -> "Το αίτημα στάλθηκε — ο/η $who πρέπει να το αποδεχτεί" }
     buddyInviteNeedsEnable = "Ενεργοποιήστε τον Σύνδεσμο Φίλου για να αποδεχτείτε αυτή την πρόσκληση."
     buddyBuddies = "Φίλοι"
-    buddyPending = "Εκκρεμείς αιτήσεις"
     buddyBlocked = "Αποκλεισμένοι"
     buddyAccept = "Αποδοχή"
     buddyDecline = "Απόρριψη"
@@ -774,7 +751,6 @@ private fun buildGreekStrings(): AppStrings = AppStrings().apply {
     buddyStatusSharing = "Κοινή χρήση"
     buddyStatusUnavailable = "Μη διαθέσιμος"
     buddyStatusPending = "Αναμονή αποδοχής"
-    buddyUpdatedAgo = { ago -> "ενημερώθηκε πριν $ago" }
     buddyRequestLocation = "Αίτηση τοποθεσίας τώρα"
     buddyBroadcastOn = "Σύνδεσμος Φίλου ενεργός — μετάδοση ενεργή"
     buddyEyesOnYou = "Ένας φίλος βλέπει την τοποθεσία σας"
@@ -861,8 +837,6 @@ private fun buildGreekStrings(): AppStrings = AppStrings().apply {
     exProgressReps = { cur, goal -> "$cur / $goal επαν." }
     exProgressKm = { cur, goal -> "$cur / $goal χλμ" }
     exDone = "Ο στόχος επιτεύχθηκε! 🎉"
-    exDelete = "Διαγραφή"
-    exAdd = "Προσθήκη"
     exAutoTracked = "Αυτόματη παρακολούθηση από τις δραστηριότητές σας"
     exLogAmountHint = "Επαναλήψεις (χρήση - για αφαίρεση)"
     exCongratsTitle = "🎉 Ο στόχος κατακτήθηκε!"
