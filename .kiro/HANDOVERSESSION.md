@@ -11,10 +11,73 @@ Android GPS fitness tracker (walk/run/cycle) at `c:\Users\INFINITI\Documents\Kir
 (project `joggin-a69a7`) powers **Buddy Link** (opt-in 1:1 live-location sharing). Distributed
 as a sideloaded APK: GitHub Releases hosts the APK; a Firebase Hosting install page links to it.
 
-## 0. LATEST SESSION SUMMARY (read this first — 2026-10-17, V1.53→V1.55 session)
+## 0. LATEST SESSION SUMMARY (read this first — 2026-10-18, V1.56→V1.58 + cleanup session)
+Continued from the V1.53→V1.55 session (see §0-a below). **Current shipped version = V1.58**
+(`6c164e4`, tag `V1.58`, pushed, released, `releases/latest`). Then a behavior-neutral repo/code
+cleanup landed on top (`d199d9a`, no version bump — NOT a release). HEAD on `main` = **`d199d9a`**,
+in sync with origin. No Firestore rules change in any of this (rules stay as deployed at V1.52).
+Terminal is PowerShell 7.6.7 and reliable (see §3).
+
+- **✅ V1.56 — walk→run threshold raised 5 → 6.5 km/h** (`a8dcc52`, tag `V1.56`). A ~5.8 km/h walk
+  was misclassified as a run. The speed inference for walk-mode/legacy routes (`activityType == 0`)
+  in `MainActivity.kt` used `avg > 5 km/h`; raised to `> 6.5`. (In the later cleanup this was
+  extracted to a single `WALK_RUN_THRESHOLD_KMH` constant — see cleanup below.)
+- **✅ V1.57 — Buddy liveness tick** (`59a180d`, tag `V1.57`). Buddies weren't appearing on the map /
+  list until a swipe-to-Achievements-and-back or app restart. Root cause: the UI's "is this buddy
+  live" decision is the TIME-BASED `BuddyView.isLiveNow()` (sharing && recent fix); Compose can't
+  observe time passing and the old 15s map-only tick didn't cover the list. Fix: a controller-hoisted
+  3s `livenessTick` (`mutableStateOf` current-millis snapshot) in `BuddyLinkController`, bumped on its
+  scope, read by `primaryBuddyView` + an `isBuddyLive(view)` helper so the map AND list re-evaluate
+  reactively; removed the old 15s `buddyTick` hack. (This was a REAL latent bug but NOT the reason
+  buddies couldn't connect — that was PERMISSION_DENIED, below. See the §3 debugging lesson.)
+- **✅ V1.58 — Buddy Link PERMISSION_DENIED fix (the real "can't see my buddy" bug)** (`6c164e4`,
+  tag `V1.58`). THE IMPORTANT ONE. Every Firestore buddy op failed with `PERMISSION_DENIED` for
+  accounts created before V1.52, so buddies could never see each other (and the app couldn't even
+  flip its own `sharing` flag). ROOT CAUSE (confirmed on-device, took THREE attempts — see lesson):
+  the V1.52 hardening moved `authUid`/`fcmToken` out of the public `users/{appId}` doc and added a
+  field whitelist (`hasOnly([...])`) FORBIDDING them there — but shipped **no data migration** to
+  delete those legacy fields from already-existing public docs. Firestore evaluates `hasOnly()` over
+  the **post-merge document**, so a pre-V1.52 public doc that still physically contains `authUid`
+  fails the whitelist on EVERY owner write → PERMISSION_DENIED. FIX (client-only, no rules change,
+  does NOT weaken security — moves in the safe direction): `FirebaseBuddyRepository.ensureSession`
+  (and `updateMyUser`) now add `FieldValue.delete("authUid")` + `FieldValue.delete("fcmToken")` to
+  the public-doc set-merge, stripping the legacy fields so the post-merge doc satisfies the whitelist.
+  Also made `ensureSession` run unconditionally on buddy start (was skipped on cached-session
+  returning devices) + a service first-write guard. VERIFIED on-device via in-app log: BEFORE =
+  repeated PERMISSION_DENIED + "session attempt 1 failed"; AFTER = "Buddy Link session established
+  (attempt 1)" with zero PERMISSION_DENIED and successful location broadcast, on BOTH phone 1
+  (`R5CR100AY2V`) and phone 2 (`RZCW71PL1YB`). Report: `.agents/tasks/buddy-ensuresession-denied-investigation.md`.
+  ⚠ Each device must be on V1.58 to self-heal its OWN account (same legacy field per account).
+- **✅ Repo/code CLEANUP** (`d199d9a`, behavior-neutral, build + unit tests green): removed 10
+  orphaned `AppStrings` fields (EN+EL; reflection ruled out first); deleted the unused `Theme.App`
+  style (`styles.xml` removed); extracted the walk→run `6.5f` into one `WALK_RUN_THRESHOLD_KMH`
+  const; untracked + gitignored the Firebase CLI hosting cache (`firebase-hosting/.firebase/` — fixes
+  the perpetually-dirty working tree); wrote a real `README.MD` (was empty); deleted 8 root scratch
+  files. Audit report at `.agents/tasks/codebase-audit-cleanup.md`. Closed one-off investigations
+  moved to `.agents/tasks/_archive/` (local only; `.agents/` is gitignored). Codebase judged healthy
+  overall — no TODOs, rules/manifests in sync, error handling intentional.
+- **NEW STEERING RULE** `.kiro/steering/debugging.md` (committed `0a5a14f`): read the app's actual
+  error output (in-app `app_log.txt` via `run-as` + logcat) BEFORE theorizing. Added because this
+  session burned a whole release (V1.57) chasing a UI-reactivity theory for "can't see my buddy" when
+  the real cause (PERMISSION_DENIED) was sitting in `app_log.txt` the whole time. Pull the in-app log:
+  `adb -s <dev> shell "run-as com.example.joggingapp cat files/app_log.txt | tail -n 60"`. Exclude
+  Samsung `Forest*` logcat noise (`Select-String "Forest" -NotMatch` — it contains "FatalError").
+- **DEVICES:** phone 1 `R5CR100AY2V` (SM-G991B) = V1.58 ✅; phone 2 `RZCW71PL1YB` (SM-A546B) = V1.58 ✅;
+  phone 3 `R5CYA28THHF` (SM-A176B) = last on V1.53, NOT updated. Roll out: `adb -s <id> install -r builds\joggin.apk`.
+- **OPEN / NEXT STEPS:**
+  1. **Two-device buddy end-to-end test** on the two V1.58 phones — with both sharing, each should
+     now appear on the other within ~3s (V1.57 tick), no swipe/restart. Last confirmed each device
+     establishes its session + broadcasts; the full "I see my buddy" view is the remaining user check.
+  2. Update phone 3 to V1.58 if used for buddy.
+  3. Carried over: **ROTATE the GitHub token** (F1); **F6** release signing + assetlinks SHA-256
+     (still debug-signed). Non-urgent: pre-existing non-exhaustive-enum warning at
+     `FirebaseBuddyRepository.kt:258`.
+- --- below this line is the PRIOR (V1.53→V1.55) session summary, kept for history ---
+
+## 0-a. V1.53→V1.55 SESSION (2026-10-17)
 Continued from the V1.52 ship (see §0-prev below). Fixed a V1.52 launch crash and shipped three
-more releases. **Current shipped version = V1.55** (`c560e41`, tag `V1.55`, pushed, released,
-`releases/latest`). No Firestore rules change in any of these (rules stay as deployed at V1.52).
+more releases. Shipped version at end of that session = V1.55 (`c560e41`, tag `V1.55`). No Firestore
+rules change in any of these (rules stay as deployed at V1.52).
 Terminal is PowerShell 7.6.7 and reliable (see §3).
 
 - **✅ V1.53 — launch-crash HOTFIX (CRITICAL; the big lesson of this session).** V1.52 crashed on
@@ -197,11 +260,22 @@ This session: shipped two follow-ups + V1.50 + V1.51, and ran a security gap ana
   ignore it; the App Links fix is live. The security report is the current authoritative doc.
 
 ## 2. Current version / build state
-- **V1.55 (CURRENT — SHIPPED 2026-10-17)** — `versionCode 55`, `versionName "1.55"`. HEAD on `main`
-  = **`c560e41`**, tag **`V1.55`**, pushed + in sync with origin. PUBLISHED to GitHub Releases
-  (`releases/latest`, asset `joggin.apk`): https://github.com/mikesibrahim1-ops/JogginApp/releases/tag/V1.55 .
-  No Firestore rules change (rules as deployed at V1.52). V1.55 = Achievements grid grouped into
-  Earned/Outstanding sections. Launch-verified on `R5CR100AY2V` (no crash, versionCode 55).
+- **V1.58 (CURRENT — SHIPPED 2026-10-18)** — `versionCode 58`, `versionName "1.58"`. Tag **`V1.58`**
+  = `6c164e4`; HEAD on `main` is **`d199d9a`** (the post-release behavior-neutral cleanup commit; no
+  version bump), pushed + in sync with origin. PUBLISHED to GitHub Releases (`releases/latest`, asset
+  `joggin.apk`): https://github.com/mikesibrahim1-ops/JogginApp/releases/tag/V1.58 . No Firestore
+  rules change (rules as deployed at V1.52). V1.58 = **fixes Buddy Link PERMISSION_DENIED** for
+  pre-V1.52 accounts (client-side `FieldValue.delete` migration of legacy authUid/fcmToken off the
+  public doc; see §0). On-device verified on `R5CR100AY2V` + `RZCW71PL1YB` (session established, no
+  PERMISSION_DENIED). Followed by cleanup `d199d9a` (orphan strings removed, unused style deleted,
+  WALK_RUN_THRESHOLD_KMH const, Firebase cache untracked/ignored, real README).
+- **V1.57** — `versionCode 57` (`59a180d`, tag `V1.57`). Buddy liveness: controller-hoisted 3s
+  `livenessTick` so the map + buddy list re-evaluate the time-based `isLiveNow()` reactively (buddies
+  no longer require a swipe/restart to appear); removed the old 15s map-only `buddyTick`.
+- **V1.56** — `versionCode 56` (`a8dcc52`, tag `V1.56`). Walk→run speed threshold raised 5 → 6.5 km/h
+  (a ~5.8 km/h walk was misclassified as a run). Later extracted to `WALK_RUN_THRESHOLD_KMH` in cleanup.
+- **V1.55** — `versionCode 55` (`c560e41`, tag `V1.55`). Achievements grid grouped into
+  Earned/Outstanding sections.
 - **V1.54** — `versionCode 54` (`3e39a45`, tag `V1.54`). Buddy section tidy (Show-Buddy-Code pill,
   "Send Buddy Invite"/"Add Buddy" renames, add-by-code reveal) + achievement-earned notifications
   (once per not-earned→earned transition, `joggin_achievements` channel) + earned-only medals
