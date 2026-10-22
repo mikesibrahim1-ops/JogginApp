@@ -125,17 +125,13 @@ fun BuddyLinkSection(controller: BuddyLinkController, userName: String) {
         ) {
             Text(S.buddyLinkEnable, fontSize = 13.sp, color = c.onSecondary, fontWeight = FontWeight.Medium)
             val on = controller.enabled
-            Box(
-                modifier = Modifier.size(40.dp, 24.dp).clip(RoundedCornerShape(12.dp))
-                    .background(if (on) c.success else c.divider)
-                    .clickable {
-                        if (on) controller.disable() else showConsent = true
-                    }
-                    .semantics { contentDescription = S.buddyToggleDesc(on) },
-                contentAlignment = if (on) Alignment.CenterEnd else Alignment.CenterStart
-            ) {
-                Box(modifier = Modifier.size(20.dp).padding(2.dp).clip(CircleShape).background(Color.White))
-            }
+            com.example.joggingapp.ui.theme.AppToggle(
+                checked = on,
+                onToggle = { if (on) controller.disable() else showConsent = true },
+                onLabel = S.toggleBuddyLinkOn,
+                offLabel = S.toggleBuddyLinkOff,
+                contentDescriptionText = S.buddyToggleDesc(on),
+            )
         }
 
         if (controller.enabled) {
@@ -157,17 +153,13 @@ fun BuddyLinkSection(controller: BuddyLinkController, userName: String) {
                     )
                 }
                 val isRoute = controller.shareMode == BuddyShareMode.ROUTE
-                Box(
-                    modifier = Modifier.size(40.dp, 24.dp).clip(RoundedCornerShape(12.dp))
-                        .background(if (isRoute) c.success else c.divider)
-                        .clickable {
-                            if (isRoute) controller.disableRouteMode() else showRouteConsent = true
-                        }
-                        .semantics { contentDescription = S.buddyShareModeDesc(isRoute) },
-                    contentAlignment = if (isRoute) Alignment.CenterEnd else Alignment.CenterStart
-                ) {
-                    Box(modifier = Modifier.size(20.dp).padding(2.dp).clip(CircleShape).background(Color.White))
-                }
+                com.example.joggingapp.ui.theme.AppToggle(
+                    checked = isRoute,
+                    onToggle = { if (isRoute) controller.disableRouteMode() else showRouteConsent = true },
+                    onLabel = S.toggleShareRouteOn,
+                    offLabel = S.toggleShareRouteOff,
+                    contentDescriptionText = S.buddyShareModeDesc(isRoute),
+                )
             }
 
             // Background-location permission note (Req 6c). Shown when enabled but the

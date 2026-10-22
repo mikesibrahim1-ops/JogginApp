@@ -808,22 +808,23 @@ fun JogApp(context: Context) {
                                             }
                                             else -> {
                                                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
-                                                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable {
-                                                        if (trackState != TrackState.IDLE) {
-                                                            // During activity: cycle is 2 → flip to walk (0); walk/run toggle between 0 and 1
-                                                            activityMode = when (activityMode) {
-                                                                2 -> 0  // cycling → walking (can't run with a bike)
-                                                                1 -> 0  // running → walking
-                                                                else -> 1  // walking → running
+                                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                                        val cycleActivityMode = {
+                                                            if (trackState != TrackState.IDLE) {
+                                                                // During activity: cycle is 2 → flip to walk (0); walk/run toggle between 0 and 1
+                                                                activityMode = when (activityMode) {
+                                                                    2 -> 0  // cycling → walking (can't run with a bike)
+                                                                    1 -> 0  // running → walking
+                                                                    else -> 1  // walking → running
+                                                                }
+                                                            } else {
+                                                                // Pre-start: cycle through all three
+                                                                activityMode = (activityMode + 1) % 3
                                                             }
-                                                        } else {
-                                                            // Pre-start: cycle through all three
-                                                            activityMode = (activityMode + 1) % 3
+                                                            if (trackState != TrackState.IDLE && !usedActivityModes.contains(activityMode)) {
+                                                                usedActivityModes.add(activityMode)
+                                                            }
                                                         }
-                                                        if (trackState != TrackState.IDLE && !usedActivityModes.contains(activityMode)) {
-                                                            usedActivityModes.add(activityMode)
-                                                        }
-                                                    }) {
                                                         val isBlendActive = trackState != TrackState.IDLE && usedActivityModes.distinct().size > 1
                                                         val btnColor = when {
                                                             isBlendActive -> c.blend
@@ -831,7 +832,10 @@ fun JogApp(context: Context) {
                                                             activityMode == 1 -> c.primary
                                                             else -> c.walking
                                                         }
-                                                        Box(modifier = Modifier.size(48.dp).clip(CircleShape).background(btnColor), contentAlignment = Alignment.Center) { Text(activityEmoji, fontSize = if (activityEmoji.length > 2) 16.sp else 22.sp) }
+                                                        // Click lives on the circular icon so the tap ripple is clipped to a
+                                                        // circle (clickable applied after clip(CircleShape)), not a square that
+                                                        // spans the icon + label below it.
+                                                        Box(modifier = Modifier.size(48.dp).clip(CircleShape).background(btnColor).clickable(onClick = cycleActivityMode), contentAlignment = Alignment.Center) { Text(activityEmoji, fontSize = if (activityEmoji.length > 2) 16.sp else 22.sp) }
                                                         Spacer(Modifier.height(4.dp))
                                                         Text(if (trackState != TrackState.IDLE) activityBlendLabel else activityLabel, fontSize = 11.sp, color = c.textSecondary, textAlign = TextAlign.Center)
                                                     }
@@ -863,9 +867,27 @@ fun JogApp(context: Context) {
                         1 -> {
                             Column(modifier = Modifier.fillMaxSize().background(c.background)) {
                                 var sortNewestFirst by remember { mutableStateOf(true) }
+                                // Single global map-share toggle for the whole history screen (moved out
+                                // of each run card). Flips share_with_map, read by shareRoute().
+                                val histPrefs = remember { context.getSharedPreferences("jog_prefs", Context.MODE_PRIVATE) }
+                                var shareWithMap by remember { mutableStateOf(histPrefs.getBoolean("share_with_map", true)) }
                                 Row(modifier = Modifier.fillMaxWidth().background(c.primary).padding(horizontal = 20.dp, vertical = 14.dp),
                                     verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                                     Text(S.pastRuns, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = c.onPrimary)
+                                    // Map-share toggle, between the title and the sort control.
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        Text("🗺", fontSize = 14.sp, color = c.onPrimary.copy(alpha = if (shareWithMap) 1f else 0.5f))
+                                        com.example.joggingapp.ui.theme.AppToggle(
+                                            checked = shareWithMap,
+                                            onToggle = {
+                                                shareWithMap = !shareWithMap
+                                                histPrefs.edit().putBoolean("share_with_map", shareWithMap).apply()
+                                            },
+                                            onLabel = S.toggleMapShareOn,
+                                            offLabel = S.toggleMapShareOff,
+                                            contentDescriptionText = S.includeMapWhenSharing,
+                                        )
+                                    }
                                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                         Text(if (sortNewestFirst) S.newest else S.oldest, fontSize = 11.sp, color = c.onPrimary.copy(alpha = 0.8f))
                                         Text(if (sortNewestFirst) "↓" else "↑", fontSize = 16.sp, color = c.onPrimary.copy(alpha = 0.8f),
@@ -1438,10 +1460,8 @@ fun OptionsPaneContent(colorIdx: Int, savedRoutes: List<SavedRoute>, onColorSele
     val c = JogginTheme.colors
     val S = LocalStrings.current
     val context = LocalContext.current
-    val prefs = remember { context.getSharedPreferences("jog_prefs", Context.MODE_PRIVATE) }
     // Localized route colour names, index-aligned with ROUTE_COLORS
     val colorNames = listOf(S.colorLightGreen, S.colorBlue, S.colorOrange, S.colorRed, S.colorPurple, S.colorWhite)
-    var shareWithMap by remember { mutableStateOf(prefs.getBoolean("share_with_map", true)) }
     // Debug console is hidden by default. It's revealed only by triple-tapping the
     // version number at the very bottom of this pane. Reset each time the pane reopens.
     var showDebugConsole by remember { mutableStateOf(false) }
@@ -1544,33 +1564,25 @@ fun OptionsPaneContent(colorIdx: Int, savedRoutes: List<SavedRoute>, onColorSele
         } // end Route Colour
 
         // ── Exercise Targets (opens a full screen) ────────────────────────────
+        // Rendered as a top-level section header (emoji + 14sp SemiBold title), matching
+        // the CollapsibleSection headers above/below, so it reads as its own section rather
+        // than an indented sub-item of Route Colour. The whole row navigates to the full
+        // screen (› chevron) since this section has no inline content to expand.
         Spacer(Modifier.height(20.dp)); Divider(color = c.onSecondary.copy(alpha = 0.2f)); Spacer(Modifier.height(16.dp))
-        Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
-            .background(c.primary.copy(alpha = 0.15f))
+        Row(modifier = Modifier.fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
             .clickable { AppLogger.log(context, LogCategory.UI, "Exercise Targets opened"); onOpenExerciseTargets() }
-            .padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("🎯", fontSize = 20.sp)
-            Column(modifier = Modifier.weight(1f)) {
-                Text(S.exerciseTargets, fontSize = 13.sp, color = c.onSecondary, fontWeight = FontWeight.SemiBold)
-                Text(S.exerciseTargetsSubtitle, fontSize = 10.sp, color = c.onSecondary.copy(alpha = 0.7f))
+            .padding(vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("🎯", fontSize = 16.sp)
+                Text(S.exerciseTargets, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = c.onSecondary)
             }
-            Text("›", fontSize = 20.sp, color = c.onSecondary.copy(alpha = 0.7f))
+            Text("›", fontSize = 16.sp, color = c.onSecondary.copy(alpha = 0.7f))
         }
 
-        // ── Sharing ───────────────────────────────────────────────────────────
-        CollapsibleSection(title = S.sharing, leadingEmoji = "📤") {
-        Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(c.primary.copy(alpha = 0.15f)).padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(S.includeMapWhenSharing, fontSize = 13.sp, color = c.onSecondary, fontWeight = FontWeight.Medium)
-            Box(modifier = Modifier.size(40.dp, 24.dp).clip(RoundedCornerShape(12.dp))
-                .background(if (shareWithMap) c.success else c.divider)
-                .clickable { shareWithMap = !shareWithMap; prefs.edit().putBoolean("share_with_map", shareWithMap).apply() },
-                contentAlignment = if (shareWithMap) Alignment.CenterEnd else Alignment.CenterStart) {
-                Box(modifier = Modifier.size(20.dp).padding(2.dp).clip(CircleShape).background(Color.White))
-            }
-        }
-        } // end Sharing
+        // (Sharing section moved: the "include map when sharing" toggle now lives on each
+        // activity-history card, between the Share and Remove buttons — see HistoryRunCard.)
 
         // ── Recent Runs ───────────────────────────────────────────────────────
         CollapsibleSection(title = S.recentRuns, leadingEmoji = "🏃") {
