@@ -11,12 +11,42 @@ Android GPS fitness tracker (walk/run/cycle) at `c:\Users\INFINITI\Documents\Kir
 (project `joggin-a69a7`) powers **Buddy Link** (opt-in 1:1 live-location sharing). Distributed
 as a sideloaded APK: GitHub Releases hosts the APK; a Firebase Hosting install page links to it.
 
-## 0. LATEST SESSION SUMMARY (read this first — 2026-10-18, V1.56→V1.58 + cleanup session)
-Continued from the V1.53→V1.55 session (see §0-a below). **Current shipped version = V1.58**
-(`6c164e4`, tag `V1.58`, pushed, released, `releases/latest`). Then a behavior-neutral repo/code
-cleanup landed on top (`d199d9a`, no version bump — NOT a release). HEAD on `main` = **`d199d9a`**,
+## 0. LATEST SESSION SUMMARY (read this first — 2026-10-18, V1.56→V1.59 + cleanup session)
+Continued from the V1.53→V1.55 session (see §0-a below). **Current shipped version = V1.59**
+(`0c2e6d7`, tag `V1.59`, pushed, released, `releases/latest`). HEAD on `main` = **`0c2e6d7`**,
 in sync with origin. No Firestore rules change in any of this (rules stay as deployed at V1.52).
 Terminal is PowerShell 7.6.7 and reliable (see §3).
+
+- **✅ V1.59 — startup-crash fix (ForegroundServiceDidNotStartInTimeException) + crash logging**
+  (`0c2e6d7`, tag `V1.59`). App crashed on open (4-5× in a row, "healed" hours later) when location
+  was ON. ROOT CAUSE (found in Android's persisted crash store via `adb shell dumpsys dropbox --print`
+  — NOT the in-app log, which doesn't capture startup crashes): `android.app.RemoteServiceException$`
+  `ForegroundServiceDidNotStartInTimeException` — `BuddyLinkController.applySharingState()` starts
+  `BuddyLocationService` via `startForegroundService()`, but Android's contract requires
+  `startForeground()` within ~5s, and the service's `onStartCommand` had early-return paths (the
+  `!hasBackgroundLocation()` "cannot start" branch, and ACTION_STOP) that returned WITHOUT calling
+  `startForeground()` → OS kills the app. Timing/permission-state dependent (hence intermittent). FIX
+  (`BuddyLocationService.kt`): call `startForeground(NOTIF_ID, buildNotification())` FIRST,
+  unconditionally, at the top of `onStartCommand` before any branch, then handle STOP / the
+  permission check / `stopEverything()` (which balances it with `stopForeground`). API-34
+  `foregroundServiceType=location` handled crash-safe (try/catch, matching type) so the no-permission
+  path can't throw a different exception. Verified on-device on `R5CR100AY2V` in the exact crash state
+  (bgPerm=false): 5 launches, process alive every time, NO new ForegroundServiceDidNotStartInTime in
+  dropbox. Verification: `.kiro/specs/v159-verification.md` (+ `v159-review.json`).
+  - **ALSO (user request "log every event, not just start"):** crashes now ALSO append to the main
+    in-app log `app_log.txt` via `CrashLogger` (previously they went only to a separate
+    `crash_log.txt`, which is why startup crashes looked invisible when tailing app_log.txt);
+    `CrashLogger.install()` runs first in `MainActivity.onCreate`; added concise lifecycle breadcrumbs
+    (service start/stop, startForeground success/fail, sharing on/off decisions).
+  - **⚠ DEBUGGING NOTE for future crashes:** the in-app `app_log.txt` does NOT capture a crash that
+    kills the app during startup (the logger dies first). For startup/native crashes, read Android's
+    crash store: `adb -s <dev> shell dumpsys dropbox --print` (filter for the package /
+    `data_app_crash`). That's where the real stack trace lives and survives restarts. This is how the
+    V1.59 root cause was found. (The debugging steering rule `.kiro/steering/debugging.md` covers
+    reading logs first; dropbox is the extension for startup crashes.)
+
+- **✅ V1.56→V1.58 + cleanup (earlier this session):** shipped V1.58 (`6c164e4`) and a behavior-neutral
+  repo/code cleanup (`d199d9a`). Details on each below in this section.
 
 - **✅ V1.56 — walk→run threshold raised 5 → 6.5 km/h** (`a8dcc52`, tag `V1.56`). A ~5.8 km/h walk
   was misclassified as a run. The speed inference for walk-mode/legacy routes (`activityType == 0`)
@@ -62,8 +92,9 @@ Terminal is PowerShell 7.6.7 and reliable (see §3).
   the real cause (PERMISSION_DENIED) was sitting in `app_log.txt` the whole time. Pull the in-app log:
   `adb -s <dev> shell "run-as com.example.joggingapp cat files/app_log.txt | tail -n 60"`. Exclude
   Samsung `Forest*` logcat noise (`Select-String "Forest" -NotMatch` — it contains "FatalError").
-- **DEVICES:** phone 1 `R5CR100AY2V` (SM-G991B) = V1.58 ✅; phone 2 `RZCW71PL1YB` (SM-A546B) = V1.58 ✅;
-  phone 3 `R5CYA28THHF` (SM-A176B) = last on V1.53, NOT updated. Roll out: `adb -s <id> install -r builds\joggin.apk`.
+- **DEVICES:** phone 1 `R5CR100AY2V` (SM-G991B) = **V1.59 ✅**; phone 2 `RZCW71PL1YB` (SM-A546B) =
+  V1.58 (NOT yet on V1.59); phone 3 `R5CYA28THHF` (SM-A176B) = last on V1.53. Roll phones 2 & 3 to
+  V1.59 when connected: `adb -s <id> install -r builds\joggin.apk`.
 - **OPEN / NEXT STEPS:**
   1. **Two-device buddy end-to-end test** on the two V1.58 phones — with both sharing, each should
      now appear on the other within ~3s (V1.57 tick), no swipe/restart. Last confirmed each device
@@ -260,15 +291,19 @@ This session: shipped two follow-ups + V1.50 + V1.51, and ran a security gap ana
   ignore it; the App Links fix is live. The security report is the current authoritative doc.
 
 ## 2. Current version / build state
-- **V1.58 (CURRENT — SHIPPED 2026-10-18)** — `versionCode 58`, `versionName "1.58"`. Tag **`V1.58`**
-  = `6c164e4`; HEAD on `main` is **`d199d9a`** (the post-release behavior-neutral cleanup commit; no
-  version bump), pushed + in sync with origin. PUBLISHED to GitHub Releases (`releases/latest`, asset
-  `joggin.apk`): https://github.com/mikesibrahim1-ops/JogginApp/releases/tag/V1.58 . No Firestore
-  rules change (rules as deployed at V1.52). V1.58 = **fixes Buddy Link PERMISSION_DENIED** for
-  pre-V1.52 accounts (client-side `FieldValue.delete` migration of legacy authUid/fcmToken off the
-  public doc; see §0). On-device verified on `R5CR100AY2V` + `RZCW71PL1YB` (session established, no
-  PERMISSION_DENIED). Followed by cleanup `d199d9a` (orphan strings removed, unused style deleted,
-  WALK_RUN_THRESHOLD_KMH const, Firebase cache untracked/ignored, real README).
+- **V1.59 (CURRENT — SHIPPED 2026-10-18)** — `versionCode 59`, `versionName "1.59"`. Tag **`V1.59`**
+  = HEAD on `main` **`0c2e6d7`**, pushed + in sync with origin. PUBLISHED to GitHub Releases
+  (`releases/latest`, asset `joggin.apk`): https://github.com/mikesibrahim1-ops/JogginApp/releases/tag/V1.59 .
+  No Firestore rules change (rules as deployed at V1.52). V1.59 = **fixes a startup crash**
+  (ForegroundServiceDidNotStartInTimeException) when location was ON — `BuddyLocationService` now
+  calls `startForeground()` unconditionally before any early-return; plus crashes now log to the main
+  `app_log.txt` + added lifecycle breadcrumbs (see §0). On-device verified on `R5CR100AY2V` in the
+  exact crash state: 5 launches, process alive, no new crash in dropbox.
+- **V1.58** — `versionCode 58` (tag `V1.58` = `6c164e4`; cleanup `d199d9a` followed). **Fixes Buddy
+  Link PERMISSION_DENIED** for pre-V1.52 accounts (client-side `FieldValue.delete` migration of legacy
+  authUid/fcmToken off the public doc; see §0). On-device verified on `R5CR100AY2V` + `RZCW71PL1YB`
+  (session established, no PERMISSION_DENIED). Cleanup `d199d9a` = orphan strings removed, unused style
+  deleted, WALK_RUN_THRESHOLD_KMH const, Firebase cache untracked/ignored, real README.
 - **V1.57** — `versionCode 57` (`59a180d`, tag `V1.57`). Buddy liveness: controller-hoisted 3s
   `livenessTick` so the map + buddy list re-evaluate the time-based `isLiveNow()` reactively (buddies
   no longer require a swipe/restart to appear); removed the old 15s map-only `buddyTick`.
