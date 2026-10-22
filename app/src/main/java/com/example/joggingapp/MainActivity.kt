@@ -558,8 +558,10 @@ fun JogApp(context: Context) {
     DisposableEffect(trackState) {
         if (trackState == TrackState.TRACKING)
             try {
+                // Internal-only broadcast (sent by ForegroundLocationService within this
+                // app). NOT_EXPORTED so no other app can spoof LOCATION_UPDATE extras (P2-3).
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    context.registerReceiver(locReceiver, IntentFilter(ForegroundLocationService.ACTION_LOCATION_BROADCAST), Context.RECEIVER_EXPORTED)
+                    context.registerReceiver(locReceiver, IntentFilter(ForegroundLocationService.ACTION_LOCATION_BROADCAST), Context.RECEIVER_NOT_EXPORTED)
                 } else {
                     context.registerReceiver(locReceiver, IntentFilter(ForegroundLocationService.ACTION_LOCATION_BROADCAST))
                 }
@@ -596,8 +598,11 @@ fun JogApp(context: Context) {
             addAction("com.example.joggingapp.ACTION_END_FROM_NOTIF")
         }
         try {
+            // Internal-only pause/resume/end broadcasts (sent by ForegroundLocationService
+            // within this app). NOT_EXPORTED so no other app can spoof a fake End-run or
+            // pause/resume against the live activity (P2-3).
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                context.registerReceiver(notifActionReceiver, filter, Context.RECEIVER_EXPORTED)
+                context.registerReceiver(notifActionReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
             } else {
                 context.registerReceiver(notifActionReceiver, filter)
             }

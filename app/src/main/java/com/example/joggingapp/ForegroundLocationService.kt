@@ -8,6 +8,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.ServiceInfo
 import android.location.Location
 import android.os.BatteryManager
 import android.os.Build
@@ -84,6 +85,22 @@ class ForegroundLocationService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // CONTRACT (V1.60 crash fix, mirrors V1.59 BuddyLocationService): once started
+        // via startForegroundService(), the OS requires startForeground() within ~5s on
+        // EVERY onStartCommand code path or it kills the app with
+        // ForegroundServiceDidNotStartInTimeException. The PAUSE/RESUME/END branches
+        // below return without reaching the fresh-start startForeground() call, so a
+        // start that delivers one of those as the first onStartCommand (service killed
+        // mid-run, notification action against a dead service, START_STICKY redelivery)
+        // would trip the contract. Satisfy it IMMEDIATELY and UNCONDITIONALLY here,
+        // before the when(action) dispatch. Wrapped so a SecurityException /
+        // ForegroundServiceStartNotAllowed / MissingForegroundServiceType throw stops the
+        // service cleanly instead of crashing the app.
+        if (!enterForeground()) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
+
         when (intent?.action) {
 
             // ── END ───────────────────────────────────────────────────────────
@@ -106,7 +123,7 @@ class ForegroundLocationService : Service() {
                 try { fusedClient.removeLocationUpdates(callback) } catch (_: Exception) {}
                 val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
                 nm.notify(1, buildNotification(createNotificationChannel()))
-                sendBroadcast(Intent("com.example.joggingapp.ACTION_PAUSE_FROM_NOTIF"))
+                sendBroadcast(Intent("com.example.joggingapp.ACTION_PAUSE_FROM_NOTIF").setPackage(packageName))
                 return START_STICKY
             }
 
@@ -137,7 +154,7 @@ class ForegroundLocationService : Service() {
                 startGpsUpdates()
                 val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
                 nm.notify(1, buildNotification(channelId))
-                sendBroadcast(Intent("com.example.joggingapp.ACTION_RESUME_FROM_NOTIF"))
+                sendBroadcast(Intent("com.example.joggingapp.ACTION_RESUME_FROM_NOTIF").setPackage(packageName))
                 return START_STICKY
             }
         }
@@ -158,8 +175,11 @@ class ForegroundLocationService : Service() {
 
         AppLogger.log(this, LogCategory.SERVICE, "Tracking started — GPS request interval 3s min 1.5s")
 
+        // Already promoted to foreground at the top of onStartCommand via
+        // enterForeground(); refresh the notification with the fresh-start stats.
         val channelId = createNotificationChannel()
-        startForeground(1, buildNotification(channelId))
+        val nm0 = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        nm0.notify(1, buildNotification(channelId))
 
         notifUpdater = object : Runnable {
             override fun run() {
@@ -172,6 +192,31 @@ class ForegroundLocationService : Service() {
         startGpsUpdates()
 
         return START_STICKY
+    }
+
+    /**
+     * Enters the foreground, satisfying the startForegroundService() contract. On API
+     * 29+ the manifest's foregroundServiceType="location" is passed explicitly (required
+     * on API 34+/targetSdk 34); older platforms use the plain 2-arg overload. Any
+     * failure (e.g. a SecurityException when the location permission is absent) is logged
+     * and reported as false so the caller can stopSelf() cleanly — the app must NEVER
+     * crash on service start. Mirrors BuddyLocationService.enterForeground() (V1.59).
+     * Returns true on success.
+     */
+    private fun enterForeground(): Boolean {
+        return try {
+            val notif = buildNotification(createNotificationChannel())
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(1, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
+            } else {
+                startForeground(1, notif)
+            }
+            true
+        } catch (e: Exception) {
+            AppLogger.log(this, LogCategory.ERROR,
+                "ForegroundLocationService startForeground failed: ${e.javaClass.simpleName}: ${e.message}")
+            false
+        }
     }
 
     // ── Battery watchdog ────────────────────────────────────────────────────────
@@ -232,7 +277,7 @@ class ForegroundLocationService : Service() {
         saveTrackedPoints()
 
         // Notify the activity to run endRun() (saves route + shows summary)
-        sendBroadcast(Intent("com.example.joggingapp.ACTION_END_FROM_NOTIF"))
+        sendBroadcast(Intent("com.example.joggingapp.ACTION_END_FROM_NOTIF").setPackage(packageName))
 
         // Tear down the foreground notification
         stopForeground(STOP_FOREGROUND_REMOVE)
@@ -362,6 +407,7 @@ class ForegroundLocationService : Service() {
         trackedPoints.add(point)
         try {
             sendBroadcast(Intent(ACTION_LOCATION_BROADCAST).apply {
+                setPackage(packageName)
                 putExtra(EXTRA_LAT, location.latitude)
                 putExtra(EXTRA_LON, location.longitude)
                 putExtra(EXTRA_SPEED, cleanSpeed)

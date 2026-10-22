@@ -8,6 +8,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.Executors
 
 // ── Log categories ────────────────────────────────────────────────────────────
 
@@ -48,6 +49,12 @@ object AppLogger {
     // Thread-safe list — GPS callbacks and the main thread both write here
     private val entries = CopyOnWriteArrayList<LogEntry>()
 
+    // Single-thread executor serializes ALL file writes (V1.60 P2-4). GPS callbacks and
+    // the main thread both log; a thread-per-call could interleave two trims
+    // (readLines() then writeText()) and corrupt/truncate app_log.txt — the very log the
+    // debugging discipline depends on. One worker guarantees append+trim run atomically.
+    private val fileExecutor = Executors.newSingleThreadExecutor()
+
     // ── Write ─────────────────────────────────────────────────────────────────
 
     fun log(context: Context, category: LogCategory, message: String) {
@@ -57,10 +64,12 @@ object AppLogger {
         entries.add(entry)
         while (entries.size > MAX_ENTRIES) entries.removeAt(0)
 
-        // Append to file on a background thread so we never block the caller
-        Thread {
+        // Append to file on the serialized executor so we never block the caller and
+        // concurrent writes can never interleave.
+        val appContext = context.applicationContext
+        fileExecutor.execute {
             try {
-                val file = File(context.filesDir, LOG_FILE_NAME)
+                val file = File(appContext.filesDir, LOG_FILE_NAME)
                 file.appendText(entry.formatted + "\n")
 
                 // Trim file if it has grown too large
@@ -69,7 +78,7 @@ object AppLogger {
                     file.writeText(lines.takeLast(MAX_FILE_LINES).joinToString("\n") + "\n")
                 }
             } catch (_: Exception) {}
-        }.start()
+        }
     }
 
     // ── Read ──────────────────────────────────────────────────────────────────
