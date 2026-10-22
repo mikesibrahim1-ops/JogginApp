@@ -82,6 +82,7 @@ enum class TrackState { IDLE, TRACKING, PAUSED }
 
 // Shared date-format patterns (used across history card, summary, and share text)
 const val DATE_FMT_FULL = "dd MMM yyyy • HH:mm"
+const val DATE_FMT_DATE = "dd MMM yyyy"
 const val DATE_FMT_DAY  = "yyyyMMdd"
 
 class MainActivity : ComponentActivity() {
@@ -1031,9 +1032,9 @@ fun JogApp(context: Context) {
  * sort control drives the table too. Defaults to the most recent 10 with a Show all control;
  * content scrolls within the panel. Clear-all lives at the bottom.
  *
- * Layout: compact two-line row per run — line 1 = activity emoji+label (left) + date/time
- * (right); line 2 = ⏱ dur  📍 dist  ⚡ speed  🔥 kcal. Chosen over a 6-column grid because
- * the date string alone is too wide to read cleanly alongside 5 more columns at ~390dp.
+ * Layout: compact two-line row per run — line 1 = activity emoji+label header (left);
+ * line 2 = date (left) then ⏱ dur  📍 dist  ⚡ speed  🔥 kcal. Chosen over a 6-column grid
+ * because the date string alone is too wide to read cleanly alongside 5 more columns at ~390dp.
  */
 @Composable
 fun RecentRunsPanel(routes: List<SavedRoute>, onClearAll: () -> Unit, modifier: Modifier = Modifier) {
@@ -1047,7 +1048,9 @@ fun RecentRunsPanel(routes: List<SavedRoute>, onClearAll: () -> Unit, modifier: 
             shape = RoundedCornerShape(16.dp),
             backgroundColor = c.surface,
             elevation = 8.dp,
-            border = androidx.compose.foundation.BorderStroke(1.dp, c.divider)
+            // Fixed neutral grey (same as AppToggle ToggleOffGrey) so the panel's bounding
+            // border reads grey on every theme (the `divider` token is theme-tinted — green on Forest).
+            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF9AA0A6))
         ) {
             Column(modifier = Modifier.padding(14.dp)) {
                 Row(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
@@ -1090,7 +1093,8 @@ private fun RecentRunsRow(route: SavedRoute) {
     // Memoize per-route derived values (points immutable per id).
     val durSec = remember(route.id) { calcDurationSeconds(route.points) }
     val distKm = remember(route.id) { calcDistanceKm(route.points) }
-    val dateStr = SimpleDateFormat(DATE_FMT_FULL, Locale.getDefault()).format(Date(route.timestamp))
+    // Date only (no time) — the row's data line leads with this; see DATE_FMT_DATE.
+    val dateStr = SimpleDateFormat(DATE_FMT_DATE, Locale.getDefault()).format(Date(route.timestamp))
     val isBlended = (route.activityTypes ?: emptyList()).distinct().size > 1
     val actEmoji = when {
         isBlended -> (route.activityTypes ?: emptyList()).distinct().joinToString("") { emojiForMode(it) }
@@ -1107,15 +1111,16 @@ private fun RecentRunsRow(route: SavedRoute) {
         else -> S.walk
     }
     Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
-        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween) {
+        // Line 1 — activity-type header (emoji + label, incl. blended types): unchanged.
+        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text("$actEmoji $actLabel", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = c.onSurface,
                 maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f))
-            Text(dateStr, fontSize = 11.sp, color = c.textSecondary)
         }
+        // Line 2 — data: DATE first, then ⏱ duration, 📍 distance, ⚡ avg speed, 🔥 kcal.
         Row(modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(dateStr, fontSize = 12.sp, color = c.textSecondary)
             Text("⏱ ${fmtTime(durSec)}", fontSize = 12.sp, color = c.onSurface.copy(alpha = 0.85f))
             Text("📍 ${String.format("%.2f %s", distKm, S.km)}", fontSize = 12.sp, color = c.onSurface.copy(alpha = 0.85f))
             Text("⚡ ${String.format("%.1f", route.avgSpeed * 3.6f)}", fontSize = 12.sp, color = c.onSurface.copy(alpha = 0.85f))
