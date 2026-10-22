@@ -867,6 +867,7 @@ fun JogApp(context: Context) {
                         1 -> {
                             Column(modifier = Modifier.fillMaxSize().background(c.background)) {
                                 var sortNewestFirst by remember { mutableStateOf(true) }
+                                var showRecentRunsPanel by remember { mutableStateOf(false) }
                                 // Single global map-share toggle for the whole history screen (moved out
                                 // of each run card). Flips share_with_map, read by shareRoute().
                                 val histPrefs = remember { context.getSharedPreferences("jog_prefs", Context.MODE_PRIVATE) }
@@ -888,19 +889,43 @@ fun JogApp(context: Context) {
                                             contentDescriptionText = S.includeMapWhenSharing,
                                         )
                                     }
+                                    // Recent-runs summary toggle (📊), between the map toggle and the sort control.
+                                    Text("📊", fontSize = 18.sp,
+                                        color = c.onPrimary.copy(alpha = if (showRecentRunsPanel) 1f else 0.7f),
+                                        modifier = Modifier
+                                            .semantics { contentDescription = S.recentRunsChartDesc }
+                                            .clickable { showRecentRunsPanel = !showRecentRunsPanel })
                                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                         Text(if (sortNewestFirst) S.newest else S.oldest, fontSize = 11.sp, color = c.onPrimary.copy(alpha = 0.8f))
                                         Text(if (sortNewestFirst) "↓" else "↑", fontSize = 16.sp, color = c.onPrimary.copy(alpha = 0.8f),
                                             modifier = Modifier.clickable { sortNewestFirst = !sortNewestFirst })
                                     }
                                 }
-                                if (savedRoutes.isEmpty()) {
-                                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text(S.noRunsYet, fontSize = 15.sp, color = c.textSecondary, textAlign = TextAlign.Center) }
-                                } else {
-                                    val sortedRoutes = if (sortNewestFirst) savedRoutes.sortedByDescending { it.timestamp } else savedRoutes.sortedBy { it.timestamp }
-                                    Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                        sortedRoutes.forEach { route -> HistoryRunCard(route = route, onDelete = { RouteStorage.deleteRoute(context, route.id); savedRoutes = RouteStorage.loadRoutes(context) }, onTitleChanged = { newTitle -> RouteStorage.updateRouteTitle(context, route.id, newTitle); savedRoutes = RouteStorage.loadRoutes(context) }) }
-                                        Spacer(Modifier.height(16.dp))
+                                // Memoize the sort so toggling Newest/Oldest only re-sorts when inputs change.
+                                val sortedRoutes = remember(savedRoutes, sortNewestFirst) {
+                                    if (sortNewestFirst) savedRoutes.sortedByDescending { it.timestamp } else savedRoutes.sortedBy { it.timestamp }
+                                }
+                                // Content area: the panel overlays the list (does not push it down).
+                                Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                                    if (savedRoutes.isEmpty()) {
+                                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text(S.noRunsYet, fontSize = 15.sp, color = c.textSecondary, textAlign = TextAlign.Center) }
+                                    } else {
+                                        Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                            sortedRoutes.forEach { route -> HistoryRunCard(route = route, onDelete = { RouteStorage.deleteRoute(context, route.id); savedRoutes = RouteStorage.loadRoutes(context) }, onTitleChanged = { newTitle -> RouteStorage.updateRouteTitle(context, route.id, newTitle); savedRoutes = RouteStorage.loadRoutes(context) }) }
+                                            Spacer(Modifier.height(16.dp))
+                                        }
+                                    }
+                                    if (showRecentRunsPanel) {
+                                        RecentRunsPanel(
+                                            routes = sortedRoutes,
+                                            onClearAll = {
+                                                AppLogger.log(context, LogCategory.UI, "All runs cleared — had ${savedRoutes.size} routes")
+                                                RouteStorage.clearRoutes(context)
+                                                savedRoutes = RouteStorage.loadRoutes(context)
+                                                showRecentRunsPanel = false
+                                            },
+                                            modifier = Modifier.align(Alignment.TopCenter)
+                                        )
                                     }
                                 }
                             }
@@ -913,7 +938,6 @@ fun JogApp(context: Context) {
                 if (optionsPaneOpen) { Box(modifier = Modifier.fillMaxSize().background(Color(0x66000000)).clickable { optionsPaneOpen = false }) }
                 Box(modifier = Modifier.width(paneWidth).fillMaxHeight().align(Alignment.CenterEnd).offset(x = paneOffset).shadow(16.dp).background(c.secondary)) {
                     OptionsPaneContent(colorIdx = colorIdx, savedRoutes = savedRoutes, onColorSelected = { colorIdx = it }, onClose = { optionsPaneOpen = false },
-                        onClearRuns = { RouteStorage.clearRoutes(context); savedRoutes = emptyList() },
                         onRoutesChanged = { savedRoutes = RouteStorage.loadRoutes(context) },
                         userName = userName,
                         onUserNameChanged = { newName ->
@@ -1001,6 +1025,105 @@ fun JogApp(context: Context) {
     }
 }
 
+/**
+ * Recent Runs summary panel — a tabular, row-per-run overview shown as an overlay on the
+ * Activity History screen (📊 button). `routes` is the already-sorted list so the header's
+ * sort control drives the table too. Defaults to the most recent 10 with a Show all control;
+ * content scrolls within the panel. Clear-all lives at the bottom.
+ *
+ * Layout: compact two-line row per run — line 1 = activity emoji+label (left) + date/time
+ * (right); line 2 = ⏱ dur  📍 dist  ⚡ speed  🔥 kcal. Chosen over a 6-column grid because
+ * the date string alone is too wide to read cleanly alongside 5 more columns at ~390dp.
+ */
+@Composable
+fun RecentRunsPanel(routes: List<SavedRoute>, onClearAll: () -> Unit, modifier: Modifier = Modifier) {
+    val c = JogginTheme.colors
+    val S = LocalStrings.current
+    var showAll by remember { mutableStateOf(false) }
+
+    Box(modifier = modifier.fillMaxWidth().padding(12.dp)) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            backgroundColor = c.surface,
+            elevation = 8.dp,
+            border = androidx.compose.foundation.BorderStroke(1.dp, c.divider)
+        ) {
+            Column(modifier = Modifier.padding(14.dp)) {
+                Row(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("📊", fontSize = 16.sp)
+                    Text(S.recentRuns, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = c.onSurface)
+                }
+                Divider(color = c.divider)
+                if (routes.isEmpty()) {
+                    Text(S.noRunsYet.substringBefore("\n"), fontSize = 13.sp, color = c.textSecondary,
+                        modifier = Modifier.padding(vertical = 16.dp))
+                } else {
+                    val shown = if (showAll) routes else routes.take(10)
+                    Column(modifier = Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
+                        shown.forEach { route ->
+                            RecentRunsRow(route)
+                            Divider(color = c.divider.copy(alpha = 0.6f))
+                        }
+                    }
+                    if (routes.size > 10) {
+                        Text(if (showAll) S.showRecentOnly else S.showAllRuns,
+                            fontSize = 13.sp, fontWeight = FontWeight.Bold, color = c.accent,
+                            modifier = Modifier.padding(top = 10.dp).clickable { showAll = !showAll })
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+                Divider(color = c.divider)
+                Text(S.clearAllRuns, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = c.error,
+                    modifier = Modifier.padding(top = 12.dp).clickable { onClearAll() })
+            }
+        }
+    }
+}
+
+/** A single compact two-line summary row for the Recent Runs panel. */
+@Composable
+private fun RecentRunsRow(route: SavedRoute) {
+    val c = JogginTheme.colors
+    val S = LocalStrings.current
+    // Memoize per-route derived values (points immutable per id).
+    val durSec = remember(route.id) { calcDurationSeconds(route.points) }
+    val distKm = remember(route.id) { calcDistanceKm(route.points) }
+    val dateStr = SimpleDateFormat(DATE_FMT_FULL, Locale.getDefault()).format(Date(route.timestamp))
+    val isBlended = (route.activityTypes ?: emptyList()).distinct().size > 1
+    val actEmoji = when {
+        isBlended -> (route.activityTypes ?: emptyList()).distinct().joinToString("") { emojiForMode(it) }
+        route.activityType == 2 -> "🚴"
+        route.activityType == 1 -> "🏃"
+        route.activityType == 0 && route.avgSpeed * 3.6f > WALK_RUN_THRESHOLD_KMH -> "🏃"
+        else -> "🚶"
+    }
+    val actLabel = when {
+        isBlended -> (route.activityTypes ?: emptyList()).distinct().joinToString(" + ") { labelForMode(it, S) }
+        route.activityType == 2 -> S.cycle
+        route.activityType == 1 -> S.run
+        route.activityType == 0 && route.avgSpeed * 3.6f > WALK_RUN_THRESHOLD_KMH -> S.run
+        else -> S.walk
+    }
+    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween) {
+            Text("$actEmoji $actLabel", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = c.onSurface,
+                maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f))
+            Text(dateStr, fontSize = 11.sp, color = c.textSecondary)
+        }
+        Row(modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("⏱ ${fmtTime(durSec)}", fontSize = 12.sp, color = c.onSurface.copy(alpha = 0.85f))
+            Text("📍 ${String.format("%.2f %s", distKm, S.km)}", fontSize = 12.sp, color = c.onSurface.copy(alpha = 0.85f))
+            Text("⚡ ${String.format("%.1f", route.avgSpeed * 3.6f)}", fontSize = 12.sp, color = c.onSurface.copy(alpha = 0.85f))
+            Text("🔥 ${String.format("%.0f", route.calories)}", fontSize = 12.sp, color = c.onSurface.copy(alpha = 0.85f))
+        }
+    }
+}
+
 @Composable
 fun HistoryRunCard(route: SavedRoute, onDelete: () -> Unit, onTitleChanged: (String) -> Unit = {}) {
     val c = JogginTheme.colors
@@ -1009,9 +1132,11 @@ fun HistoryRunCard(route: SavedRoute, onDelete: () -> Unit, onTitleChanged: (Str
     // Title editing state — reset when this card's route changes
     var editingTitle by remember(route.id) { mutableStateOf(false) }
     var titleInput by remember(route.id) { mutableStateOf(route.title ?: "") }
-    val distKm = calcDistanceKm(route.points)
+    // Memoize per-route metrics (points are immutable per id) so toggling sort/recompositions
+    // don't re-iterate every point of every route.
+    val distKm = remember(route.id) { calcDistanceKm(route.points) }
     // Use calcDurationSeconds so NaN sentinel pause-break points are excluded
-    val dur = calcDurationSeconds(route.points)
+    val dur = remember(route.id) { calcDurationSeconds(route.points) }
     val dateStr = SimpleDateFormat(DATE_FMT_FULL, Locale.getDefault()).format(Date(route.timestamp))
     val isBlended = (route.activityTypes ?: emptyList()).distinct().size > 1
     val actEmoji = when {
@@ -1456,7 +1581,7 @@ fun ProfileSection(userName: String, onUserNameChanged: (String) -> Unit) {
 }
 
 @Composable
-fun OptionsPaneContent(colorIdx: Int, savedRoutes: List<SavedRoute>, onColorSelected: (Int) -> Unit, onClose: () -> Unit, onClearRuns: () -> Unit, onRoutesChanged: () -> Unit = {}, userName: String = "", onUserNameChanged: (String) -> Unit = {}, currentTheme: com.example.joggingapp.ui.theme.AppTheme = com.example.joggingapp.ui.theme.AppTheme.SUNRISE, onThemeChanged: (com.example.joggingapp.ui.theme.AppTheme) -> Unit = {}, currentLanguage: Language = Language.ENGLISH, onLanguageChanged: (Language) -> Unit = {}, buddyController: BuddyLinkController? = null, buddyInviteMessage: String? = null, onBuddyInviteMessageShown: () -> Unit = {}, onOpenExerciseTargets: () -> Unit = {}) {
+fun OptionsPaneContent(colorIdx: Int, savedRoutes: List<SavedRoute>, onColorSelected: (Int) -> Unit, onClose: () -> Unit, onRoutesChanged: () -> Unit = {}, userName: String = "", onUserNameChanged: (String) -> Unit = {}, currentTheme: com.example.joggingapp.ui.theme.AppTheme = com.example.joggingapp.ui.theme.AppTheme.SUNRISE, onThemeChanged: (com.example.joggingapp.ui.theme.AppTheme) -> Unit = {}, currentLanguage: Language = Language.ENGLISH, onLanguageChanged: (Language) -> Unit = {}, buddyController: BuddyLinkController? = null, buddyInviteMessage: String? = null, onBuddyInviteMessageShown: () -> Unit = {}, onOpenExerciseTargets: () -> Unit = {}) {
     val c = JogginTheme.colors
     val S = LocalStrings.current
     val context = LocalContext.current
@@ -1583,21 +1708,6 @@ fun OptionsPaneContent(colorIdx: Int, savedRoutes: List<SavedRoute>, onColorSele
 
         // (Sharing section moved: the "include map when sharing" toggle now lives on each
         // activity-history card, between the Share and Remove buttons — see HistoryRunCard.)
-
-        // ── Recent Runs ───────────────────────────────────────────────────────
-        CollapsibleSection(title = S.recentRuns, leadingEmoji = "🏃") {
-        if (savedRoutes.isEmpty()) { Text(S.noRunsYet.substringBefore("\n"), fontSize = 13.sp, color = c.onSecondary.copy(alpha = 0.6f)) }
-        else {
-            savedRoutes.take(5).forEach { route -> val ts = SimpleDateFormat("dd/MM • HH:mm", Locale.getDefault()).format(Date(route.timestamp))
-                Row(modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text(ts, fontSize = 12.sp, color = c.onSecondary.copy(alpha = 0.8f)); Text(String.format("%.2f ${S.km}", calcDistanceKm(route.points)), fontSize = 12.sp, color = c.onSecondary.copy(alpha = 0.6f))
-                }; Divider(color = c.onSecondary.copy(alpha = 0.15f)) }
-            Spacer(Modifier.height(12.dp)); Text(S.clearAllRuns, fontSize = 13.sp, color = c.error, modifier = Modifier.clickable {
-                AppLogger.log(context, LogCategory.UI, "All runs cleared — had ${savedRoutes.size} routes")
-                onClearRuns()
-            })
-        }
-        } // end Recent Runs
 
         // ── Share App + Backup/Restore ────────────────────────────────────────
         CollapsibleSection(title = S.shareApp, leadingEmoji = "📲") {
