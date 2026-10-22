@@ -73,9 +73,6 @@ fun AppToggle(
     }
 
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        AnimatedVisibility(visible = flashVisible, enter = fadeIn(), exit = fadeOut()) {
-            Text(flashText, fontSize = 11.sp, color = if (checked) c.success else c.textSecondary)
-        }
         Box(
             modifier = modifier
                 .size(44.dp, 24.dp)
@@ -96,6 +93,10 @@ fun AppToggle(
             contentAlignment = if (checked) Alignment.CenterEnd else Alignment.CenterStart
         ) {
             Box(modifier = Modifier.size(20.dp).padding(2.dp).clip(CircleShape).background(Color.White))
+        }
+        // Flash label sits to the RIGHT of the toggle pill.
+        AnimatedVisibility(visible = flashVisible, enter = fadeIn(), exit = fadeOut()) {
+            Text(flashText, fontSize = 11.sp, color = if (checked) c.success else c.textSecondary)
         }
     }
 }
