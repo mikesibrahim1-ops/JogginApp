@@ -12,6 +12,7 @@ import android.content.pm.PackageManager
 import android.location.Location
 import android.os.Build
 import android.os.IBinder
+import android.content.pm.ServiceInfo
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.google.android.gms.location.CurrentLocationRequest
@@ -67,6 +68,25 @@ class BuddyLocationService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        AppLogger.log(this, LogCategory.SERVICE,
+            "BuddyLocationService onStartCommand — action=${intent?.action ?: "null"} bgPerm=${hasBackgroundLocation()}")
+
+        // CONTRACT (V1.59 crash fix): startForegroundService() requires the service to
+        // call startForeground() within ~5s or the OS kills the app with
+        // ForegroundServiceDidNotStartInTimeException. Satisfy it IMMEDIATELY and
+        // UNCONDITIONALLY — before any early-return branch — so a start that then stops
+        // (STOP action, or missing bg-permission) can never trip the contract.
+        //
+        // The service declares foregroundServiceType="location" in the manifest, so on
+        // API 34+ startForeground must be passed the LOCATION type; and if the location
+        // permission is missing Android can throw (ForegroundServiceStartNotAllowed /
+        // SecurityException). Wrap it so a throw here cleanly stops the service instead
+        // of crashing the app.
+        if (!enterForeground()) {
+            stopEverything()
+            return START_NOT_STICKY
+        }
+
         if (intent?.action == ACTION_STOP) {
             AppLogger.log(this, LogCategory.SERVICE, "BuddyLocationService stop requested")
             stopEverything()
@@ -82,12 +102,38 @@ class BuddyLocationService : Service() {
             return START_NOT_STICKY
         }
 
-        startForeground(NOTIF_ID, buildNotification())
         if (broadcastLoop == null) {
             startBroadcastLoop()
             observeOnDemandRequests()
         }
         return START_STICKY
+    }
+
+    /**
+     * Enters the foreground, satisfying the startForegroundService() contract. On API
+     * 34+ the manifest's foregroundServiceType="location" is passed explicitly via
+     * [ServiceCompat.startForeground]. Any failure (e.g. a SecurityException when the
+     * location permission is absent) is logged and reported as false so the caller can
+     * stop cleanly — the app must NEVER crash on service start. Returns true on success.
+     */
+    private fun enterForeground(): Boolean {
+        return try {
+            val notif = buildNotification()
+            // foregroundServiceType="location" is declared in the manifest; on API 29+
+            // pass the matching type explicitly (required on API 34+/targetSdk 34),
+            // otherwise use the plain 2-arg overload for older platforms.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(NOTIF_ID, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
+            } else {
+                startForeground(NOTIF_ID, notif)
+            }
+            AppLogger.log(this, LogCategory.SERVICE, "BuddyLocationService entered foreground")
+            true
+        } catch (e: Exception) {
+            AppLogger.log(this, LogCategory.ERROR,
+                "BuddyLocationService startForeground failed: ${e.javaClass.simpleName}: ${e.message}")
+            false
+        }
     }
 
     /** Periodic ~5-min broadcast of my latest fix while the service runs (Req 6.1). */
@@ -193,7 +239,7 @@ class BuddyLocationService : Service() {
     override fun onDestroy() {
         broadcastLoop?.cancel(); broadcastLoop = null
         scope.cancel()
-        AppLogger.log(this, LogCategory.SERVICE, "BuddyLocationService destroyed")
+        AppLogger.log(this, LogCategory.SERVICE, "BuddyLocationService destroyed (stopped/killed)")
         super.onDestroy()
     }
 

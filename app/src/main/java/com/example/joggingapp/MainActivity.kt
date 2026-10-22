@@ -87,11 +87,14 @@ const val DATE_FMT_DAY  = "yyyyMMdd"
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Install the uncaught-exception handler FIRST so any crash during startup
+        // (intent handling, Compose/buddy bring-up) is captured in both crash_log.txt
+        // and the in-app log (V1.59).
+        CrashLogger.install(this)
         // Capture an invite deep link if the app was launched by one.
         handleBuddyInviteIntent(intent)
         // Capture a "focus buddy on the map" request if launched by a buddy-online notif.
         handleBuddyFocusIntent(intent)
-        CrashLogger.install(this)
         AppLogger.log(this, LogCategory.UI, "App launched — " +
             "device=${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL} " +
             "Android ${android.os.Build.VERSION.RELEASE} (API ${android.os.Build.VERSION.SDK_INT})")

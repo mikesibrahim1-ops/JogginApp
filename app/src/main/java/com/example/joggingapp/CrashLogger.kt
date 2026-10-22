@@ -17,8 +17,27 @@ object CrashLogger {
         val originalHandler = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
             log(context, throwable, thread)
+            logToAppLog(context, throwable, thread)
             writeReportFile(context)
             originalHandler?.uncaughtException(thread, throwable)
+        }
+    }
+
+    /**
+     * V1.59: also surface the crash inline in the MAIN in-app log (app_log.txt via
+     * [AppLogger]) so a future tail shows it next to the lifecycle breadcrumbs. Concise
+     * one-liner: exception class + message + top stack frame. The existing crash_log.txt
+     * behavior is kept unchanged. Best-effort — never throws from the crash handler.
+     */
+    private fun logToAppLog(context: Context, throwable: Throwable, thread: Thread?) {
+        try {
+            val top = throwable.stackTrace.firstOrNull()?.let {
+                " at ${it.className}.${it.methodName}(${it.fileName}:${it.lineNumber})"
+            } ?: ""
+            AppLogger.log(context, LogCategory.ERROR,
+                "CRASH on ${thread?.name ?: "unknown"}: " +
+                    "${throwable.javaClass.name}: ${throwable.message}$top")
+        } catch (_: Exception) {
         }
     }
 

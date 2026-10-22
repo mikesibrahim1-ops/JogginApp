@@ -325,9 +325,11 @@ class BuddyLinkController(private val appContext: Context) {
         val intent = Intent(appContext, BuddyLocationService::class.java)
         if (sharing) {
             intent.action = BuddyLocationService.ACTION_START
+            AppLogger.log(appContext, LogCategory.SERVICE, "Buddy sharing ON — starting BuddyLocationService")
             try { ContextCompat.startForegroundService(appContext, intent) } catch (_: Exception) {}
         } else {
             intent.action = BuddyLocationService.ACTION_STOP
+            AppLogger.log(appContext, LogCategory.SERVICE, "Buddy sharing OFF — stopping BuddyLocationService")
             try { appContext.startService(intent) } catch (_: Exception) {}
         }
     }
