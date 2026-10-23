@@ -25,6 +25,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.pager.VerticalPager
@@ -911,9 +913,18 @@ fun JogApp(context: Context) {
                                     if (savedRoutes.isEmpty()) {
                                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text(S.noRunsYet, fontSize = 15.sp, color = c.textSecondary, textAlign = TextAlign.Center) }
                                     } else {
-                                        Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                            sortedRoutes.forEach { route -> HistoryRunCard(route = route, onDelete = { RouteStorage.deleteRoute(context, route.id); savedRoutes = RouteStorage.loadRoutes(context) }, onTitleChanged = { newTitle -> RouteStorage.updateRouteTitle(context, route.id, newTitle); savedRoutes = RouteStorage.loadRoutes(context) }) }
-                                            Spacer(Modifier.height(16.dp))
+                                        // LazyColumn so only the visible HistoryRunCards compose — each card
+                                        // builds a full osmdroid MapView, so eagerly composing all 40+ (the old
+                                        // Column+verticalScroll+forEach) stalled the page for ~1s+ on first show.
+                                        // Stable keys (route.id) keep card state across sort toggles / list edits.
+                                        LazyColumn(
+                                            modifier = Modifier.fillMaxSize().padding(12.dp),
+                                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                                        ) {
+                                            items(items = sortedRoutes, key = { it.id }) { route ->
+                                                HistoryRunCard(route = route, onDelete = { RouteStorage.deleteRoute(context, route.id); savedRoutes = RouteStorage.loadRoutes(context) }, onTitleChanged = { newTitle -> RouteStorage.updateRouteTitle(context, route.id, newTitle); savedRoutes = RouteStorage.loadRoutes(context) })
+                                            }
+                                            item { Spacer(Modifier.height(16.dp)) }
                                         }
                                     }
                                     if (showRecentRunsPanel) {
@@ -1099,7 +1110,9 @@ private fun RecentRunsRow(route: SavedRoute, zebraOdd: Boolean) {
     val durSec = remember(route.id) { calcDurationSeconds(route.points) }
     val distKm = remember(route.id) { calcDistanceKm(route.points) }
     // Date only (no time) — the row's data line leads with this; see DATE_FMT_DATE.
-    val dateStr = SimpleDateFormat(DATE_FMT_DATE, Locale.getDefault()).format(Date(route.timestamp))
+    // Formatter remembered (not rebuilt per composition); format pattern unchanged.
+    val dateFmt = remember { SimpleDateFormat(DATE_FMT_DATE, Locale.getDefault()) }
+    val dateStr = remember(route.id) { dateFmt.format(Date(route.timestamp)) }
     val isBlended = (route.activityTypes ?: emptyList()).distinct().size > 1
     val actEmoji = when {
         isBlended -> (route.activityTypes ?: emptyList()).distinct().joinToString("") { emojiForMode(it) }
@@ -1147,7 +1160,10 @@ fun HistoryRunCard(route: SavedRoute, onDelete: () -> Unit, onTitleChanged: (Str
     val distKm = remember(route.id) { calcDistanceKm(route.points) }
     // Use calcDurationSeconds so NaN sentinel pause-break points are excluded
     val dur = remember(route.id) { calcDurationSeconds(route.points) }
-    val dateStr = SimpleDateFormat(DATE_FMT_FULL, Locale.getDefault()).format(Date(route.timestamp))
+    // Formatters remembered (not rebuilt per composition); patterns unchanged.
+    val fullFmt = remember { SimpleDateFormat(DATE_FMT_FULL, Locale.getDefault()) }
+    val dayFmt = remember { SimpleDateFormat(DATE_FMT_DAY, Locale.getDefault()) }
+    val dateStr = remember(route.id) { fullFmt.format(Date(route.timestamp)) }
     val isBlended = (route.activityTypes ?: emptyList()).distinct().size > 1
     val actEmoji = when {
         isBlended -> (route.activityTypes ?: emptyList()).distinct().joinToString("") { emojiForMode(it) }
@@ -1250,9 +1266,8 @@ fun HistoryRunCard(route: SavedRoute, onDelete: () -> Unit, onTitleChanged: (Str
                         Spacer(Modifier.width(6.dp))
                         Text(dateStr, fontSize = 12.sp, color = c.textSecondary)
                     }
-                    // "Today" badge if the run was today
-                    val isToday = SimpleDateFormat(DATE_FMT_DAY, Locale.getDefault()).format(Date(route.timestamp)) ==
-                        SimpleDateFormat(DATE_FMT_DAY, Locale.getDefault()).format(Date())
+                    // "Today" badge if the run was today (reuse remembered dayFmt).
+                    val isToday = dayFmt.format(Date(route.timestamp)) == dayFmt.format(Date())
                     if (isToday) {
                         Box(modifier = Modifier.clip(RoundedCornerShape(50)).background(c.primary).padding(horizontal = 8.dp, vertical = 3.dp)) {
                             Text(S.today, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = c.onPrimary)
