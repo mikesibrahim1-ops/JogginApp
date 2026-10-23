@@ -88,16 +88,13 @@ fun AchievementsScreen(routes: List<SavedRoute>, onBack: () -> Unit) {
     var showPersonal by remember { mutableStateOf(false) }
     val completedTargets = remember(showPersonal) { ExerciseTargetStorage.loadCompleted(context) }
 
-    val filtered = remember(selectedCategory, sortMode, sortAscending) {
-        val base = if (selectedCategory == null) progressList
-            else progressList.filter { it.achievement.category == selectedCategory }
-        val sorted = when (sortMode) {
-            1 -> base.sortedByDescending { if (it.earnedDate == null) it.progress else -1f }
-            2 -> base.sortedWith(compareByDescending<AchievementProgress> { it.earnedDate != null }.thenByDescending { it.progress })
-            3 -> base.sortedBy { if (it.earnedDate == null && it.progress > 0f) it.progress else 2f }
-            else -> base
-        }
-        if (sortAscending && sortMode != 0) sorted.reversed() else sorted
+    // `filtered` only applies the category filter. Ordering is handled per-bucket in the
+    // grid below so that the Earned/Outstanding section membership (fixed by earnedDate) can
+    // never be crossed by any sort/ascending combination. Key includes progressList so the
+    // list recomputes if routes/achievements change while the screen is composed.
+    val filtered = remember(progressList, selectedCategory) {
+        if (selectedCategory == null) progressList
+        else progressList.filter { it.achievement.category == selectedCategory }
     }
 
     Column(modifier = Modifier.fillMaxSize().background(c.background)
@@ -197,9 +194,10 @@ fun AchievementsScreen(routes: List<SavedRoute>, onBack: () -> Unit) {
                         }
                     }
                 }
-                // Detail popup when a medal is tapped
-                if (selectedMedal != null) {
-                    val m = selectedMedal!!
+                // Detail popup when a medal is tapped. Capture into a local non-null val and
+                // guard with a nested balanced if (no early return) to remove the NPE risk.
+                val m = selectedMedal
+                if (m != null) {
                     Spacer(Modifier.height(12.dp))
                     Card(modifier = Modifier.fillMaxWidth(),
                         elevation = 4.dp, shape = RoundedCornerShape(12.dp),
@@ -289,29 +287,46 @@ fun AchievementsScreen(routes: List<SavedRoute>, onBack: () -> Unit) {
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                if (sortMode == 0) {
-                    // DEFAULT view: group into Earned / Outstanding buckets (headers shown),
-                    // each bucket preserving the default order. The explicit sort modes below
-                    // intentionally do NOT bucket, so the chosen sort drives the whole list.
-                    val earnedItems = filtered.filter { it.earnedDate != null }
-                    val outstandingItems = filtered.filter { it.earnedDate == null }
-                    if (earnedItems.isNotEmpty()) {
-                        item(span = { GridItemSpan(maxLineSpan) }) { SectionHeader(S.achEarnedHeader) }
-                        items(earnedItems, key = { "earned-" + it.achievement.id }) { ap ->
-                            AchievementCard(ap)
-                        }
+                // Always bucket into Earned / Outstanding (headers shown in EVERY sort mode).
+                // Membership is fixed strictly by earnedDate, so an unearned badge can never
+                // appear under the Earned header in any sort/ascending combination. The active
+                // sort only orders WITHIN each bucket, and the ascending toggle only reverses
+                // WITHIN each bucket — it never moves an item across the bucket boundary.
+                val earnedBase = filtered.filter { it.earnedDate != null }
+                val outstandingBase = filtered.filter { it.earnedDate == null }
+
+                // Order each bucket per the active sort mode.
+                var earnedItems = when (sortMode) {
+                    // Earned: newest-earned first (then higher progress as a tiebreak).
+                    2 -> earnedBase.sortedWith(
+                        compareByDescending<AchievementProgress> { it.earnedDate ?: "" }
+                            .thenByDescending { it.progress })
+                    // Other modes keep the earned bucket in default order.
+                    else -> earnedBase
+                }
+                var outstandingItems = when (sortMode) {
+                    // Almost Done: closest-to-done first.
+                    1 -> outstandingBase.sortedByDescending { it.progress }
+                    // Outstanding: least-progress / longest-outstanding first.
+                    3 -> outstandingBase.sortedBy { it.progress }
+                    else -> outstandingBase
+                }
+
+                // Ascending re-tap reverses order WITHIN each bucket only (never across them).
+                if (sortAscending && sortMode != 0) {
+                    earnedItems = earnedItems.reversed()
+                    outstandingItems = outstandingItems.reversed()
+                }
+
+                if (earnedItems.isNotEmpty()) {
+                    item(span = { GridItemSpan(maxLineSpan) }) { SectionHeader(S.achEarnedHeader) }
+                    items(earnedItems, key = { "earned-" + it.achievement.id }) { ap ->
+                        AchievementCard(ap)
                     }
-                    if (outstandingItems.isNotEmpty()) {
-                        item(span = { GridItemSpan(maxLineSpan) }) { SectionHeader(S.achOutstandingHeader) }
-                        items(outstandingItems, key = { "outstanding-" + it.achievement.id }) { ap ->
-                            AchievementCard(ap)
-                        }
-                    }
-                } else {
-                    // SORTED view (Almost Done / Earned / Outstanding): render a single flat
-                    // grid in the sorted order so the selected sort actually orders the cards
-                    // top-first, instead of being masked by the Earned/Outstanding partition.
-                    items(filtered, key = { "sorted-" + it.achievement.id }) { ap ->
+                }
+                if (outstandingItems.isNotEmpty()) {
+                    item(span = { GridItemSpan(maxLineSpan) }) { SectionHeader(S.achOutstandingHeader) }
+                    items(outstandingItems, key = { "outstanding-" + it.achievement.id }) { ap ->
                         AchievementCard(ap)
                     }
                 }
