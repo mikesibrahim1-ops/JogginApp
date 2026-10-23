@@ -1065,9 +1065,8 @@ fun RecentRunsPanel(routes: List<SavedRoute>, onClearAll: () -> Unit, modifier: 
                 } else {
                     val shown = if (showAll) routes else routes.take(10)
                     Column(modifier = Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
-                        shown.forEach { route ->
-                            RecentRunsRow(route)
-                            Divider(color = c.divider.copy(alpha = 0.6f))
+                        shown.forEachIndexed { index, route ->
+                            RecentRunsRow(route, zebraOdd = index % 2 == 1)
                         }
                     }
                     if (routes.size > 10) {
@@ -1085,11 +1084,17 @@ fun RecentRunsPanel(routes: List<SavedRoute>, onClearAll: () -> Unit, modifier: 
     }
 }
 
-/** A single compact two-line summary row for the Recent Runs panel. */
+/**
+ * A single compact two-line summary row for the Recent Runs panel.
+ * [zebraOdd] drives the Excel-style alternating background: even rows are white, odd rows
+ * get a light tint of the theme's main colour (never a dark band).
+ */
 @Composable
-private fun RecentRunsRow(route: SavedRoute) {
+private fun RecentRunsRow(route: SavedRoute, zebraOdd: Boolean) {
     val c = JogginTheme.colors
     val S = LocalStrings.current
+    // Zebra striping: white vs a light theme-colour wash. Kept light so no row reads as dark.
+    val rowBg = if (zebraOdd) c.primary.copy(alpha = 0.08f) else Color.White
     // Memoize per-route derived values (points immutable per id).
     val durSec = remember(route.id) { calcDurationSeconds(route.points) }
     val distKm = remember(route.id) { calcDistanceKm(route.points) }
@@ -1110,7 +1115,7 @@ private fun RecentRunsRow(route: SavedRoute) {
         route.activityType == 0 && route.avgSpeed * 3.6f > WALK_RUN_THRESHOLD_KMH -> S.run
         else -> S.walk
     }
-    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+    Column(modifier = Modifier.fillMaxWidth().background(rowBg).padding(horizontal = 8.dp, vertical = 8.dp)) {
         // Line 1 — activity-type header (emoji + label, incl. blended types): unchanged.
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text("$actEmoji $actLabel", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = c.onSurface,

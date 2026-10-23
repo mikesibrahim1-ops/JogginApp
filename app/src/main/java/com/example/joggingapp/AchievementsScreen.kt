@@ -281,10 +281,6 @@ fun AchievementsScreen(routes: List<SavedRoute>, onBack: () -> Unit) {
             LaunchedEffect(sortMode, sortAscending) {
                 gridState.animateScrollToItem(0)
             }
-            // Partition the already-sorted list into Earned (has earnedDate) and
-            // Outstanding (no earnedDate), preserving in-group sort order.
-            val earnedItems = filtered.filter { it.earnedDate != null }
-            val outstandingItems = filtered.filter { it.earnedDate == null }
             LazyVerticalGrid(
                 state = gridState,
                 columns = GridCells.Fixed(2),
@@ -293,15 +289,29 @@ fun AchievementsScreen(routes: List<SavedRoute>, onBack: () -> Unit) {
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                if (earnedItems.isNotEmpty()) {
-                    item(span = { GridItemSpan(maxLineSpan) }) { SectionHeader(S.achEarnedHeader) }
-                    items(earnedItems, key = { "earned-" + it.achievement.id }) { ap ->
-                        AchievementCard(ap)
+                if (sortMode == 0) {
+                    // DEFAULT view: group into Earned / Outstanding buckets (headers shown),
+                    // each bucket preserving the default order. The explicit sort modes below
+                    // intentionally do NOT bucket, so the chosen sort drives the whole list.
+                    val earnedItems = filtered.filter { it.earnedDate != null }
+                    val outstandingItems = filtered.filter { it.earnedDate == null }
+                    if (earnedItems.isNotEmpty()) {
+                        item(span = { GridItemSpan(maxLineSpan) }) { SectionHeader(S.achEarnedHeader) }
+                        items(earnedItems, key = { "earned-" + it.achievement.id }) { ap ->
+                            AchievementCard(ap)
+                        }
                     }
-                }
-                if (outstandingItems.isNotEmpty()) {
-                    item(span = { GridItemSpan(maxLineSpan) }) { SectionHeader(S.achOutstandingHeader) }
-                    items(outstandingItems, key = { "outstanding-" + it.achievement.id }) { ap ->
+                    if (outstandingItems.isNotEmpty()) {
+                        item(span = { GridItemSpan(maxLineSpan) }) { SectionHeader(S.achOutstandingHeader) }
+                        items(outstandingItems, key = { "outstanding-" + it.achievement.id }) { ap ->
+                            AchievementCard(ap)
+                        }
+                    }
+                } else {
+                    // SORTED view (Almost Done / Earned / Outstanding): render a single flat
+                    // grid in the sorted order so the selected sort actually orders the cards
+                    // top-first, instead of being masked by the Earned/Outstanding partition.
+                    items(filtered, key = { "sorted-" + it.achievement.id }) { ap ->
                         AchievementCard(ap)
                     }
                 }

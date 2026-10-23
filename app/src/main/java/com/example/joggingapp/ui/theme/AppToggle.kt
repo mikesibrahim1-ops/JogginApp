@@ -6,9 +6,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -26,8 +24,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupPositionProvider
 import kotlinx.coroutines.delay
 
 /**
@@ -40,8 +41,9 @@ import kotlinx.coroutines.delay
  *  - A thin border is always drawn so the pill stands out even when the surrounding
  *    background is a closely-blended colour.
  *
- * Behaviour: on every tap a short status label ([onLabel] / [offLabel]) flashes next to
- * the toggle for ~3 seconds and then fades out, telling the user what the toggle now does.
+ * Behaviour: on every tap a short status label ([onLabel] / [offLabel]) appears in a small
+ * FLOATING box (a Popup, so it never expands the toggle's row or overlaps neighbouring
+ * controls), styled in the app theme, and auto-dismisses after ~3 seconds.
  */
 
 // Neutral off-state grey, theme-independent so it never blends into a themed background.
@@ -59,7 +61,7 @@ fun AppToggle(
     contentDescriptionText: String? = null,
 ) {
     val c = JogginTheme.colors
-    // The flash label: shown for ~3s after each tap, then fades. `flashKey` bumps on every
+    // The flash label: shown for ~3s after each tap, then hides. `flashKey` bumps on every
     // tap so re-tapping restarts the 3s window; `flashText` holds the message to show.
     var flashKey by remember { mutableStateOf(0) }
     var flashVisible by remember { mutableStateOf(false) }
@@ -72,7 +74,7 @@ fun AppToggle(
         flashVisible = false
     }
 
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    Box {
         Box(
             modifier = modifier
                 .size(44.dp, 24.dp)
@@ -94,9 +96,43 @@ fun AppToggle(
         ) {
             Box(modifier = Modifier.size(20.dp).padding(2.dp).clip(CircleShape).background(Color.White))
         }
-        // Flash label sits to the RIGHT of the toggle pill.
-        AnimatedVisibility(visible = flashVisible, enter = fadeIn(), exit = fadeOut()) {
-            Text(flashText, fontSize = 11.sp, color = if (checked) c.success else c.textSecondary)
+
+        // Floating status label — rendered in its own Popup window so it floats above the UI
+        // without affecting layout (no pushing/overlap of neighbouring controls). Anchored
+        // just below the toggle, centred on it. Rounded corners at a ~3% radius per request.
+        if (flashVisible) {
+            Popup(popupPositionProvider = belowCenterProvider) {
+                AnimatedVisibility(visible = flashVisible, enter = fadeIn(), exit = fadeOut()) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(percent = 3))
+                            .background(c.primary)
+                            .border(1.dp, ToggleBorder, RoundedCornerShape(percent = 3))
+                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        Text(flashText, fontSize = 11.sp, color = c.onPrimary)
+                    }
+                }
+            }
         }
+    }
+}
+
+/**
+ * Positions the popup horizontally centred on the anchor (the toggle) and just below it,
+ * with a small gap. Keeps the floating label visually tied to the toggle.
+ */
+private val belowCenterProvider = object : PopupPositionProvider {
+    override fun calculatePosition(
+        anchorBounds: androidx.compose.ui.unit.IntRect,
+        windowSize: androidx.compose.ui.unit.IntSize,
+        layoutDirection: androidx.compose.ui.unit.LayoutDirection,
+        popupContentSize: androidx.compose.ui.unit.IntSize
+    ): IntOffset {
+        val x = anchorBounds.left + (anchorBounds.width - popupContentSize.width) / 2
+        val y = anchorBounds.bottom + 8
+        // Clamp horizontally so the floating box never spills off-screen.
+        val clampedX = x.coerceIn(0, (windowSize.width - popupContentSize.width).coerceAtLeast(0))
+        return IntOffset(clampedX, y)
     }
 }
