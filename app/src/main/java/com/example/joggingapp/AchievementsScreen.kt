@@ -287,47 +287,53 @@ fun AchievementsScreen(routes: List<SavedRoute>, onBack: () -> Unit) {
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                // Always bucket into Earned / Outstanding (headers shown in EVERY sort mode).
-                // Membership is fixed strictly by earnedDate, so an unearned badge can never
-                // appear under the Earned header in any sort/ascending combination. The active
-                // sort only orders WITHIN each bucket, and the ascending toggle only reverses
-                // WITHIN each bucket — it never moves an item across the bucket boundary.
+                // The slicers FILTER the list to a single group (membership fixed by
+                // earnedDate / progress); only Default shows both groups. Within the shown
+                // group the ascending toggle reverses order.
+                //   0 Default      → Earned bucket + Outstanding bucket (both headers).
+                //   1 Almost Done  → ONLY in-progress items (unearned AND progress > 0),
+                //                     closest-to-done first. No earned, no zero-progress locked.
+                //   2 Earned       → ONLY earned items (earnedDate != null), newest earned first.
+                //   3 Outstanding  → ONLY not-yet-earned items (earnedDate == null),
+                //                     least-progress / longest-outstanding first.
                 val earnedBase = filtered.filter { it.earnedDate != null }
                 val outstandingBase = filtered.filter { it.earnedDate == null }
 
-                // Order each bucket per the active sort mode.
-                var earnedItems = when (sortMode) {
-                    // Earned: newest-earned first (then higher progress as a tiebreak).
-                    2 -> earnedBase.sortedWith(
-                        compareByDescending<AchievementProgress> { it.earnedDate ?: "" }
-                            .thenByDescending { it.progress })
-                    // Other modes keep the earned bucket in default order.
-                    else -> earnedBase
-                }
-                var outstandingItems = when (sortMode) {
-                    // Almost Done: closest-to-done first.
-                    1 -> outstandingBase.sortedByDescending { it.progress }
-                    // Outstanding: least-progress / longest-outstanding first.
-                    3 -> outstandingBase.sortedBy { it.progress }
-                    else -> outstandingBase
-                }
-
-                // Ascending re-tap reverses order WITHIN each bucket only (never across them).
-                if (sortAscending && sortMode != 0) {
-                    earnedItems = earnedItems.reversed()
-                    outstandingItems = outstandingItems.reversed()
-                }
-
-                if (earnedItems.isNotEmpty()) {
-                    item(span = { GridItemSpan(maxLineSpan) }) { SectionHeader(S.achEarnedHeader) }
-                    items(earnedItems, key = { "earned-" + it.achievement.id }) { ap ->
-                        AchievementCard(ap)
+                when (sortMode) {
+                    0 -> {
+                        // Default: both groups, each in default order.
+                        if (earnedBase.isNotEmpty()) {
+                            item(span = { GridItemSpan(maxLineSpan) }) { SectionHeader(S.achEarnedHeader) }
+                            items(earnedBase, key = { "earned-" + it.achievement.id }) { ap -> AchievementCard(ap) }
+                        }
+                        if (outstandingBase.isNotEmpty()) {
+                            item(span = { GridItemSpan(maxLineSpan) }) { SectionHeader(S.achOutstandingHeader) }
+                            items(outstandingBase, key = { "outstanding-" + it.achievement.id }) { ap -> AchievementCard(ap) }
+                        }
                     }
-                }
-                if (outstandingItems.isNotEmpty()) {
-                    item(span = { GridItemSpan(maxLineSpan) }) { SectionHeader(S.achOutstandingHeader) }
-                    items(outstandingItems, key = { "outstanding-" + it.achievement.id }) { ap ->
-                        AchievementCard(ap)
+                    else -> {
+                        // A single filtered group. Build it, then apply the ascending toggle.
+                        var shownItems = when (sortMode) {
+                            1 -> outstandingBase.filter { it.progress > 0f }.sortedByDescending { it.progress }
+                            2 -> earnedBase.sortedWith(
+                                compareByDescending<AchievementProgress> { it.earnedDate ?: "" }
+                                    .thenByDescending { it.progress })
+                            3 -> outstandingBase.sortedBy { it.progress }
+                            else -> emptyList()
+                        }
+                        if (sortAscending) shownItems = shownItems.reversed()
+                        val header = if (sortMode == 2) S.achEarnedHeader else S.achOutstandingHeader
+                        if (shownItems.isNotEmpty()) {
+                            item(span = { GridItemSpan(maxLineSpan) }) { SectionHeader(header) }
+                            items(shownItems, key = { "sorted-" + it.achievement.id }) { ap -> AchievementCard(ap) }
+                        } else {
+                            // Filtered group is empty (e.g. nothing in progress for Almost Done).
+                            item(span = { GridItemSpan(maxLineSpan) }) {
+                                Text(S.achNoneInCategory, fontSize = 13.sp, color = c.textSecondary,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 24.dp))
+                            }
+                        }
                     }
                 }
             }
