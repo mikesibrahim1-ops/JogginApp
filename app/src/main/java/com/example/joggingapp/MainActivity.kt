@@ -47,6 +47,9 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -1235,7 +1238,7 @@ fun HistoryRunCard(route: SavedRoute, onDelete: () -> Unit, onTitleChanged: (Str
             Box(modifier = Modifier.fillMaxWidth().height(180.dp)
                 .clip(RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))) {
                 if (hasGpsData) {
-                    RouteMap(points = route.points, interactive = true, modifier = Modifier.fillMaxSize())
+                    RouteThumbnail(points = route.points, modifier = Modifier.fillMaxSize())
                 } else {
                     Box(modifier = Modifier.fillMaxSize().background(c.surface),
                         contentAlignment = Alignment.Center) {
@@ -1377,6 +1380,60 @@ private fun configureOsmdroid(context: Context) {
     org.osmdroid.config.Configuration.getInstance().apply {
         userAgentValue = MapTiles.USER_AGENT
         osmdroidTileCache = java.io.File(context.cacheDir, "osmdroid")
+    }
+}
+
+/**
+ * Lightweight route preview for the Activity History list cards.
+ *
+ * Pure Compose [Canvas] drawing — O(points) once per draw, with no osmdroid MapView,
+ * tiles, GL, or network. This exists specifically to avoid the ANR caused by spinning
+ * up a live interactive MapView per list item while scrolling the history LazyColumn.
+ *
+ * NaN pause-sentinel points are filtered out (mirrors calcDurationSeconds), the route's
+ * bounding box is mapped into the canvas with a uniform aspect-preserving scale and
+ * centred with padding, then stroked in the app route green (#66BB6A) over a themed
+ * surfaceVariant background. With fewer than two real points it draws background only
+ * (the card's upstream hasGpsData gate already shows the "no GPS data" placeholder).
+ */
+@Composable
+fun RouteThumbnail(points: List<Point>, modifier: Modifier = Modifier) {
+    val c = JogginTheme.colors
+    val real = points.filter { !it.lat.isNaN() }
+    Canvas(modifier = modifier.background(c.surfaceVariant)) {
+        if (real.size >= 2) {
+            val minLat = real.minOf { it.lat }; val maxLat = real.maxOf { it.lat }
+            val minLon = real.minOf { it.lon }; val maxLon = real.maxOf { it.lon }
+            val lonSpan = (maxLon - minLon).coerceAtLeast(1e-9)
+            val latSpan = (maxLat - minLat).coerceAtLeast(1e-9)
+
+            val pad = size.minDimension * 0.12f
+            val w = size.width - 2 * pad
+            val h = size.height - 2 * pad
+            val scale = minOf(w / lonSpan, h / latSpan).toFloat()
+            val drawW = (lonSpan * scale).toFloat()
+            val drawH = (latSpan * scale).toFloat()
+            val offX = pad + (w - drawW) / 2f
+            val offY = pad + (h - drawH) / 2f
+
+            fun mapX(lon: Double) = offX + ((lon - minLon) * scale).toFloat()
+            fun mapY(lat: Double) = offY + ((maxLat - lat) * scale).toFloat()
+
+            val routeGreen = Color(0xFF66BB6A)
+            val strokePx = 4.dp.toPx()
+            val path = Path().apply {
+                moveTo(mapX(real.first().lon), mapY(real.first().lat))
+                for (i in 1 until real.size) lineTo(mapX(real[i].lon), mapY(real[i].lat))
+            }
+            drawPath(
+                path = path,
+                color = routeGreen,
+                style = Stroke(width = strokePx, cap = StrokeCap.Round, join = StrokeJoin.Round)
+            )
+            val dotRadius = strokePx * 1.2f
+            drawCircle(routeGreen, dotRadius, Offset(mapX(real.first().lon), mapY(real.first().lat)))
+            drawCircle(c.primary, dotRadius, Offset(mapX(real.last().lon), mapY(real.last().lat)))
+        }
     }
 }
 
