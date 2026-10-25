@@ -114,19 +114,23 @@ object RouteMapSnapshot {
                     )
                     mapView.onResume()
 
-                    // Wait for tiles. Poll the TilesOverlay state counters until the
-                    // visible tiles are up-to-date/scaled, or we time out.
-                    val tilesLoaded = awaitTiles(mapView)
+                    // The capture bitmap is also the DRAW TARGET during the wait. osmdroid
+                    // requests tiles and advances its TileStates counters only inside
+                    // MapView.draw (TilesOverlay.drawTiles). An off-screen, window-less
+                    // MapView gets no system draw pass, and invalidate() is a no-op with no
+                    // ViewRootImpl — so we must drive the draw ourselves every poll pass.
+                    // Each draw requests the visible tiles and lets the async downloads land
+                    // into subsequent passes; the final draw is the captured image.
+                    val bitmap = Bitmap.createBitmap(widthPx, heightPx, Bitmap.Config.ARGB_8888)
+                    val canvas = Canvas(bitmap)
 
-                    // Even on timeout, capture if at least one tile is present; otherwise
-                    // return null so the caller keeps the line fallback.
+                    val tilesLoaded = awaitTiles(mapView, canvas)
+
+                    // Even on timeout, keep the last draw if at least one tile is present;
+                    // otherwise return null so the caller keeps the line fallback.
                     if (!tilesLoaded && !anyTilePresent(mapView)) {
                         return@withContext null
                     }
-
-                    val bitmap = Bitmap.createBitmap(widthPx, heightPx, Bitmap.Config.ARGB_8888)
-                    val canvas = Canvas(bitmap)
-                    mapView.draw(canvas)
                     bitmap
                 } finally {
                     // Tear the MapView down so NO MapView is retained between generations.
@@ -139,21 +143,30 @@ object RouteMapSnapshot {
     }
 
     /**
-     * Poll tile-state counters until all visible tiles are drawn (upToDate + scaled
-     * >= total, with total > 0) or until the timeout elapses. Each poll invalidates
-     * the view so osmdroid keeps processing the tile queue. Returns true if fully loaded.
+     * Drive tile loading until all visible tiles are drawn (upToDate + scaled >= total,
+     * with total > 0) or until the timeout elapses. CRITICAL: each poll DRAWS the MapView
+     * into [canvas] — this is the only thing that makes osmdroid request tiles and advance
+     * its TileStates counters (TilesOverlay.drawTiles runs only from MapView.draw). On a
+     * detached off-screen view invalidate() schedules nothing, so drawing manually each
+     * pass is what lets the async tile downloads land. Returns true if fully loaded; the
+     * last draw left in [canvas]'s bitmap is the capture. This is what osmdroid's own
+     * MapSnapshot does.
      */
-    private suspend fun awaitTiles(mapView: MapView): Boolean {
+    private suspend fun awaitTiles(mapView: MapView, canvas: Canvas): Boolean {
         val deadline = System.currentTimeMillis() + TILE_LOAD_TIMEOUT_MS
         while (System.currentTimeMillis() < deadline) {
-            mapView.invalidate()
+            mapView.draw(canvas)
             val states = mapView.overlayManager.tilesOverlay.tileStates
             val total = states.total
             if (total > 0 && (states.upToDate + states.scaled) >= total) {
+                // One more draw so the captured bitmap reflects the final tile set.
+                mapView.draw(canvas)
                 return true
             }
             delay(POLL_INTERVAL_MS)
         }
+        // Final draw so a timeout-with-tiles capture reflects the latest tiles.
+        mapView.draw(canvas)
         return false
     }
 
