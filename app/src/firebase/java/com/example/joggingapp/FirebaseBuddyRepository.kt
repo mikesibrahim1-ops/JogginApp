@@ -255,6 +255,10 @@ class FirebaseBuddyRepository(private val appContext: Context) : BuddyRepository
             }
             act
         }.await()
+        // `action` comes back as a platform type from runTransaction{}.await(), so Kotlin
+        // treats it as nullable (InviteAction!). The transaction always returns a non-null
+        // `act`, but handle the (impossible) null explicitly so the when is exhaustive and
+        // we never crash on a surprise null rather than relying on !!.
         when (action) {
             BuddyLinkDecisions.InviteAction.ACCEPT_EXISTING,
             BuddyLinkDecisions.InviteAction.ALREADY_CONNECTED -> BuddyResult.Success(InviteOutcome.CONNECTED)
@@ -263,6 +267,7 @@ class FirebaseBuddyRepository(private val appContext: Context) : BuddyRepository
                 is BuddyResult.Success -> BuddyResult.Success(InviteOutcome.REQUEST_SENT)
                 is BuddyResult.Failure -> r
             }
+            null -> BuddyResult.Failure(BuddyResult.Reason.UNKNOWN)
         }
     }.getOrElse { mapError(it) }
 
