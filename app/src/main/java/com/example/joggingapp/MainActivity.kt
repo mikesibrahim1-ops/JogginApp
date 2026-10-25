@@ -53,6 +53,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -1234,11 +1235,40 @@ fun HistoryRunCard(route: SavedRoute, onDelete: () -> Unit, onTitleChanged: (Str
                         .padding(4.dp))
                 }
             }
-            // Interactive mini map with zoom and pan (only if GPS data available)
-            Box(modifier = Modifier.fillMaxWidth().height(180.dp)
+            // Static map snapshot (only if GPS data available). The line thumbnail shows
+            // INSTANTLY as the placeholder; a real osmdroid map bitmap is generated/cached
+            // off the main thread and swapped in when ready. No live MapView, no map/tile/
+            // decode work on the main thread during scroll (see RouteSnapshotCache).
+            BoxWithConstraints(modifier = Modifier.fillMaxWidth().height(180.dp)
                 .clip(RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))) {
                 if (hasGpsData) {
+                    // Instant placeholder — pure Canvas line, no I/O.
                     RouteThumbnail(points = route.points, modifier = Modifier.fillMaxSize())
+                    // Target bitmap size = this box in pixels (sized to the card: no OOM).
+                    val density = LocalDensity.current
+                    val widthPx = with(density) { maxWidth.roundToPx() }
+                    val heightPx = with(density) { maxHeight.roundToPx() }
+                    val key = RouteSnapshotCache.keyFor(route.id, widthPx, heightPx)
+                    // Start from a synchronous memory hit (zero main-thread decode); if
+                    // absent, generate/decode OFF the main thread and swap in when ready.
+                    val mapBitmap by produceState<android.graphics.Bitmap?>(
+                        initialValue = RouteSnapshotCache.peek(key),
+                        key1 = route.id, key2 = widthPx, key3 = heightPx
+                    ) {
+                        if (value == null && widthPx > 0 && heightPx > 0) {
+                            value = RouteSnapshotCache.getOrGenerate(context, route, widthPx, heightPx)
+                        }
+                    }
+                    // The generated bitmap already contains the polyline/markers, so we
+                    // draw it ON TOP of the line placeholder — no redundant second line.
+                    mapBitmap?.let { bmp ->
+                        Image(
+                            bitmap = bmp.asImageBitmap(),
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
                 } else {
                     Box(modifier = Modifier.fillMaxSize().background(c.surface),
                         contentAlignment = Alignment.Center) {
