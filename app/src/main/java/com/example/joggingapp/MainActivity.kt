@@ -18,9 +18,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -1196,28 +1194,6 @@ fun HistoryRunCard(route: SavedRoute, onDelete: () -> Unit, onTitleChanged: (Str
 
     val hasGpsData = route.points.size >= 2 && !(route.points.first().lat == 0.0 && route.points.first().lon == 0.0)
 
-    // Snapshot dimensions: fixed px — card thumbnail is 180dp but we produce at a
-    // generous 600×360 so the bitmap looks crisp on high-density screens.
-    val snapshotWidthPx  = 600
-    val snapshotHeightPx = 360
-
-    // Async tile snapshot — null while loading or if tiles not yet cached on disk.
-    // produceState cancels the coroutine automatically when this card leaves composition
-    // (scrolled off-screen), preventing unbounded background work.
-    val snapshotBitmap by produceState<android.graphics.Bitmap?>(
-        initialValue = null,
-        key1 = route.id
-    ) {
-        if (hasGpsData) {
-            value = RouteSnapshotCache.getOrGenerate(context, route, snapshotWidthPx, snapshotHeightPx)
-        }
-    }
-    val snapshotAlpha by animateFloatAsState(
-        targetValue = if (snapshotBitmap != null) 1f else 0f,
-        animationSpec = tween(durationMillis = 300),
-        label = "snapshotFade"
-    )
-
     Card(modifier = Modifier.fillMaxWidth().border(5.dp, activityColor, RoundedCornerShape(16.dp)),
         elevation = 4.dp, shape = RoundedCornerShape(16.dp), backgroundColor = c.surface) {
         Column {
@@ -1262,21 +1238,7 @@ fun HistoryRunCard(route: SavedRoute, onDelete: () -> Unit, onTitleChanged: (Str
             Box(modifier = Modifier.fillMaxWidth().height(180.dp)
                 .clip(RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))) {
                 if (hasGpsData) {
-                    // Layer 1: route line — instant, always visible (same as before ANR fix).
                     RouteThumbnail(points = route.points, modifier = Modifier.fillMaxSize())
-                    // Layer 2: tile snapshot fades in over the top once ready.
-                    // If snapshotBitmap is null (tiles not cached yet) this branch is skipped
-                    // and RouteThumbnail remains the sole display — no crash, no blank space.
-                    if (snapshotBitmap != null) {
-                        Image(
-                            bitmap = snapshotBitmap!!.asImageBitmap(),
-                            contentDescription = null,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .graphicsLayer { alpha = snapshotAlpha }
-                        )
-                    }
                 } else {
                     Box(modifier = Modifier.fillMaxSize().background(c.surface),
                         contentAlignment = Alignment.Center) {
