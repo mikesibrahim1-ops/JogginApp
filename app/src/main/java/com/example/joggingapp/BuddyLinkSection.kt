@@ -73,6 +73,19 @@ fun BuddyLinkSection(controller: BuddyLinkController, userName: String) {
             android.content.pm.PackageManager.PERMISSION_GRANTED
     var bgGranted by remember { mutableStateOf(bgLocationGranted()) }
 
+    // Foreground (fine/coarse) location state — the first step of the Q+ enable chain.
+    fun fgLocationGranted(): Boolean =
+        ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED ||
+            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+
+    // Visible, non-silent feedback when a background-location grant is needed but was
+    // denied during an enable attempt (replaces the old silent log-only revert). While
+    // true the section shows the "Allow all the time" message + an Open Settings action;
+    // the toggle stays honestly OFF.
+    var permissionDenied by remember { mutableStateOf(false) }
+
     // Ticks periodically so the on-demand request cooldown (below) re-evaluates and the
     // button re-enables once the cooldown elapses, without needing a backend event.
     var nowTick by remember { mutableStateOf(System.currentTimeMillis()) }
@@ -83,36 +96,81 @@ fun BuddyLinkSection(controller: BuddyLinkController, userName: String) {
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) bgGranted = bgLocationGranted()
+            if (event == Lifecycle.Event.ON_RESUME) {
+                bgGranted = bgLocationGranted()
+                // Returning from Settings with background now granted: clear the stale
+                // "needs settings" message. DECISION (see plan): we do NOT auto-complete
+                // enable here — provisioning + starting the foreground service is an
+                // explicit, consent-gated (G3) action, so the user re-taps the toggle.
+                // Because fg+bg are now held, that re-tap runs enableConfirmed with no
+                // further prompts. Do not "fix" this into an auto-enable.
+                if (bgGranted) permissionDenied = false
+            }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    // Background-location permission request. On result we either finish enabling
-    // (grant) or revert (deny) so the toggle never sticks ON without permission (G3).
+    // Forward declaration so the launchers (defined before it) can drive the sequence.
+    // Assigned below once the launchers exist; invoked after consent and after each
+    // permission result to advance foreground -> background -> enable.
+    var advanceEnable by remember { mutableStateOf<() -> Unit>({}) }
+
+    // Background-location request (step 2 of the Q+ chain). Grant -> finish enabling;
+    // deny -> surface the visible "Allow all the time" / Open Settings message (no
+    // silent failure) and leave the toggle OFF.
     val bgPermLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
+        bgGranted = bgLocationGranted()
         if (granted) {
+            permissionDenied = false
             controller.enableConfirmed(userName)
         } else {
-            AppLogger.log(context, LogCategory.PROFILE, "Buddy Link enable reverted — background location denied")
+            permissionDenied = true
+            AppLogger.log(context, LogCategory.PROFILE, "Buddy Link enable: background location denied — routing to settings")
         }
     }
 
-    // Step 2 of enable: provision identity happens in enableConfirmed; here we gate on
-    // the background-location permission first (required for broadcast while walking).
+    // Foreground-location request (step 1 of the Q+ chain, mirrors MainActivity). On
+    // grant we re-evaluate and continue to background (or enable); on deny we surface
+    // the same visible feedback and leave the toggle OFF.
+    val fgPermLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { results ->
+        val granted = results[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
+            results[Manifest.permission.ACCESS_COARSE_LOCATION] == true
+        if (granted) {
+            permissionDenied = false
+            advanceEnable()
+        } else {
+            permissionDenied = true
+            AppLogger.log(context, LogCategory.PROFILE, "Buddy Link enable: foreground location denied")
+        }
+    }
+
+    // Drives the permission sequence using the pure decision logic. Foreground first,
+    // then background, then enable — never a one-shot background request that Android
+    // 10+ auto-denies and strands the toggle OFF.
+    advanceEnable = {
+        when (BuddyPermissionFlow.nextStep(Build.VERSION.SDK_INT, fgLocationGranted(), bgLocationGranted())) {
+            BuddyPermissionFlow.EnableStep.ENABLE_NOW -> {
+                permissionDenied = false
+                controller.enableConfirmed(userName)
+            }
+            BuddyPermissionFlow.EnableStep.REQUEST_FOREGROUND -> fgPermLauncher.launch(
+                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
+            )
+            BuddyPermissionFlow.EnableStep.REQUEST_BACKGROUND ->
+                bgPermLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+        }
+    }
+
+    // Step 2 of enable: consent (G3) has been accepted; kick off the chained permission
+    // sequence. Enable only completes once foreground + background are actually held.
     fun proceedAfterConsent() {
         showConsent = false
-        val needsBg = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
-            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_BACKGROUND_LOCATION) !=
-            android.content.pm.PackageManager.PERMISSION_GRANTED
-        if (needsBg) {
-            bgPermLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
-        } else {
-            controller.enableConfirmed(userName)
-        }
+        advanceEnable()
     }
 
     CollapsibleSection(title = S.buddyLink, leadingEmoji = "🛰️") {
@@ -125,12 +183,48 @@ fun BuddyLinkSection(controller: BuddyLinkController, userName: String) {
         ) {
             Text(S.buddyLinkEnable, fontSize = 13.sp, color = c.onSecondary, fontWeight = FontWeight.Medium)
             val on = controller.enabled
+            // The REAL "on" confirmation is the pill's green state, which is bound to
+            // `controller.enabled` and only turns green once enableConfirmed runs. A tap
+            // that turns the toggle ON merely opens the consent dialog and may still fail
+            // (permission denied), so we must NOT flash a misleading "Buddy Link on"
+            // label. AppToggle always flashes its `onLabel` on an off->on tap, so for the
+            // enable path we pass a neutral "Checking permissions…" label instead of the
+            // "on" string. (AppToggle itself is the shared standard component and is left
+            // unchanged per apptoggle-standard-switch.)
             com.example.joggingapp.ui.theme.AppToggle(
                 checked = on,
                 onToggle = { if (on) controller.disable() else showConsent = true },
-                onLabel = S.toggleBuddyLinkOn,
+                onLabel = if (on) S.toggleBuddyLinkOn else S.buddyEnablePending,
                 offLabel = S.toggleBuddyLinkOff,
                 contentDescriptionText = S.buddyToggleDesc(on),
+            )
+        }
+
+        // ── Enable-failed feedback (non-silent, Req: no silent failure) ───────
+        // Shown when a background-location grant was needed to enable but was denied.
+        // Gives a clear message + an Open Settings deep link so a willing user can grant
+        // "Allow all the time" and then re-tap. The toggle stays honestly OFF meanwhile.
+        if (permissionDenied && !controller.enabled) {
+            Spacer(Modifier.height(10.dp))
+            Text(
+                S.buddyPermissionDeniedAllowAllTime,
+                fontSize = 11.sp,
+                color = c.error.copy(alpha = 0.9f),
+                modifier = Modifier.semantics { contentDescription = S.buddyPermissionDeniedAllowAllTime }
+            )
+            Spacer(Modifier.height(6.dp))
+            Text(
+                S.buddyOpenSettings,
+                fontSize = 12.sp,
+                color = c.primary,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable {
+                        context.startActivity(BuddyPermissionFlow.appSettingsIntent(context.packageName))
+                    }
+                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                    .semantics { contentDescription = S.buddyOpenSettings }
             )
         }
 
