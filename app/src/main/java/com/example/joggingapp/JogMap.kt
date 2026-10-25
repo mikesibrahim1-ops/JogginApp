@@ -1,5 +1,7 @@
 package com.example.joggingapp
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
 import android.view.View
@@ -16,6 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.ContextCompat
 import org.osmdroid.config.Configuration
 import org.osmdroid.events.MapListener
 import org.osmdroid.events.ScrollEvent
@@ -29,6 +32,43 @@ import org.osmdroid.views.overlay.mylocation.MyLocationNewOverlay
 
 /** Marks osmdroid overlays that belong to the buddy layer so they can be swapped out. */
 private const val BUDDY_TAG = "buddy_overlay"
+
+/**
+ * Pure decision logic for the focus (GPS crosshair) button. Extracted so the branch
+ * selection can be unit-tested without an osmdroid MapView / Compose runtime.
+ */
+object FocusTapDecision {
+    /** What the focus-button tap should do, given the current map/location state. */
+    enum class Action {
+        /** Actively tracking a run — centre on the latest real trail point. */
+        CENTRE_ON_TRAIL,
+        /** A GPS fix is already available — centre on it immediately. */
+        CENTRE_ON_FIX,
+        /** No location permission — cannot ever get a fix; tell the user. */
+        NO_PERMISSION,
+        /** Permission granted but no fix yet — enable + await the next fix to centre. */
+        AWAIT_FIX
+    }
+
+    /**
+     * @param hasTrailPoint true when the run path has at least one non-NaN point.
+     * @param hasFix true when the location overlay already has a current fix.
+     * @param hasPermission true when FINE or COARSE location is granted.
+     */
+    fun decide(hasTrailPoint: Boolean, hasFix: Boolean, hasPermission: Boolean): Action = when {
+        hasTrailPoint -> Action.CENTRE_ON_TRAIL
+        hasFix -> Action.CENTRE_ON_FIX
+        !hasPermission -> Action.NO_PERMISSION
+        else -> Action.AWAIT_FIX
+    }
+
+    /**
+     * The focus button colour reflects real GPS state, not just whether a run is active.
+     * @return true when the button should treat itself as having a usable fix.
+     */
+    fun gpsAvailable(gotFirstFix: Boolean, hasFix: Boolean, hasGpsSignalHint: Boolean): Boolean =
+        gotFirstFix || hasFix || hasGpsSignalHint
+}
 
 @Composable
 fun JogMap(
@@ -161,16 +201,40 @@ fun JogMap(
             }
         }
     }
+    // True when we have (or should treat ourselves as having) a usable GPS fix. Drives the
+    // focus-button colour so it reflects real signal, not just whether a run is active.
+    fun gpsAvailable(): Boolean =
+        FocusTapDecision.gpsAvailable(gotFirstFix, locationOverlay.myLocation != null, hasGpsSignal)
+
+    // Whether the user has granted a location permission. osmdroid's enableMyLocation() is
+    // safe without it (it just never gets a fix), but we use this to give clear feedback.
+    fun hasLocationPermission(): Boolean =
+        ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) ==
+            PackageManager.PERMISSION_GRANTED ||
+            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) ==
+            PackageManager.PERMISSION_GRANTED
+
+    // Centres the map on a GeoPoint at the standard zoom, on the main thread, and refreshes
+    // the focus button to reflect the current follow + GPS state.
+    fun centreOn(point: GeoPoint) {
+        mapView.post {
+            mapView.controller.animateTo(point)
+            mapView.controller.setZoom(16.0)
+        }
+        updateFocusButton(frame, followLocation, gpsAvailable())
+    }
+
     // Wire up overlays once
     LaunchedEffect(Unit) {
         mapView.overlays.clear()
         mapView.overlays.add(locationOverlay)
+        mapView.post { mapView.invalidate() }
 
         // Detect user panning — disable follow mode
         mapView.addMapListener(object : MapListener {
             override fun onScroll(event: ScrollEvent?): Boolean {
                 followLocation = false
-                updateFocusButton(frame, followLocation, path.isNotEmpty())
+                updateFocusButton(frame, followLocation, gpsAvailable())
                 return false
             }
             override fun onZoom(event: ZoomEvent?): Boolean = false
@@ -180,14 +244,43 @@ fun JogMap(
         val btn = frame.findViewWithTag<android.widget.ImageButton>("focusBtn")
         btn?.setOnClickListener {
             followLocation = true
-            updateFocusButton(frame, true, path.isNotEmpty())
-            if (path.isNotEmpty()) {
-                val last = path.last()
-                mapView.post { mapView.controller.animateTo(GeoPoint(last.lat, last.lon)) }
-            } else {
-                // No GPS path yet — try to centre on device location from overlay
-                locationOverlay.myLocation?.let { loc ->
-                    mapView.post { mapView.controller.animateTo(loc) }
+            updateFocusButton(frame, true, gpsAvailable())
+            val action = FocusTapDecision.decide(
+                hasTrailPoint = path.any { !it.lat.isNaN() },
+                hasFix = locationOverlay.myLocation != null,
+                hasPermission = hasLocationPermission()
+            )
+            when (action) {
+                // Actively tracking — keep centring on the latest real trail point.
+                FocusTapDecision.Action.CENTRE_ON_TRAIL -> {
+                    val last = path.last { !it.lat.isNaN() }
+                    centreOn(GeoPoint(last.lat, last.lon))
+                    AppLogger.log(context, LogCategory.GPS, "Focus tap: centred on latest trail point")
+                }
+                // A fix already exists — centre on it immediately.
+                FocusTapDecision.Action.CENTRE_ON_FIX -> {
+                    centreOn(locationOverlay.myLocation)
+                    AppLogger.log(context, LogCategory.GPS, "Focus tap: centred on current fix")
+                }
+                // No permission — can never get a fix; tell the user instead of a silent no-op.
+                FocusTapDecision.Action.NO_PERMISSION -> {
+                    updateFocusButton(frame, following = false, hasGps = false)
+                    android.widget.Toast.makeText(
+                        context, "Enable location to centre the map", android.widget.Toast.LENGTH_SHORT
+                    ).show()
+                    AppLogger.log(context, LogCategory.GPS, "Focus tap: no location permission — cannot centre")
+                }
+                // Permission granted but no fix yet — (re)enable my-location + follow, and
+                // re-arm a one-shot centre for when the next fix lands.
+                FocusTapDecision.Action.AWAIT_FIX -> {
+                    if (!locationOverlay.isMyLocationEnabled) locationOverlay.enableMyLocation()
+                    locationOverlay.enableFollowLocation()
+                    locationOverlay.runOnFirstFix {
+                        gotFirstFix = true
+                        val loc = locationOverlay.myLocation
+                        if (loc != null) centreOn(loc)
+                    }
+                    AppLogger.log(context, LogCategory.GPS, "Focus tap: awaiting next fix to centre")
                 }
             }
         }
@@ -195,6 +288,10 @@ fun JogMap(
 
     // Update route whenever path or colour changes — split at NaN segment breaks
     LaunchedEffect(path.size, routeColor, hasGpsSignal) {
+        // Defensively re-ensure the my-location overlay is attached (effect order isn't
+        // guaranteed; a race could otherwise leave the blue dot off the map).
+        if (!mapView.overlays.contains(locationOverlay)) mapView.overlays.add(locationOverlay)
+
         val argb = android.graphics.Color.argb(
             (routeColor.alpha * 255).toInt(),
             (routeColor.red * 255).toInt(),
@@ -235,7 +332,7 @@ fun JogMap(
             }
         }
         // Update button colour based on GPS availability
-        updateFocusButton(frame, followLocation, hasGpsSignal)
+        updateFocusButton(frame, followLocation, gpsAvailable())
         mapView.post { mapView.invalidate() }
     }
 
@@ -246,6 +343,10 @@ fun JogMap(
     val buddyLat = buddyView?.location?.lat
     val buddyLon = buddyView?.location?.lon
     LaunchedEffect(buddyLat, buddyLon, buddyTrail.size, buddyView?.user?.appId) {
+        // Defensively re-ensure the my-location overlay is attached (effect order isn't
+        // guaranteed) so the buddy layer never ends up drawn without the user's blue dot.
+        if (!mapView.overlays.contains(locationOverlay)) mapView.overlays.add(locationOverlay)
+
         // Clear any previous buddy overlays (tagged via relatedObject).
         mapView.overlays.removeAll { it is Marker && it.relatedObject == BUDDY_TAG }
         mapView.overlays.removeAll { it is Polyline && it.relatedObject == BUDDY_TAG }
@@ -295,7 +396,7 @@ fun JogMap(
                     mapView.controller.animateTo(GeoPoint(loc.lat, loc.lon))
                     mapView.controller.setZoom(16.0)
                 }
-                updateFocusButton(frame, followLocation, hasGpsSignal)
+                updateFocusButton(frame, followLocation, gpsAvailable())
             }
         }
     }
@@ -312,8 +413,7 @@ fun JogMap(
         factory = { frame },
         update = { _ ->
             // gotFirstFix triggers recomposition when osmdroid gets its first GPS lock
-            val gpsAvailable = gotFirstFix || hasGpsSignal
-            updateFocusButton(frame, followLocation, gpsAvailable)
+            updateFocusButton(frame, followLocation, gpsAvailable())
         },
         modifier = modifier
     )
