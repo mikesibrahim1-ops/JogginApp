@@ -47,6 +47,27 @@ android {
         }
     }
 
+    // ── Release signing config resolution ────────────────────────────────────
+    // Credentials come from (in priority order):
+    //   1. app/keystore.properties  (gitignored — see .gitignore; preferred for local)
+    //      storeFile=../joggin-release.jks
+    //      storePassword=...
+    //      keyAlias=joggin
+    //      keyPassword=...
+    //   2. environment variables JOGGIN_KEYSTORE_PATH / _PASSWORD / JOGGIN_KEY_ALIAS /
+    //      _PASSWORD  (preferred for CI)
+    // The release signingConfig is only wired up when the resolved keystore file actually
+    // EXISTS, so a release build on a machine without the keystore produces an unsigned
+    // release APK (with a warning) instead of failing with a cryptic keystore error.
+    def keystorePropsFile = rootProject.file('app/keystore.properties')
+    def keystoreProps = new Properties()
+    if (keystorePropsFile.exists()) {
+        keystoreProps.load(new FileInputStream(keystorePropsFile))
+    }
+    def resolvedStorePath = keystoreProps.getProperty('storeFile') ?: System.getenv('JOGGIN_KEYSTORE_PATH') ?: '../joggin-release.jks'
+    def resolvedStoreFile = file(resolvedStorePath)
+    def releaseSigningReady = resolvedStoreFile.exists()
+
     signingConfigs {
         debug {
             // Explicitly enable v1 (JAR) signing alongside v2/v3. Newer build-tools
@@ -57,14 +78,16 @@ android {
             enableV2Signing true
             enableV3Signing true
         }
-        release {
-            storeFile file(System.getenv("JOGGIN_KEYSTORE_PATH") ?: "../joggin-release.jks")
-            storePassword System.getenv("JOGGIN_KEYSTORE_PASSWORD") ?: ""
-            keyAlias System.getenv("JOGGIN_KEY_ALIAS") ?: "joggin"
-            keyPassword System.getenv("JOGGIN_KEY_PASSWORD") ?: ""
-            enableV1Signing true
-            enableV2Signing true
-            enableV3Signing true
+        if (releaseSigningReady) {
+            release {
+                storeFile resolvedStoreFile
+                storePassword keystoreProps.getProperty('storePassword') ?: System.getenv('JOGGIN_KEYSTORE_PASSWORD') ?: ''
+                keyAlias keystoreProps.getProperty('keyAlias') ?: System.getenv('JOGGIN_KEY_ALIAS') ?: 'joggin'
+                keyPassword keystoreProps.getProperty('keyPassword') ?: System.getenv('JOGGIN_KEY_PASSWORD') ?: ''
+                enableV1Signing true
+                enableV2Signing true
+                enableV3Signing true
+            }
         }
     }
 
@@ -73,7 +96,16 @@ android {
             signingConfig signingConfigs.debug
         }
         release {
-            signingConfig signingConfigs.release
+            // Only attach the release signing config when a keystore was resolved above.
+            // Without it, the release APK is left unsigned (the build still succeeds) and
+            // a warning is printed, rather than failing with a cryptic keystore error.
+            if (releaseSigningReady) {
+                signingConfig signingConfigs.release
+            } else {
+                logger.warn("⚠ Release signing NOT configured: no keystore found at '${resolvedStorePath}' " +
+                    "and no app/keystore.properties. The release APK will be UNSIGNED. " +
+                    "Provide a keystore + app/keystore.properties (see signingConfigs comment) to sign releases.")
+            }
             minifyEnabled false
         }
     }
