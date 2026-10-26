@@ -418,14 +418,15 @@ fun JogMap(
     )
 }
 
-/** Updates the focus button colour to reflect current follow state */
-private fun updateFocusButton(frame: FrameLayout, following: Boolean, hasGps: Boolean = true) {
+/**
+ * Updates the focus button colour. Two states only: green when GPS is on and a fix is
+ * available, grey when GPS isn't working. Follow state no longer affects the colour.
+ */
+private fun updateFocusButton(frame: FrameLayout, @Suppress("UNUSED_PARAMETER") following: Boolean, hasGps: Boolean = true) {
     val btn = frame.findViewWithTag<android.widget.ImageButton>("focusBtn") ?: return
-    val color = when {
-        !hasGps -> android.graphics.Color.parseColor("#9E9E9E")   // grey — no GPS signal
-        following -> android.graphics.Color.parseColor("#43A047") // green — following, GPS active
-        else -> android.graphics.Color.parseColor("#FFFFFF")       // white — GPS active but not following
-    }
+    val color =
+        if (hasGps) android.graphics.Color.parseColor("#43A047")  // green — GPS on & available
+        else android.graphics.Color.parseColor("#9E9E9E")          // grey — GPS not working
     val circle = GradientDrawable().apply {
         shape = GradientDrawable.OVAL
         setColor(color)

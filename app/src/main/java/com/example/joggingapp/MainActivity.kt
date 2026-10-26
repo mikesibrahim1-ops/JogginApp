@@ -45,6 +45,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.StrokeCap
@@ -567,11 +568,13 @@ fun JogApp(context: Context) {
             try {
                 // Internal-only broadcast (sent by ForegroundLocationService within this
                 // app). NOT_EXPORTED so no other app can spoof LOCATION_UPDATE extras (P2-3).
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    context.registerReceiver(locReceiver, IntentFilter(ForegroundLocationService.ACTION_LOCATION_BROADCAST), Context.RECEIVER_NOT_EXPORTED)
-                } else {
-                    context.registerReceiver(locReceiver, IntentFilter(ForegroundLocationService.ACTION_LOCATION_BROADCAST))
-                }
+                // ContextCompat handles the SDK gating for the export flag on all API levels.
+                ContextCompat.registerReceiver(
+                    context,
+                    locReceiver,
+                    IntentFilter(ForegroundLocationService.ACTION_LOCATION_BROADCAST),
+                    ContextCompat.RECEIVER_NOT_EXPORTED
+                )
             } catch (_: Exception) {}
         onDispose { try { context.unregisterReceiver(locReceiver) } catch (_: Exception) {} }
     }
@@ -608,11 +611,13 @@ fun JogApp(context: Context) {
             // Internal-only pause/resume/end broadcasts (sent by ForegroundLocationService
             // within this app). NOT_EXPORTED so no other app can spoof a fake End-run or
             // pause/resume against the live activity (P2-3).
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                context.registerReceiver(notifActionReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
-            } else {
-                context.registerReceiver(notifActionReceiver, filter)
-            }
+            // ContextCompat handles the SDK gating for the export flag on all API levels.
+            ContextCompat.registerReceiver(
+                context,
+                notifActionReceiver,
+                filter,
+                ContextCompat.RECEIVER_NOT_EXPORTED
+            )
         } catch (_: Exception) {}
         onDispose { try { context.unregisterReceiver(notifActionReceiver) } catch (_: Exception) {} }
     }
@@ -1108,8 +1113,14 @@ fun RecentRunsPanel(routes: List<SavedRoute>, onClearAll: () -> Unit, modifier: 
 private fun RecentRunsRow(route: SavedRoute, zebraOdd: Boolean) {
     val c = JogginTheme.colors
     val S = LocalStrings.current
-    // Zebra striping: white vs a light theme-colour wash. Kept light so no row reads as dark.
-    val rowBg = if (zebraOdd) c.primary.copy(alpha = 0.08f) else Color.White
+    // Zebra striping: both stripes are the theme's main colour, alternating a stronger
+    // tint with a lighter one, composited over the themed surface so it adapts to light
+    // AND dark mode (no hardcoded white that reads harsh / glaring in dark mode).
+    val rowBg = if (zebraOdd) {
+        c.primary.copy(alpha = 0.14f).compositeOver(c.surface)
+    } else {
+        c.primary.copy(alpha = 0.05f).compositeOver(c.surface)
+    }
     // Memoize per-route derived values (points immutable per id).
     val durSec = remember(route.id) { calcDurationSeconds(route.points) }
     val distKm = remember(route.id) { calcDistanceKm(route.points) }
@@ -2305,9 +2316,11 @@ fun generateRouteBitmap(context: Context, points: List<Point>): android.net.Uri?
         val centerLat = (minLat + maxLat) / 2
         val centerLon = (minLon + maxLon) / 2
 
-        // Calculate zoom level
+        // Calculate zoom level. Widen the capture window by 10% (margin around the
+        // route) so the start/end dots never sit against the edge and get clipped
+        // when the route span lands just under a zoom threshold.
         val latSpan = maxLat - minLat; val lonSpan = maxLon - minLon
-        val maxSpan = maxOf(latSpan, lonSpan)
+        val maxSpan = maxOf(latSpan, lonSpan) * 1.1
         val zoom = when {
             maxSpan > 0.1  -> 12; maxSpan > 0.05 -> 13; maxSpan > 0.02 -> 14
             maxSpan > 0.01 -> 15; maxSpan > 0.005 -> 16; else -> 17

@@ -1,0 +1,15 @@
+{
+  "version": "v1",
+  "hooks": [
+    {
+      "name": "Quick Sanity Check",
+      "trigger": "PostFileSave",
+      "description": "On save of a Kotlin source file: checks that file for lint/type errors, unused imports/variables, and broken references, and fixes only issues in that file.",
+      "matcher": "app[\\\\/]src[\\\\/](main|firebase)[\\\\/]java[\\\\/].*\\.kt$",
+      "action": {
+        "type": "agent",
+        "prompt": "A Kotlin source file under app/src/main/java or app/src/firebase/java was just saved. Do a quick, SCOPED sanity check on THAT file only:\n\n- Check for Kotlin type errors and compile errors (you may run `.\\gradlew.bat :app:compileDebugKotlin` to confirm).\n- Check for unused imports and unused variables in the file.\n- Check that every reference the file makes to other files/symbols still resolves (nothing renamed, moved, or deleted out from under it).\n\nFix any issues you find in this file. Do NOT change unrelated code or other files beyond what is strictly required to fix a broken reference originating from this file. Keep it fast and surgical."
+      }
+    }
+  ]
+}

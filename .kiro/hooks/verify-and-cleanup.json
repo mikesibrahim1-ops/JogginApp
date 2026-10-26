@@ -1,0 +1,14 @@
+{
+  "version": "v1",
+  "hooks": [
+    {
+      "name": "Verify and Cleanup",
+      "trigger": "Stop",
+      "description": "Runs automatically when an agent session finishes: runs the full verification + cleanup workflow (type-check, build, lint, test, run the app, remove dead code) and does not stop until everything passes.",
+      "action": {
+        "type": "agent",
+        "prompt": "Run the FULL verification and cleanup workflow for this JogginApp Android project now. Do not stop until everything passes. Steps, in order:\n\n1. TYPE-CHECK: run `.\\gradlew.bat :app:compileDebugKotlin` from the repo root. Fix every error.\n2. BUILD: run `.\\gradlew.bat :app:assembleDebug`. Fix every error and every new warning.\n3. LINT: run `.\\gradlew.bat :app:lintDebug`. Fix every error and every new warning.\n4. TEST: run `.\\gradlew.bat :app:testDebugUnitTest` (JUnit 4 + Robolectric). All must pass — fix any failure at its root cause.\n5. RUN THE APP: install the debug APK on the connected device and launch it; confirm no crash. Read the REAL logs to confirm — the in-app log (`adb shell \"run-as com.example.joggingapp cat files/app_log.txt | tail -n 60\"`) and `logcat` (clearing first, relaunching, then dumping; exclude Samsung `Forest*` noise). A clean build is NOT proof the app runs.\n6. CLEANUP: scan every file changed in this session for unused imports, unused variables, unreachable/dead code, leftover debug logging, temporary scaffolding, and stale references to renamed/moved/deleted code. Remove them. Delete any files made redundant.\n7. RE-VERIFY: after cleanup, re-run `.\\gradlew.bat :app:assembleDebug` to confirm nothing broke.\n8. REPORT: list the files changed, the exact commands run and their results, items removed during cleanup, and any remaining issues or risks.\n\nFix root causes, not symptoms. If something cannot be verified (e.g. no device connected), say so explicitly rather than claiming success."
+      }
+    }
+  ]
+}
