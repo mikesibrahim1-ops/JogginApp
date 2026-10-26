@@ -55,4 +55,32 @@ class BuddyPermissionFlowTest {
             BuddyPermissionFlow.nextStep(q, hasForeground = true, hasBackground = true)
         )
     }
+
+    // ── backgroundRequestMode: in-app request on Q, go-to-settings on R+ ──────
+    // On API 29 the OS can still show the in-app "Allow all the time" dialog; on API 30+
+    // a runtime background request is auto-denied, so the only path is app Settings.
+
+    @Test
+    fun backgroundRequestMode_api29_isInAppRequest() {
+        assertEquals(
+            BuddyPermissionFlow.BackgroundRequestMode.IN_APP_REQUEST,
+            BuddyPermissionFlow.backgroundRequestMode(Build.VERSION_CODES.Q)
+        )
+    }
+
+    @Test
+    fun backgroundRequestMode_api30_isGoToSettings() {
+        assertEquals(
+            BuddyPermissionFlow.BackgroundRequestMode.GO_TO_SETTINGS,
+            BuddyPermissionFlow.backgroundRequestMode(Build.VERSION_CODES.R)
+        )
+    }
+
+    @Test
+    fun backgroundRequestMode_api33_isGoToSettings() {
+        assertEquals(
+            BuddyPermissionFlow.BackgroundRequestMode.GO_TO_SETTINGS,
+            BuddyPermissionFlow.backgroundRequestMode(Build.VERSION_CODES.TIRAMISU)
+        )
+    }
 }

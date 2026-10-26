@@ -86,6 +86,12 @@ fun BuddyLinkSection(controller: BuddyLinkController, userName: String) {
     // the toggle stays honestly OFF.
     var permissionDenied by remember { mutableStateOf(false) }
 
+    // On API 30+ a runtime background-location request is auto-denied, so instead of a
+    // dead one-shot request we show a brief rationale and then drive the user to the
+    // app's location-settings page (the only place "Allow all the time" can be granted).
+    // This flag controls that rationale dialog.
+    var showBgRationale by remember { mutableStateOf(false) }
+
     // Ticks periodically so the on-demand request cooldown (below) re-evaluates and the
     // button re-enables once the cooldown elapses, without needing a backend event.
     var nowTick by remember { mutableStateOf(System.currentTimeMillis()) }
@@ -162,7 +168,15 @@ fun BuddyLinkSection(controller: BuddyLinkController, userName: String) {
                 arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
             )
             BuddyPermissionFlow.EnableStep.REQUEST_BACKGROUND ->
-                bgPermLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+                when (BuddyPermissionFlow.backgroundRequestMode(Build.VERSION.SDK_INT)) {
+                    // API 29: the OS can still show the in-app "Allow all the time" dialog.
+                    BuddyPermissionFlow.BackgroundRequestMode.IN_APP_REQUEST ->
+                        bgPermLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+                    // API 30+: a runtime request is auto-denied, so proactively show a brief
+                    // rationale that then opens the app's location settings (no dead no-op).
+                    BuddyPermissionFlow.BackgroundRequestMode.GO_TO_SETTINGS ->
+                        showBgRationale = true
+                }
         }
     }
 
@@ -606,6 +620,24 @@ fun BuddyLinkSection(controller: BuddyLinkController, userName: String) {
             dismissLabel = S.buddyLinkConsentDecline,
             onConfirm = { proceedAfterConsent() },
             onDismiss = { showConsent = false }
+        )
+    }
+
+    // ── Background-location rationale (API 30+ REQUEST_BACKGROUND step) ───────
+    // On R+ a runtime background request is auto-denied, so we explain why "Allow all
+    // the time" is needed and send the user to the app's location settings. Dismiss
+    // leaves the toggle honestly OFF (no silent no-op — the body states what happens).
+    if (showBgRationale) {
+        BuddyDialog(
+            title = S.buddyBgRationaleTitle,
+            body = S.buddyBgRationaleBody,
+            confirmLabel = S.buddyOpenSettings,
+            dismissLabel = S.buddyLinkConsentDecline,
+            onConfirm = {
+                showBgRationale = false
+                context.startActivity(BuddyPermissionFlow.appSettingsIntent(context.packageName))
+            },
+            onDismiss = { showBgRationale = false }
         )
     }
 

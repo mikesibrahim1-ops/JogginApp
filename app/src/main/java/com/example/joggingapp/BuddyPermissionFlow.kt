@@ -19,6 +19,9 @@ object BuddyPermissionFlow {
     /** The next action the enable flow should take given the current permission state. */
     enum class EnableStep { REQUEST_FOREGROUND, REQUEST_BACKGROUND, ENABLE_NOW }
 
+    /** How to satisfy the background-location requirement at the REQUEST_BACKGROUND step. */
+    enum class BackgroundRequestMode { IN_APP_REQUEST, GO_TO_SETTINGS }
+
     /**
      * Decide the next enable step:
      *  - pre-Q: no background-location concept → enable immediately.
@@ -30,6 +33,17 @@ object BuddyPermissionFlow {
         !hasBackground -> EnableStep.REQUEST_BACKGROUND
         else -> EnableStep.ENABLE_NOW
     }
+
+    /**
+     * Decide, at the REQUEST_BACKGROUND step, whether to request background location
+     * in-app (API 29, where the OS can show the "Allow all the time" dialog) or drive
+     * the user to the app's system Settings (API 30+, where a runtime background request
+     * is auto-denied and Settings is the only path to "Allow all the time"). Pure and
+     * framework-free (takes [sdkInt]) so it is unit-testable like [nextStep].
+     */
+    fun backgroundRequestMode(sdkInt: Int): BackgroundRequestMode =
+        if (sdkInt >= Build.VERSION_CODES.R) BackgroundRequestMode.GO_TO_SETTINGS
+        else BackgroundRequestMode.IN_APP_REQUEST
 
     /**
      * Intent that opens this app's details page in system Settings, where the user can
