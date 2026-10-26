@@ -1260,15 +1260,19 @@ fun HistoryRunCard(route: SavedRoute, onDelete: () -> Unit, onTitleChanged: (Str
                     val density = LocalDensity.current
                     val widthPx = with(density) { maxWidth.roundToPx() }
                     val heightPx = with(density) { maxHeight.roundToPx() }
-                    val key = RouteSnapshotCache.keyFor(route.id, widthPx, heightPx)
+                    // On-theme route-line colour for the snapshot (matches the placeholder
+                    // RouteThumbnail line and the detail-view map polyline). Part of the
+                    // cache key, so switching theme regenerates the snapshot on-theme.
+                    val routeLineArgb = c.running.toArgb()
+                    val key = RouteSnapshotCache.keyFor(route.id, widthPx, heightPx, routeLineArgb)
                     // Start from a synchronous memory hit (zero main-thread decode); if
                     // absent, generate/decode OFF the main thread and swap in when ready.
                     val mapBitmap by produceState<android.graphics.Bitmap?>(
                         initialValue = RouteSnapshotCache.peek(key),
-                        key1 = route.id, key2 = widthPx, key3 = heightPx
+                        keys = arrayOf(route.id, widthPx, heightPx, routeLineArgb)
                     ) {
                         if (value == null && widthPx > 0 && heightPx > 0) {
-                            value = RouteSnapshotCache.getOrGenerate(context, route, widthPx, heightPx)
+                            value = RouteSnapshotCache.getOrGenerate(context, route, widthPx, heightPx, routeLineArgb)
                         }
                     }
                     // The generated bitmap already contains the polyline/markers, so we

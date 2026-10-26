@@ -32,9 +32,13 @@ object RouteSnapshotCache {
 
     private val memCache = LruCache<String, Bitmap>(LRU_MAX_ENTRIES)
 
-    /** Stable cache key: route id + target pixel size + schema version. */
-    fun keyFor(routeId: String, widthPx: Int, heightPx: Int): String =
-        "${routeId}_${widthPx}x${heightPx}_$VERSION"
+    /**
+     * Stable cache key: route id + target pixel size + route-line colour + schema version.
+     * The route colour is part of the key so switching theme regenerates the snapshot with
+     * the new on-theme line instead of serving a stale image rendered in the old colour.
+     */
+    fun keyFor(routeId: String, widthPx: Int, heightPx: Int, routeColorArgb: Int): String =
+        "${routeId}_${widthPx}x${heightPx}_${Integer.toHexString(routeColorArgb)}_$VERSION"
 
     /** Synchronous memory-only lookup. Safe on the main thread (no I/O, no decode). */
     fun peek(key: String): Bitmap? = memCache.get(key)
@@ -51,10 +55,11 @@ object RouteSnapshotCache {
         context: Context,
         route: SavedRoute,
         widthPx: Int,
-        heightPx: Int
+        heightPx: Int,
+        routeColorArgb: Int
     ): Bitmap? {
         if (widthPx <= 0 || heightPx <= 0) return null
-        val key = keyFor(route.id, widthPx, heightPx)
+        val key = keyFor(route.id, widthPx, heightPx, routeColorArgb)
 
         // (a) memory
         memCache.get(key)?.let { return it }
@@ -76,7 +81,7 @@ object RouteSnapshotCache {
             }
 
             // (c) generate (allowed to fetch tiles from the network, one time)
-            val generated = RouteMapSnapshot.generate(context, route, widthPx, heightPx)
+            val generated = RouteMapSnapshot.generate(context, route, widthPx, heightPx, routeColorArgb)
                 ?: return@withContext null
 
             writeDisk(file, generated)

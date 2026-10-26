@@ -40,18 +40,22 @@ object RouteMapSnapshot {
 
     private const val TILE_LOAD_TIMEOUT_MS = 6_000L
     private const val POLL_INTERVAL_MS = 100L
-    private const val ROUTE_GREEN = "#66BB6A"
     private const val ROUTE_STROKE = 10f
 
     /**
      * Render [route] to a [widthPx] x [heightPx] bitmap. Suspends; hops to the main
      * thread internally. Returns null if generation can't produce a real map image.
+     *
+     * [routeColorArgb] is the ARGB colour for the route polyline, passed down from the
+     * active theme (`JogginTheme.colors.running`) so the snapshot line matches the theme
+     * instead of a hardcoded hue. The start/finish markers stay semantic.
      */
     suspend fun generate(
         context: Context,
         route: SavedRoute,
         widthPx: Int,
-        heightPx: Int
+        heightPx: Int,
+        routeColorArgb: Int
     ): Bitmap? {
         if (widthPx <= 0 || heightPx <= 0) return null
         val points = route.points.filter { !it.lat.isNaN() && !it.lon.isNaN() }
@@ -80,7 +84,7 @@ object RouteMapSnapshot {
                     val minLon = points.minOf { it.lon }; val maxLon = points.maxOf { it.lon }
 
                     val line = Polyline(mapView).apply {
-                        outlinePaint.color = android.graphics.Color.parseColor(ROUTE_GREEN)
+                        outlinePaint.color = routeColorArgb
                         outlinePaint.strokeWidth = ROUTE_STROKE
                         outlinePaint.strokeCap = android.graphics.Paint.Cap.ROUND
                         outlinePaint.strokeJoin = android.graphics.Paint.Join.ROUND
