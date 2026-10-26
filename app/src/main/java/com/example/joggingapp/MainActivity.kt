@@ -45,6 +45,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asImageBitmap
@@ -1332,7 +1333,7 @@ fun HistoryRunCard(route: SavedRoute, onDelete: () -> Unit, onTitleChanged: (Str
                 Spacer(Modifier.height(12.dp)); Divider(color = c.divider); Spacer(Modifier.height(8.dp))
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text("📤  ${S.share}", fontSize = 13.sp, color = c.accent,
-                        modifier = Modifier.clickable { shareRoute(context, route) }.padding(4.dp))
+                        modifier = Modifier.clickable { shareRoute(context, route, c.running.toArgb()) }.padding(4.dp))
                     Text("🗑  ${S.remove}", fontSize = 13.sp, color = c.error,
                         modifier = Modifier.clickable { onDelete() }.padding(4.dp))
                 }
@@ -1388,7 +1389,7 @@ fun SummaryScreen(route: SavedRoute, steps: Int, activityLabel: String, onDone: 
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 // Share button
                 Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(14.dp))
-                    .background(c.accent).clickable { shareRoute(context, route) }
+                    .background(c.accent).clickable { shareRoute(context, route, c.running.toArgb()) }
                     .padding(vertical = 16.dp), contentAlignment = Alignment.Center) {
                     Text("📤 ${S.share}", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = c.onPrimary)
                 }
@@ -1433,8 +1434,8 @@ private fun configureOsmdroid(context: Context) {
  *
  * NaN pause-sentinel points are filtered out (mirrors calcDurationSeconds), the route's
  * bounding box is mapped into the canvas with a uniform aspect-preserving scale and
- * centred with padding, then stroked in the app route green (#66BB6A) over a themed
- * surfaceVariant background. With fewer than two real points it draws background only
+ * centred with padding, then stroked in the active theme's activity hue (c.running) over a
+ * themed surfaceVariant background. With fewer than two real points it draws background only
  * (the card's upstream hasGpsData gate already shows the "no GPS data" placeholder).
  */
 @Composable
@@ -1460,7 +1461,6 @@ fun RouteThumbnail(points: List<Point>, modifier: Modifier = Modifier) {
             fun mapX(lon: Double) = offX + ((lon - minLon) * scale).toFloat()
             fun mapY(lat: Double) = offY + ((maxLat - lat) * scale).toFloat()
 
-            val routeGreen = Color(0xFF66BB6A)
             val strokePx = 4.dp.toPx()
             val path = Path().apply {
                 moveTo(mapX(real.first().lon), mapY(real.first().lat))
@@ -1468,11 +1468,11 @@ fun RouteThumbnail(points: List<Point>, modifier: Modifier = Modifier) {
             }
             drawPath(
                 path = path,
-                color = routeGreen,
+                color = c.running,
                 style = Stroke(width = strokePx, cap = StrokeCap.Round, join = StrokeJoin.Round)
             )
             val dotRadius = strokePx * 1.2f
-            drawCircle(routeGreen, dotRadius, Offset(mapX(real.first().lon), mapY(real.first().lat)))
+            drawCircle(c.accent, dotRadius, Offset(mapX(real.first().lon), mapY(real.first().lat)))
             drawCircle(c.primary, dotRadius, Offset(mapX(real.last().lon), mapY(real.last().lat)))
         }
     }
@@ -1486,7 +1486,9 @@ fun RouteThumbnail(points: List<Point>, modifier: Modifier = Modifier) {
 @Composable
 fun RouteMap(points: List<Point>, interactive: Boolean, modifier: Modifier = Modifier) {
     val context = LocalContext.current
-    val mapView = remember(points, interactive) {
+    // Route line tracks the active theme's activity hue; keyed so it rebuilds on theme change.
+    val routeLineArgb = JogginTheme.colors.running.toArgb()
+    val mapView = remember(points, interactive, routeLineArgb) {
         configureOsmdroid(context)
         org.osmdroid.views.MapView(context).apply {
             setTileSource(jogginTileSource())
@@ -1501,7 +1503,7 @@ fun RouteMap(points: List<Point>, interactive: Boolean, modifier: Modifier = Mod
                 val minLat = points.minOf { it.lat }; val maxLat = points.maxOf { it.lat }
                 val minLon = points.minOf { it.lon }; val maxLon = points.maxOf { it.lon }
                 val line = org.osmdroid.views.overlay.Polyline(this).apply {
-                    outlinePaint.color = android.graphics.Color.parseColor("#66BB6A")
+                    outlinePaint.color = routeLineArgb
                     outlinePaint.strokeWidth = 10f
                     outlinePaint.strokeCap = android.graphics.Paint.Cap.ROUND
                     outlinePaint.strokeJoin = android.graphics.Paint.Join.ROUND
@@ -1704,7 +1706,7 @@ fun ProfileSection(userName: String, onUserNameChanged: (String) -> Unit) {
 }
 
 @Composable
-fun OptionsPaneContent(colorIdx: Int, savedRoutes: List<SavedRoute>, onColorSelected: (Int) -> Unit, onClose: () -> Unit, onRoutesChanged: () -> Unit = {}, userName: String = "", onUserNameChanged: (String) -> Unit = {}, currentTheme: com.example.joggingapp.ui.theme.AppTheme = com.example.joggingapp.ui.theme.AppTheme.SUNRISE, onThemeChanged: (com.example.joggingapp.ui.theme.AppTheme) -> Unit = {}, currentLanguage: Language = Language.ENGLISH, onLanguageChanged: (Language) -> Unit = {}, buddyController: BuddyLinkController? = null, buddyInviteMessage: String? = null, onBuddyInviteMessageShown: () -> Unit = {}, onOpenExerciseTargets: () -> Unit = {}) {
+fun OptionsPaneContent(colorIdx: Int, savedRoutes: List<SavedRoute>, onColorSelected: (Int) -> Unit, onClose: () -> Unit, onRoutesChanged: () -> Unit = {}, userName: String = "", onUserNameChanged: (String) -> Unit = {}, currentTheme: com.example.joggingapp.ui.theme.AppTheme = com.example.joggingapp.ui.theme.AppTheme.FOREST, onThemeChanged: (com.example.joggingapp.ui.theme.AppTheme) -> Unit = {}, currentLanguage: Language = Language.ENGLISH, onLanguageChanged: (Language) -> Unit = {}, buddyController: BuddyLinkController? = null, buddyInviteMessage: String? = null, onBuddyInviteMessageShown: () -> Unit = {}, onOpenExerciseTargets: () -> Unit = {}) {
     val c = JogginTheme.colors
     val S = LocalStrings.current
     val context = LocalContext.current
@@ -2230,7 +2232,7 @@ fun UpdatePromptDialog(newVersion: String, onUpdate: () -> Unit, onDismiss: () -
 
 // ── Share route via WhatsApp / intent ─────────────────────────────────────────
 
-fun shareRoute(context: Context, route: SavedRoute) {
+fun shareRoute(context: Context, route: SavedRoute, routeColorArgb: Int) {
     val distKm = calcDistanceKm(route.points)
     // Use calcDurationSeconds so pause sentinels don't inflate the duration
     val dur = calcDurationSeconds(route.points)
@@ -2268,7 +2270,7 @@ fun shareRoute(context: Context, route: SavedRoute) {
     if (includeMap && route.points.size >= 2) {
         // Run tile download on background thread to avoid NetworkOnMainThreadException
         Thread {
-            val bmpUri = generateRouteBitmap(context, route.points)
+            val bmpUri = generateRouteBitmap(context, route.points, routeColorArgb)
             android.os.Handler(android.os.Looper.getMainLooper()).post {
                 if (bmpUri != null) {
                     val intent = Intent(Intent.ACTION_SEND).apply {
@@ -2306,7 +2308,7 @@ fun shareRoute(context: Context, route: SavedRoute) {
 }
 
 /** Generates a map bitmap for sharing by downloading map tiles (provider set in MapTiles) */
-fun generateRouteBitmap(context: Context, points: List<Point>): android.net.Uri? {
+fun generateRouteBitmap(context: Context, points: List<Point>, routeColorArgb: Int): android.net.Uri? {
     if (points.size < 2) return null
     return try {
         val width = 600; val height = 400
@@ -2361,7 +2363,7 @@ fun generateRouteBitmap(context: Context, points: List<Point>): android.net.Uri?
 
         // Draw route line
         val routePaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-            color = android.graphics.Color.parseColor("#66BB6A")
+            color = routeColorArgb
             strokeWidth = 8f; style = android.graphics.Paint.Style.STROKE
             strokeCap = android.graphics.Paint.Cap.ROUND; strokeJoin = android.graphics.Paint.Join.ROUND
         }

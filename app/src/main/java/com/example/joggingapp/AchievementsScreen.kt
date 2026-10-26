@@ -509,7 +509,7 @@ private fun AchievementCard(ap: AchievementProgress) {
     Card(
         modifier = Modifier.fillMaxWidth().height(cardHeight).scale(animatedScale.value * expandScale)
             .clickable { expanded = !expanded }
-            .border(if (expanded) 3.dp else 2.dp, if (isUnlocked) Color(0xFF4CAF50) else Color(0xFF9E9E9E), RoundedCornerShape(16.dp)),
+            .border(if (expanded) 3.dp else 2.dp, if (isUnlocked) c.success else c.divider, RoundedCornerShape(16.dp)),
         shape = RoundedCornerShape(16.dp),
         elevation = if (expanded) 12.dp else if (isUnlocked) 6.dp else 2.dp,
         backgroundColor = if (isUnlocked) Color.Transparent else c.surface.copy(alpha = 0.6f)
@@ -592,7 +592,7 @@ private fun AchievementCard(ap: AchievementProgress) {
 
             Text(localizedAchievementTitle(lang, a.id, a.title),
                 fontSize = if (expanded) 17.sp else 15.sp, fontWeight = FontWeight.Bold,
-                color = if (isUnlocked) c.onBackground else c.textSecondary,
+                color = if (isUnlocked) Color(0xFF2A2A2A) else c.textSecondary,
                 textAlign = TextAlign.Center,
                 maxLines = if (expanded) Int.MAX_VALUE else 2,
                 lineHeight = if (expanded) 20.sp else 17.sp,
@@ -601,7 +601,7 @@ private fun AchievementCard(ap: AchievementProgress) {
             Spacer(Modifier.height(3.dp))
 
             Text(localizedAchievementDescription(lang, a.id, a.description),
-                fontSize = if (expanded) 14.sp else 12.sp, color = Color(0xFF3D3D3D),
+                fontSize = if (expanded) 14.sp else 12.sp, color = if (isUnlocked) Color(0xFF2A2A2A) else c.onSurface,
                 textAlign = TextAlign.Center,
                 maxLines = if (expanded) Int.MAX_VALUE else 3,
                 lineHeight = if (expanded) 18.sp else 15.sp,
@@ -610,7 +610,7 @@ private fun AchievementCard(ap: AchievementProgress) {
             if (isUnlocked && ap.earnedDate != null) {
                 Spacer(Modifier.height(6.dp))
                 Text("✓ ${ap.earnedDate}", fontSize = 14.sp,
-                    color = c.success, fontWeight = FontWeight.Medium)
+                    color = if (isUnlocked) Color(0xFF2A2A2A) else c.success, fontWeight = FontWeight.Medium)
             }
 
             if (isInProgress || (!isUnlocked && a.requirementUnit != "special")) {
@@ -637,11 +637,11 @@ private fun AchievementCard(ap: AchievementProgress) {
                             .clip(RoundedCornerShape(50))
                             .background(Brush.horizontalGradient(
                                 colors = listOf(
-                                    Color(0xFF1565C0),
-                                    Color(0xFF42A5F5),
-                                    Color(0xFFBBDEFB),
-                                    Color(0xFF42A5F5),
-                                    Color(0xFF1565C0)
+                                    c.primaryDark,
+                                    c.primary,
+                                    c.accent,
+                                    c.primary,
+                                    c.primaryDark
                                 ),
                                 startX = shimmerOffset * 600f - 200f,
                                 endX = shimmerOffset * 600f + 200f
@@ -662,7 +662,7 @@ private fun AchievementCard(ap: AchievementProgress) {
         // Green tick overlay for completed achievements
         if (isUnlocked) {
             Box(modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 8.dp)
-                .size(24.dp).clip(CircleShape).background(Color(0xFF4CAF50)),
+                .size(24.dp).clip(CircleShape).background(c.success),
                 contentAlignment = Alignment.Center) {
                 Text("✓", fontSize = 14.sp, color = Color.White, fontWeight = FontWeight.Bold)
             }

@@ -337,8 +337,10 @@ fun JogMap(
 
     // ── Buddy overlay: avatar marker at the buddy's latest fix + sparse trail ─────
     // Rendered only when a buddy is live (mutual-on + fix < 15 min); otherwise the
-    // overlays are removed. The trail is drawn in a distinct dashed BLUE (#2196F3) style
-    // so it never looks like the user's own green route (#66BB6A) (Req 5.2, 5b).
+    // overlays are removed. The trail is drawn in a distinct dashed BLUE (#2196F3) style,
+    // distinct from the user's own route by being the only dashed polyline — colour alone
+    // is insufficient since the user's route colour is user-selectable and may also be blue
+    // (Req 5.2, 5b).
     val buddyLat = buddyView?.location?.lat
     val buddyLon = buddyView?.location?.lon
     LaunchedEffect(buddyLat, buddyLon, buddyTrail.size, buddyView?.user?.appId) {
@@ -357,7 +359,9 @@ fun JogMap(
             if (buddyTrail.size >= 2) {
                 val trail = Polyline(mapView).apply {
                     relatedObject = BUDDY_TAG
-                    // Dashed BLUE (#2196F3), distinct from the user's own green route.
+                    // Dashed BLUE (#2196F3), distinct from the user's own route by being the
+                    // only dashed polyline — colour alone is insufficient since the user's
+                    // route colour is user-selectable and may also be blue.
                     outlinePaint.color = android.graphics.Color.parseColor("#2196F3")
                     outlinePaint.strokeWidth = 7f
                     outlinePaint.pathEffect = android.graphics.DashPathEffect(floatArrayOf(18f, 12f), 0f)
