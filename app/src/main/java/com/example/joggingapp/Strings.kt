@@ -239,6 +239,11 @@ class AppStrings {
     var buddyNotifOnlineBody: (String) -> String = { _ -> "" } // "Your buddy, {name}, is online"
     var buddyToggleDesc: (Boolean) -> String = { _ -> "" }   // a11y: "Buddy Link, on/off. Double-tap to toggle."
     var buddyActionDesc: (String, String) -> String = { _, _ -> "" } // a11y: "{action} {name}"
+    // ── V1.6x tap-to-locate ────────────────────────────────────────────────────
+    var buddyLocateLinkOff: (String) -> String = { _ -> "" }     // their Buddy Link is off
+    var buddyLocateSharingOff: (String) -> String = { _ -> "" }  // not sharing right now (app-state-neutral)
+    var buddyLocateUnavailable: (String) -> String = { _ -> "" } // no / stale fix
+    var buddyLocateDesc: (String) -> String = { _ -> "" }        // a11y contentDescription for the locate tap
     var achievementChannelName: String = ""    // notification channel for achievement unlocks
     var achievementNotifTitle: String = ""     // "Achievement unlocked 🏅"
     var achievementNotifBody: (String) -> String = { _ -> "" } // "You earned \"{name}\"!"
@@ -535,6 +540,10 @@ private fun buildEnglishStrings(): AppStrings = AppStrings().apply {
     buddyNotifOnlineBody = { name -> "Your buddy, $name, is online" }
     buddyToggleDesc = { on -> "Buddy Link, ${if (on) "on" else "off"}. Double-tap to toggle." }
     buddyActionDesc = { action, name -> "$action $name" }
+    buddyLocateLinkOff = { name -> "$name's Buddy Link is off, so their location can't be shown." }
+    buddyLocateSharingOff = { name -> "$name isn't sharing their location right now — their GPS may be off or their app isn't open. Ask them to turn on location and open the app." }
+    buddyLocateUnavailable = { name -> "$name's location is unavailable — no recent fix (last seen too long ago). Ask them to open the app." }
+    buddyLocateDesc = { name -> "Locate $name. Double-tap to centre the map on their location, or hear why it can't be shown." }
     achievementChannelName = "Achievements"
     achievementNotifTitle = "Achievement unlocked 🏅"
     achievementNotifBody = { name -> "You earned \"$name\"!" }

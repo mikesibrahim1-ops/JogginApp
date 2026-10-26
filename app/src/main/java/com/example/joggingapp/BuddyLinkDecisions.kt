@@ -72,6 +72,59 @@ object BuddyLinkDecisions {
 }
 
 /**
+ * Pure classifier for a tap on a buddy's name in the Buddy Link list (V1.6x
+ * tap-to-locate). Decides whether tapping should centre the map on the buddy or surface
+ * a specific reason it can't. Kept here (Android/Firebase-free) so it is unit-testable.
+ */
+object BuddyLocate {
+
+    /** What a tap on a buddy's name should do. */
+    enum class Outcome {
+        /** Mutually sharing + a fresh fix -> centre the map on them. */
+        LOCATE,
+
+        /** Their Buddy Link master toggle is off on their side. */
+        REASON_BUDDY_LINK_OFF,
+
+        /**
+         * Buddy Link on, but not currently sharing. NOTE: this is NOT a claim they
+         * deliberately turned sharing off. `sharing` is derived as `enabled && gpsOn` and
+         * is only ever written from the foreground, so `sharing==false && buddyEnabled==true`
+         * cannot be distinguished from a genuine opt-out — it also covers "their GPS is off"
+         * or "their app isn't open yet". User-facing wording MUST stay app-state-neutral.
+         */
+        REASON_SHARING_OFF,
+
+        /** Sharing on, but no fix yet or the last fix is older than STALE_MS. */
+        REASON_STALE_OR_NO_FIX
+    }
+
+    /**
+     * Classify a tap on [view]. The LOCATE case mirrors [BuddyView.isLiveNow] (same
+     * sharing + fix-freshness conditions) so the map-focus path — which re-checks
+     * isLiveNow — and this decision never disagree on a reachable buddy. Order matters:
+     * buddyEnabled is the outermost gate, then sharing, then fix freshness.
+     *
+     * NOTE: [decide] gates on `buddyEnabled` while [BuddyView.isLiveNow] does not, so the
+     * two are NOT a strict biconditional over hand-built states. In production they agree
+     * because `disable()` always writes `buddyEnabled=false` together with `sharing=false`,
+     * so a `{buddyEnabled=false, sharing=true}` state never occurs.
+     *
+     * PURITY: pure only when [nowMs] is injected. The default argument reads the wall clock
+     * (same convention as [BuddyView.isLiveNow]), so the production call site
+     * `BuddyLocate.decide(view)` is NOT referentially transparent; tests always inject nowMs.
+     */
+    fun decide(view: BuddyView, nowMs: Long = System.currentTimeMillis()): Outcome {
+        val user = view.user
+        if (!user.buddyEnabled) return Outcome.REASON_BUDDY_LINK_OFF
+        if (!user.sharing) return Outcome.REASON_SHARING_OFF
+        val loc = view.location
+        if (loc == null || (nowMs - loc.at) > BuddyConstants.STALE_MS) return Outcome.REASON_STALE_OR_NO_FIX
+        return Outcome.LOCATE
+    }
+}
+
+/**
  * Bounded backoff for re-establishing the Buddy Link backend session on launch when
  * the first anonymous sign-in failed (V1.49). Up to [MAX_ATTEMPTS] tries in total,
  * waiting [BASE_DELAY_MS], then 2×, between them.

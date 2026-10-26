@@ -501,18 +501,47 @@ fun BuddyLinkSection(controller: BuddyLinkController, userName: String) {
             if (controller.buddies.isEmpty()) {
                 Text("—", fontSize = 12.sp, color = c.onSecondary.copy(alpha = 0.5f))
             } else {
+                // Transient reason line for the tap-to-locate action, mirroring the
+                // existing `codeMsg` pattern. Declared ONCE here (outside the forEach):
+                // correct only under the verified v1 1:1 invariant (controller.buddies has
+                // at most one accepted buddy). If v1 ever becomes multi-buddy, move this
+                // into the row keyed by view.user.appId.
+                var locateMsg by remember { mutableStateOf<String?>(null) }
                 controller.buddies.forEach { view ->
                     // Reads the controller's 3s livenessTick (inside isBuddyLive) so this
                     // row re-evaluates time-based liveness reactively — the list now
                     // refreshes within ~3s of a buddy going live, no swipe/restart.
                     val isLive = controller.isBuddyLive(view)
+                    val name = view.user.displayName.ifBlank { shortId(view.user.appId) }
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            val name = view.user.displayName.ifBlank { shortId(view.user.appId) }
+                        // Tap-to-locate: tapping the buddy's name/status column either
+                        // centres the map on them (LOCATE, via the existing BuddyFocusBus
+                        // focus path) or surfaces a specific reason. Reads `view` from
+                        // controller.buddies (NOT primaryBuddyView) so a non-live buddy is
+                        // still classified and explained. .padding(vertical = 8.dp) keeps
+                        // the touch target ≥ 48dp.
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable {
+                                    when (BuddyLocate.decide(view)) {
+                                        BuddyLocate.Outcome.LOCATE -> {
+                                            AppLogger.log(context, LogCategory.UI, "Buddy Link: locate buddy tapped (live)")
+                                            BuddyFocusBus.pending = view.user.appId
+                                            locateMsg = null
+                                        }
+                                        BuddyLocate.Outcome.REASON_BUDDY_LINK_OFF -> locateMsg = S.buddyLocateLinkOff(name)
+                                        BuddyLocate.Outcome.REASON_SHARING_OFF -> locateMsg = S.buddyLocateSharingOff(name)
+                                        BuddyLocate.Outcome.REASON_STALE_OR_NO_FIX -> locateMsg = S.buddyLocateUnavailable(name)
+                                    }
+                                }
+                                .semantics { contentDescription = S.buddyLocateDesc(name) }
+                                .padding(vertical = 8.dp)
+                        ) {
                             Text(name, fontSize = 13.sp, color = c.onSecondary, fontWeight = FontWeight.Medium)
                             if (view.user.createdAt > 0L) {
                                 Text(S.buddyMemberSince(formatMemberDate(view.user.createdAt)),
@@ -526,18 +555,17 @@ fun BuddyLinkSection(controller: BuddyLinkController, userName: String) {
                             Text(status, fontSize = 10.sp, color = c.onSecondary.copy(alpha = 0.6f))
                         }
                         // Primary actions: Remove (unlink) + Block, both confirmed.
-                        val buddyName = view.user.displayName.ifBlank { shortId(view.user.appId) }
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             view.link?.let { link ->
                                 Text(S.buddyRemove, fontSize = 12.sp, color = c.error,
                                     modifier = Modifier
                                         .clickable { confirmRemove = link }
-                                        .semantics { contentDescription = S.buddyActionDesc(S.buddyRemove, buddyName) })
+                                        .semantics { contentDescription = S.buddyActionDesc(S.buddyRemove, name) })
                             }
                             Text(S.buddyBlock, fontSize = 12.sp, color = c.error, fontWeight = FontWeight.Medium,
                                 modifier = Modifier
                                     .clickable { confirmBlock = view.user.appId }
-                                    .semantics { contentDescription = S.buddyActionDesc(S.buddyBlock, buddyName) })
+                                    .semantics { contentDescription = S.buddyActionDesc(S.buddyBlock, name) })
                         }
                     }
                     // Secondary actions: request-now + history, only useful when live.
@@ -570,6 +598,13 @@ fun BuddyLinkSection(controller: BuddyLinkController, userName: String) {
                         Spacer(Modifier.height(6.dp))
                     }
                     Divider(color = c.onSecondary.copy(alpha = 0.12f))
+                }
+                // Tap-to-locate reason line, rendered ONCE below the list (same small
+                // treatment as `codeMsg`). Valid as a single line only under the v1 1:1
+                // invariant noted where `locateMsg` is declared above.
+                locateMsg?.let { msg ->
+                    Spacer(Modifier.height(8.dp))
+                    Text(msg, fontSize = 12.sp, color = c.onSecondary.copy(alpha = 0.85f))
                 }
             }
 

@@ -1,7 +1,9 @@
 package com.example.joggingapp
 
+import android.Manifest
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import androidx.core.content.ContextCompat
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -141,6 +143,35 @@ class BuddyLinkController(private val appContext: Context) {
         started = true
         if (!enabled) return   // nothing to observe until enabled
         ensureSession()
+        refreshSharingOnLaunch()   // FR6: assert sharing on launch (belt-and-suspenders)
+    }
+
+    /**
+     * Belt-and-suspenders launch-time sharing assertion (FR6). On a fresh process launch
+     * with Buddy Link on, assert `sharing` to the backend and (re)apply the broadcast
+     * service state immediately, rather than waiting for the foreground GPS poll's first
+     * tick. Mirrors the MainActivity poll's gate (`providerOn && hasFine()`) using the
+     * controller's own [appContext]. Idempotent: [updateGpsState] early-returns when the
+     * value is unchanged, so this does not double-start the service with the poll that
+     * follows a few seconds later.
+     *
+     * The dominant staleness case — a fully killed/backgrounded app with no open at all —
+     * is explicitly NOT solved here (needs BOOT_COMPLETED/WorkManager/FCM) and remains
+     * out of scope; the tap-to-locate reason strings keep that case honest.
+     */
+    private fun refreshSharingOnLaunch() {
+        val lm = appContext.getSystemService(Context.LOCATION_SERVICE)
+            as? android.location.LocationManager
+        val providerOn = try {
+            lm?.isProviderEnabled(android.location.LocationManager.GPS_PROVIDER) == true ||
+                lm?.isProviderEnabled(android.location.LocationManager.NETWORK_PROVIDER) == true
+        } catch (_: Exception) {
+            false
+        }
+        val fine = ContextCompat.checkSelfPermission(
+            appContext, Manifest.permission.ACCESS_FINE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+        updateGpsState(providerOn && fine)
     }
 
     /**
