@@ -67,4 +67,25 @@ object BuddyConstants {
     // Served from the `joggin-a69a7` project → firebase-hosting/public/buddy/index.html.
     const val INVITE_HTTPS_FALLBACK = "https://joggin-a69a7.web.app/buddy"
     const val INVITE_HTTPS_HOST = "joggin-a69a7.web.app"
+
+    // ── Live-tracking share link for non-app users (S2) ──────────────────────────
+
+    /**
+     * How long a public share link stays live after creation (4h). The Firestore rule's
+     * create-time ceiling (5h) MUST stay >= SHARE_LIFETIME_MS so a freshly created share
+     * is never rejected by the rule's upper bound.
+     */
+    const val SHARE_LIFETIME_MS: Long = 4 * 60 * 60 * 1000L
+
+    /** Hosting rewrite prefix for the public reader page ("/s/{token}"). */
+    const val SHARE_PATH_PREFIX = "s"
+
+    /** jog_prefs key: the active public share token (null when no share is live). */
+    const val PREFS_ACTIVE_SHARE_TOKEN = "buddy_share_token"
+
+    /** jog_prefs key: epoch-ms the active share expires at (verbatim, never recomputed). */
+    const val PREFS_ACTIVE_SHARE_EXPIRES_AT = "buddy_share_expires_at"
+
+    /** jog_prefs key: optional viewer-facing label for the active share. */
+    const val PREFS_ACTIVE_SHARE_LABEL = "buddy_share_label"
 }

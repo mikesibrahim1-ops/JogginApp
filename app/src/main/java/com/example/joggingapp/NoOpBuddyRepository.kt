@@ -52,5 +52,11 @@ object NoOpBuddyRepository : BuddyRepository {
     override suspend fun sendCheer(buddyAppId: String, fromName: String?): BuddyResult<Unit> = unavailable()
     override fun observeCheers(): Flow<List<BuddyCheer>> = flowOf(emptyList())
 
+    override suspend fun createShareLink(label: String?): BuddyResult<ShareLink> = unavailable()
+    override suspend fun writeShareFix(
+        token: String, lat: Double, lon: Double, atMs: Long, expiresAtMs: Long, label: String?
+    ): BuddyResult<Unit> = unavailable()
+    override suspend fun revokeShareLink(token: String): BuddyResult<Unit> = unavailable()
+
     override suspend fun deleteAllMyData(): BuddyResult<Unit> = unavailable()
 }

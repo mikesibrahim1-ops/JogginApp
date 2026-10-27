@@ -213,7 +213,8 @@ class BuddyLocationService : Service() {
                 getSharedPreferences("jog_prefs", Context.MODE_PRIVATE)
                     .getString(BuddyConstants.PREFS_SHARE_MODE_KEY, null)
             )
-            val res = repo.writeMyLocation(loc.latitude, loc.longitude, System.currentTimeMillis(), mode)
+            val now = System.currentTimeMillis()
+            val res = repo.writeMyLocation(loc.latitude, loc.longitude, now, mode)
             when (res) {
                 is BuddyResult.Success ->
                     AppLogger.log(this@BuddyLocationService, LogCategory.SERVICE,
@@ -222,6 +223,28 @@ class BuddyLocationService : Service() {
                     // Non-fatal: offline / NoOp backend. Skip quietly (Req 6.5, Req 10).
                     AppLogger.log(this@BuddyLocationService, LogCategory.SERVICE,
                         "Buddy fix ($reason) not sent — backend ${res.reason}")
+            }
+
+            // S2 live-tracking share link: additively mirror the SAME fix into the active
+            // public share doc when a live share exists. Read the token/expiry/label from
+            // jog_prefs (set by createShareLink). expiresAt is passed VERBATIM — never
+            // recomputed — so the write-once rule's equality holds. Non-fatal like above.
+            val prefs = getSharedPreferences("jog_prefs", Context.MODE_PRIVATE)
+            val token = prefs.getString(BuddyConstants.PREFS_ACTIVE_SHARE_TOKEN, null)
+            val expiresAt = prefs.getLong(BuddyConstants.PREFS_ACTIVE_SHARE_EXPIRES_AT, 0L)
+            val label = prefs.getString(BuddyConstants.PREFS_ACTIVE_SHARE_LABEL, null)
+            val validity = ShareLinkValidity.decide(
+                hasToken = token != null, expiresAtMs = expiresAt, revoked = false, nowMs = now
+            )
+            if (token != null && validity.readable) {
+                when (val shareRes = repo.writeShareFix(token, loc.latitude, loc.longitude, now, expiresAt, label)) {
+                    is BuddyResult.Success ->
+                        AppLogger.log(this@BuddyLocationService, LogCategory.SERVICE,
+                            "Share-link fix mirrored ($reason)")
+                    is BuddyResult.Failure ->
+                        AppLogger.log(this@BuddyLocationService, LogCategory.SERVICE,
+                            "Share-link fix ($reason) not sent — backend ${shareRes.reason}")
+                }
             }
         }
     }

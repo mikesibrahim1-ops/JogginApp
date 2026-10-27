@@ -147,6 +147,30 @@ interface BuddyRepository {
      */
     fun observeCheers(): Flow<List<BuddyCheer>>
 
+    // ── Live-tracking share link for non-app users (S2) ──────────────────────────
+
+    /**
+     * Creates a new public share link (S2) for a non-app viewer. Writes the owner-only
+     * control docs (shareOwners/{token} + shares/{token}) and persists the active token
+     * to jog_prefs, returning the [ShareLink] (token + expiry). The share stays live for
+     * [BuddyConstants.SHARE_LIFETIME_MS]. [label] is an optional viewer-facing caption
+     * (trimmed, capped). Fails NOT_FOUND with no session; BACKEND_UNAVAILABLE on NoOp.
+     */
+    suspend fun createShareLink(label: String?): BuddyResult<ShareLink>
+
+    /**
+     * Mirrors my latest fix into the active public share doc shares/{token} (S2). A
+     * merge that updates only lat/lon/at (+ the UNCHANGED [expiresAtMs], re-sent so the
+     * write-once rule's equality holds) and optional [label]; never writes `revoked`.
+     * [expiresAtMs] MUST be the verbatim stored expiry, never recomputed. Non-fatal.
+     */
+    suspend fun writeShareFix(
+        token: String, lat: Double, lon: Double, atMs: Long, expiresAtMs: Long, label: String?
+    ): BuddyResult<Unit>
+
+    /** Revokes the active public share link (S2): marks it revoked, clears prefs, cleans up. */
+    suspend fun revokeShareLink(token: String): BuddyResult<Unit>
+
     // ── Data lifecycle ──────────────────────────────────────────────────────────
 
     /** Deletes all of my Buddy Link data (user doc, links, location, trail). Req 8.4. */

@@ -543,6 +543,84 @@ class FirebaseBuddyRepository(private val appContext: Context) : BuddyRepository
         awaitClose { reg.remove() }
     }
 
+    // ── Live-tracking share link for non-app users (S2) ──────────────────────────
+
+    override suspend fun createShareLink(label: String?): BuddyResult<ShareLink> = runCatching {
+        val me = myAppId ?: return BuddyResult.Failure(BuddyResult.Reason.NOT_FOUND)
+        val token = ShareToken.generate()
+        val expiresAtMs = ShareLifetime.expiresAt(System.currentTimeMillis())
+        val expiresAt = com.google.firebase.Timestamp(java.util.Date(expiresAtMs))
+        val trimmedLabel = label?.trim()?.takeIf { it.isNotEmpty() }?.take(40)
+        // Write the owner-mapping doc FIRST so the shares/{token} create rule can verify
+        // this caller owns the token (mirrors the ensureSession authMap-first ordering).
+        db.collection("shareOwners").document(token).set(
+            mapOf(
+                "ownerAppId" to me,
+                "createdAt" to FieldValue.serverTimestamp(),
+                "expiresAt" to expiresAt
+            )
+        ).await()
+        // Control-only public doc: NO lat/lon/at yet (the first fix arrives via
+        // writeShareFix). If this create fails, best-effort delete the orphan owner doc.
+        try {
+            val shareData = buildMap<String, Any> {
+                put("expiresAt", expiresAt)
+                put("revoked", false)
+                trimmedLabel?.let { put("label", it) }
+            }
+            db.collection("shares").document(token).set(shareData).await()
+        } catch (t: Throwable) {
+            runCatching { db.collection("shareOwners").document(token).delete().await() }
+            throw t
+        }
+        // Persist the active share to jog_prefs so the service can mirror fixes into it.
+        appContext.getSharedPreferences("jog_prefs", Context.MODE_PRIVATE).edit().apply {
+            putString(BuddyConstants.PREFS_ACTIVE_SHARE_TOKEN, token)
+            putLong(BuddyConstants.PREFS_ACTIVE_SHARE_EXPIRES_AT, expiresAtMs)
+            if (trimmedLabel != null) putString(BuddyConstants.PREFS_ACTIVE_SHARE_LABEL, trimmedLabel)
+            else remove(BuddyConstants.PREFS_ACTIVE_SHARE_LABEL)
+            apply()
+        }
+        BuddyResult.Success(ShareLink(token, expiresAtMs))
+    }.getOrElse { mapError(it) }
+
+    override suspend fun writeShareFix(
+        token: String, lat: Double, lon: Double, atMs: Long, expiresAtMs: Long, label: String?
+    ): BuddyResult<Unit> = runCatching {
+        val at = com.google.firebase.Timestamp(java.util.Date(atMs))
+        // expiresAtMs MUST be the verbatim PREFS_ACTIVE_SHARE_EXPIRES_AT value, never
+        // recomputed as now+lifetime, so the write-once rule's expiresAt equality holds.
+        val expiresAt = com.google.firebase.Timestamp(java.util.Date(expiresAtMs))
+        val trimmedLabel = label?.trim()?.takeIf { it.isNotEmpty() }?.take(40)
+        // MERGE only the fix fields + the UNCHANGED expiresAt (re-sent for the equality
+        // check); NEVER write `revoked` (that is the control-plane field).
+        val data = buildMap<String, Any> {
+            put("lat", lat)
+            put("lon", lon)
+            put("at", at)
+            put("expiresAt", expiresAt)
+            trimmedLabel?.let { put("label", it) }
+        }
+        db.collection("shares").document(token).set(data, SetOptions.merge()).await()
+        BuddyResult.Success(Unit)
+    }.getOrElse { mapError(it) }
+
+    override suspend fun revokeShareLink(token: String): BuddyResult<Unit> = runCatching {
+        // Mark revoked FIRST so any in-flight reader sees the kill switch immediately.
+        db.collection("shares").document(token).update("revoked", true).await()
+        // Clear the active-share prefs so the service stops mirroring fixes.
+        appContext.getSharedPreferences("jog_prefs", Context.MODE_PRIVATE).edit().apply {
+            remove(BuddyConstants.PREFS_ACTIVE_SHARE_TOKEN)
+            remove(BuddyConstants.PREFS_ACTIVE_SHARE_EXPIRES_AT)
+            remove(BuddyConstants.PREFS_ACTIVE_SHARE_LABEL)
+            apply()
+        }
+        // Best-effort cleanup of the control + owner docs.
+        runCatching { db.collection("shares").document(token).delete().await() }
+        runCatching { db.collection("shareOwners").document(token).delete().await() }
+        BuddyResult.Success(Unit)
+    }.getOrElse { mapError(it) }
+
     // ── Data lifecycle ──────────────────────────────────────────────────────────
 
     override suspend fun deleteAllMyData(): BuddyResult<Unit> = runCatching {

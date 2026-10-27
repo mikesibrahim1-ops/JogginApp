@@ -161,6 +161,89 @@ object CheerRateLimit {
 }
 
 /**
+ * A live public share link (S2): a URL-safe token plus the epoch-ms it expires at.
+ * Returned by [BuddyRepository.createShareLink]; referenced by [NoOpBuddyRepository]
+ * and the Firebase impl. Kept here (Android/Firebase-free) so the main set compiles.
+ */
+data class ShareLink(val token: String, val expiresAtMs: Long)
+
+/**
+ * Pure validity decision for a public share link (S2). Mirrors the Firestore rule's
+ * gate ordering so the client never offers to write/read a share the rule would deny.
+ * Android/Firebase-free and referentially transparent ([nowMs] injected) → JVM-testable.
+ */
+object ShareLinkValidity {
+
+    data class Decision(val readable: Boolean, val reason: Reason)
+    enum class Reason { OK, NO_TOKEN, REVOKED, EXPIRED }
+
+    /**
+     * Decide whether a share is currently readable. Order: no token → NO_TOKEN,
+     * revoked → REVOKED, then expiry. The boundary [nowMs] == [expiresAtMs] is EXPIRED,
+     * mirroring the rule's strict `request.time < expiresAt`.
+     */
+    fun decide(hasToken: Boolean, expiresAtMs: Long, revoked: Boolean, nowMs: Long): Decision = when {
+        !hasToken -> Decision(false, Reason.NO_TOKEN)
+        revoked -> Decision(false, Reason.REVOKED)
+        nowMs >= expiresAtMs -> Decision(false, Reason.EXPIRED)
+        else -> Decision(true, Reason.OK)
+    }
+}
+
+/**
+ * Pure helpers for a share link's lifetime (S2). Android/Firebase-free → JVM-testable.
+ */
+object ShareLifetime {
+
+    /** When a share created at [createdAtMs] expires. */
+    fun expiresAt(createdAtMs: Long): Long = createdAtMs + BuddyConstants.SHARE_LIFETIME_MS
+
+    /** Time left until [expiresAtMs], clamped so a stale share reports 0, never negative. */
+    fun remainingMs(expiresAtMs: Long, nowMs: Long): Long = (expiresAtMs - nowMs).coerceAtLeast(0L)
+}
+
+/**
+ * Generator for a public share token (S2). 16 random bytes URL-safe-Base64 encoded
+ * (unpadded) → a 22-char `^[A-Za-z0-9_-]+$` token. Encoded by hand (no android.util.Base64
+ * and no java.util.Base64, which is API 26+ vs minSdk 24) so it stays JVM-pure and
+ * unit-testable without Robolectric.
+ */
+object ShareToken {
+
+    // RFC 4648 §5 URL-safe Base64 alphabet (…+ → -, / → _). Encoding is done by hand
+    // rather than via java.util.Base64 because that API is only available from API 26
+    // while this module's minSdk is 24 (lint NewApi) — a hand-rolled table encoder is
+    // equivalent, stays JVM-pure (no android.util.Base64 / Robolectric), and yields the
+    // same 22-char unpadded token for 16 input bytes.
+    private const val URL_SAFE_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+
+    fun generate(random: java.security.SecureRandom = java.security.SecureRandom()): String {
+        val bytes = ByteArray(16)
+        random.nextBytes(bytes)
+        return encodeUrlSafeNoPadding(bytes)
+    }
+
+    /** URL-safe Base64 (no padding), pure Kotlin. */
+    private fun encodeUrlSafeNoPadding(bytes: ByteArray): String {
+        val out = StringBuilder((bytes.size * 8 + 5) / 6)
+        var buffer = 0
+        var bitsLeft = 0
+        for (b in bytes) {
+            buffer = (buffer shl 8) or (b.toInt() and 0xFF)
+            bitsLeft += 8
+            while (bitsLeft >= 6) {
+                bitsLeft -= 6
+                out.append(URL_SAFE_ALPHABET[(buffer shr bitsLeft) and 0x3F])
+            }
+        }
+        if (bitsLeft > 0) {
+            out.append(URL_SAFE_ALPHABET[(buffer shl (6 - bitsLeft)) and 0x3F])
+        }
+        return out.toString()
+    }
+}
+
+/**
  * Bounded backoff for re-establishing the Buddy Link backend session on launch when
  * the first anonymous sign-in failed (V1.49). Up to [MAX_ATTEMPTS] tries in total,
  * waiting [BASE_DELAY_MS], then 2×, between them.
