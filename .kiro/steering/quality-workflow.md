@@ -102,11 +102,20 @@ A task is complete ONLY when ALL are true:
 
 If any item can't be checked, say so explicitly — never present incomplete work as finished.
 
-## End-of-task report
+## Output discipline (what the user actually sees)
 
-End every task with a report covering:
+Run the full workflow silently. DO NOT narrate the phases or verification steps in chat —
+no "Step 1/2/3…", no "running the full suite", no per-command pass/fail play-by-play, no
+restating the workflow. Do the work; keep the running commentary out of the response.
 
-- What was built / changed.
-- How it was verified (exact commands run + results).
-- What was cleaned up / removed.
-- Any remaining issues or risks.
+The ONLY thing shown at the end of a task is a compact block, nothing else:
+
+- **Summary:** 1–2 sentences — what changed and the outcome.
+- **Choice:** the lettered options (A/B/C), only if there's a real decision for the user.
+- **Remaining:** only genuinely open/unverified items or risks (e.g. "needs manual
+  on-device check"). Omit this line entirely if nothing is outstanding.
+
+Do NOT include: a phase-by-phase report, the list of gradle commands run, a "What was
+done" file-by-file dump, or verification logs — unless the user explicitly asks, or
+something FAILED. Failures still get full detail (what failed, why, what's needed).
+Verification still runs every time; it's just not printed when it passes.
