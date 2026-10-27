@@ -142,3 +142,27 @@ exports.onBuddyLinkWrite = functions
 
     return null;
   });
+
+/**
+ * Live Cheer (S1): relay a cross-device push when a buddy sends a cheer.
+ *
+ * Triggered on a new cheers/{recipientId}/inbox/{cheerId} doc. Reads the sender's App
+ * ID from `data.from`, looks up the sender's display name and the recipient's FCM
+ * token, then sends the same data-only "cheer" message the client's existing
+ * BuddyFirebaseMessagingService branch already handles. Reuses the REGION, lookupUser,
+ * and sendData helpers above — no new infrastructure.
+ *
+ * DEPLOY-GATED: this function is dormant until the user deploys it
+ * (`firebase deploy --only functions`). No client code depends on the deploy; until
+ * then cheers still arrive IN-APP (foreground) via observeCheers — only the
+ * background/killed push is inactive.
+ */
+exports.onCheerWrite = functions
+  .region(REGION)
+  .firestore.document("cheers/{recipientId}/inbox/{cheerId}")
+  .onCreate(async (snap, ctx) => {
+    const data = snap.data() || {};
+    const { name } = await lookupUser(data.from);
+    const { token } = await lookupUser(ctx.params.recipientId);
+    return sendData(token, "cheer", name);
+  });

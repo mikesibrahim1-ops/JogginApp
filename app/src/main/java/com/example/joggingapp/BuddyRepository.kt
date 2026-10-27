@@ -130,6 +130,23 @@ interface BuddyRepository {
     /** Emits when a buddy has requested MY location (so the service can push a fix). */
     fun observeLocationRequests(): Flow<List<String>>
 
+    // ── Live Cheer (S1) ───────────────────────────────────────────────────────
+
+    /**
+     * Send a one-tap Live Cheer (S1) to an accepted buddy. Writes an append-only
+     * `cheers/{buddyAppId}/inbox/{autoId}` event doc the recipient observes. Gated
+     * server-side by the cheers create rule (accepted + mutually-unblocked buddy only).
+     * [fromName] is the sender's displayName, denormalized onto the doc (null → "").
+     */
+    suspend fun sendCheer(buddyAppId: String, fromName: String?): BuddyResult<Unit>
+
+    /**
+     * Emits cheers addressed to ME as they arrive (each carries the sender's App ID +
+     * name + send time). The implementation deletes each consumed cheer after emitting
+     * (self-clean), so the inbox never accumulates; TTL is the backstop.
+     */
+    fun observeCheers(): Flow<List<BuddyCheer>>
+
     // ── Data lifecycle ──────────────────────────────────────────────────────────
 
     /** Deletes all of my Buddy Link data (user doc, links, location, trail). Req 8.4. */

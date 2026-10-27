@@ -51,6 +51,18 @@ data class BuddyLocation(
     val at: Long
 )
 
+/**
+ * A single received Live Cheer (S1). Transient: the recipient observes it once then
+ * deletes it (self-clean), with Firestore TTL as a backstop. `id` is the inbox doc id
+ * so the observer can delete it after handling; `at` is the send time.
+ */
+data class BuddyCheer(
+    val id: String,
+    val fromAppId: String,
+    val fromName: String,
+    val at: Long
+)
+
 /** A single sparse breadcrumb point in a buddy's recent trail (7-day retention). */
 data class BuddyTrailPoint(
     val lat: Double,

@@ -41,6 +41,7 @@ object BuddyNotifier {
     private const val NOTIF_ID_UNLINKED = 3003
     private const val NOTIF_ID_LOCATION_SHARED = 3004
     private const val NOTIF_ID_ONLINE = 3005
+    private const val NOTIF_ID_CHEER = 3006
     // Distinct id space from the buddy social notifs (3001–3005); a per-achievement
     // offset keeps multiple unlocks in one session from overwriting each other.
     private const val NOTIF_ID_ACHIEVEMENT = 4001
@@ -128,6 +129,17 @@ object BuddyNotifier {
             s.buddyNotifOnlineTitle, s.buddyNotifOnlineBody(buddyName),
             focusBuddyId = buddyAppId
         )
+    }
+
+    /**
+     * A buddy sent a Live Cheer (S1). Reuses the default-importance [CHANNEL_ID] (same
+     * social-alert class as request/accepted/unlinked/online), so no new channel is
+     * introduced. Only fires via the FCM push path when the recipient is
+     * backgrounded/killed; the foreground case is handled in-app by [BuddyLinkController].
+     */
+    fun notifyCheerReceived(context: Context, buddyName: String) {
+        val s = stringsFor(loadLanguage(context))
+        post(context, NOTIF_ID_CHEER, s.buddyNotifCheerTitle(buddyName), s.buddyNotifCheerBody)
     }
 
     /**

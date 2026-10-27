@@ -262,6 +262,8 @@ class BuddyLinkController(private val appContext: Context) {
         }.launchIn(scope)
         observeJobs += repo.observeBlocked().onEach { blocked = it }.launchIn(scope)
         observeJobs += repo.observeWatchers().onEach { watchers = it }.launchIn(scope)
+        // Live Cheer (S1): surface an incoming cheer in-app while foregrounded.
+        observeJobs += repo.observeCheers().onEach { handleIncomingCheers(it) }.launchIn(scope)
         // Liveness ticker: bump the Compose-observable tick every few seconds so the
         // time-based isLiveNow() reads in primaryBuddyView/isBuddyLive re-evaluate as
         // time passes (and after later partial emissions), making the map + buddy list
@@ -411,6 +413,9 @@ class BuddyLinkController(private val appContext: Context) {
         trailJob?.cancel(); trailJob = null; trailBuddyId = null; buddyTrail = emptyList()
         prevPendingCounts = null; prevBuddyIds = null; prevOnlineIds = null
         lastOnDemandRequestAt = emptyMap()
+        // Live Cheer (S1) state reset alongside the rest.
+        lastCheerSentAt = emptyMap(); cheersSentToday.clear(); cheerDayStart = 0L
+        incomingCheerFromName = null; seenCheerIds = null
         showHistory = false
         applySharingState()   // sharing is now false -> stops the broadcast service
     }
@@ -444,6 +449,74 @@ class BuddyLinkController(private val appContext: Context) {
     /** True if enough time has passed to allow another on-demand request for [buddyAppId]. */
     fun canRequestLocation(buddyAppId: String, nowMs: Long = System.currentTimeMillis()): Boolean =
         BuddyTransitions.canRequestLocation(lastOnDemandRequestAt, buddyAppId, nowMs)
+
+    // ── Live Cheer (S1) ─────────────────────────────────────────────────────────
+
+    /**
+     * The sender name of the most recent incoming cheer to surface in-app (transient),
+     * or null when there's nothing to show. Holds a NAME (no localized text) — the UI
+     * formats `S.buddyCheerReceived(name)`, keeping string lookup in the UI layer like
+     * `locateMsg`. Set only while foregrounded; the FCM push path covers background.
+     */
+    var incomingCheerFromName by mutableStateOf<String?>(null); private set
+    /** Clears the transient incoming-cheer line after the UI has shown it. */
+    fun consumeCheer() { incomingCheerFromName = null }
+
+    // Per-buddy timestamp of the last cheer SENT, feeding the pure CheerRateLimit
+    // cooldown. Compose state so the UI can reflect a rate-limited hint.
+    var lastCheerSentAt by mutableStateOf<Map<String, Long>>(emptyMap()); private set
+    // Per-buddy count of cheers sent in the current day window, feeding the daily cap.
+    private val cheersSentToday = mutableMapOf<String, Int>()
+    // Epoch-ms start of the current cheer day window; a rollover resets the counts.
+    private var cheerDayStart = 0L
+    // Baseline of already-seen cheer inbox ids (null = first emission = silent baseline,
+    // like prevOnlineIds) so only genuinely new cheers raise an in-app alert.
+    private var seenCheerIds: Set<String>? = null
+
+    /**
+     * Handle an [observeCheers] emission. On the first emission just set the baseline
+     * (silent — a batch already present on attach must not alert). On later emissions,
+     * for each genuinely new id, surface the sender name in-app ONLY while foregrounded
+     * (the FCM push path presents it when backgrounded/killed, matching the
+     * [BuddyFirebaseMessagingService] de-dupe contract).
+     */
+    private fun handleIncomingCheers(list: List<BuddyCheer>) {
+        val ids = list.map { it.id }.toSet()
+        val baseline = seenCheerIds
+        if (baseline == null) { seenCheerIds = ids; return }
+        if (AppForeground.isForeground) {
+            list.lastOrNull { it.id !in baseline }?.let { cheer ->
+                incomingCheerFromName = cheer.fromName.ifBlank { cheer.fromAppId }
+            }
+        }
+        seenCheerIds = baseline + ids
+    }
+
+    /** Reset the per-day cheer counts when the rolling day window has advanced. */
+    private fun rollCheerDayIfNeeded(now: Long) {
+        if (now - cheerDayStart >= BuddyConstants.CHEER_RETENTION_MS) {
+            cheerDayStart = now
+            cheersSentToday.clear()
+        }
+    }
+
+    /**
+     * Send a Live Cheer to [buddyAppId] (display name [fromName]), rate-limited per
+     * buddy. Returns the pure [CheerRateLimit.Decision] so the UI can show a hint; the
+     * actual backend write happens fire-and-forget only when the decision is allowed
+     * (same low-stakes pattern as [requestBuddyLocation]).
+     */
+    fun sendCheer(buddyAppId: String, fromName: String): CheerRateLimit.Decision {
+        val now = System.currentTimeMillis()
+        rollCheerDayIfNeeded(now)
+        val decision = CheerRateLimit.decide(lastCheerSentAt, cheersSentToday, buddyAppId, now)
+        if (decision.allowed) {
+            lastCheerSentAt = lastCheerSentAt + (buddyAppId to now)
+            cheersSentToday[buddyAppId] = (cheersSentToday[buddyAppId] ?: 0) + 1
+            scope.launch { repo.sendCheer(buddyAppId, fromName) }
+        }
+        return decision
+    }
 
     /**
      * Asks a buddy for a fresh fix now, rate-limited per buddy (Req 6.1b / G6). Returns

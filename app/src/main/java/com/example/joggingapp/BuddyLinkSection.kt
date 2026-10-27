@@ -507,6 +507,25 @@ fun BuddyLinkSection(controller: BuddyLinkController, userName: String) {
                 // at most one accepted buddy). If v1 ever becomes multi-buddy, move this
                 // into the row keyed by view.user.appId.
                 var locateMsg by remember { mutableStateOf<String?>(null) }
+                // Transient line for the Live Cheer (S1) send result, same single-line
+                // treatment as `locateMsg` (valid under the v1 1:1 invariant noted above).
+                var cheerMsg by remember { mutableStateOf<String?>(null) }
+                // Incoming cheer, shown in-app while foregrounded and auto-cleared. The
+                // controller holds only the sender NAME; the string is formatted here so
+                // all localized text stays in the UI layer (like `locateMsg`).
+                controller.incomingCheerFromName?.let { fromName ->
+                    Text(
+                        S.buddyCheerReceived(fromName),
+                        fontSize = 12.sp, color = c.primary, fontWeight = FontWeight.Medium,
+                        modifier = Modifier.padding(bottom = 6.dp)
+                    )
+                }
+                LaunchedEffect(controller.incomingCheerFromName) {
+                    if (controller.incomingCheerFromName != null) {
+                        kotlinx.coroutines.delay(4000)
+                        controller.consumeCheer()
+                    }
+                }
                 controller.buddies.forEach { view ->
                     // Reads the controller's 3s livenessTick (inside isBuddyLive) so this
                     // row re-evaluates time-based liveness reactively — the list now
@@ -554,6 +573,27 @@ fun BuddyLinkSection(controller: BuddyLinkController, userName: String) {
                             }
                             Text(status, fontSize = 10.sp, color = c.onSecondary.copy(alpha = 0.6f))
                         }
+                        // Live Cheer (S1): one-tap 💪 encouragement. A separate ≥48dp
+                        // target with its own contentDescription, kept distinct from the
+                        // name column (tap-to-locate) so neither action steals the other's
+                        // tap. Theme-token colours only (c.primary) — no hardcoded colours.
+                        Box(
+                            modifier = Modifier
+                                .clip(CircleShape)
+                                .background(c.primary.copy(alpha = 0.15f))
+                                .clickable {
+                                    val decision = controller.sendCheer(view.user.appId, name)
+                                    cheerMsg = when (decision.reason) {
+                                        CheerRateLimit.Reason.OK -> S.buddyCheerSent(name)
+                                        CheerRateLimit.Reason.COOLDOWN -> S.buddyCheerCooldown
+                                        CheerRateLimit.Reason.DAILY_CAP -> S.buddyCheerDailyCap
+                                    }
+                                }
+                                .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                                .padding(horizontal = 12.dp)
+                                .semantics { contentDescription = S.buddyCheerDesc(name) },
+                            contentAlignment = Alignment.Center
+                        ) { Text("💪", fontSize = 20.sp) }
                         // Primary actions: Remove (unlink) + Block, both confirmed.
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             view.link?.let { link ->
@@ -603,6 +643,11 @@ fun BuddyLinkSection(controller: BuddyLinkController, userName: String) {
                 // treatment as `codeMsg`). Valid as a single line only under the v1 1:1
                 // invariant noted where `locateMsg` is declared above.
                 locateMsg?.let { msg ->
+                    Spacer(Modifier.height(8.dp))
+                    Text(msg, fontSize = 12.sp, color = c.onSecondary.copy(alpha = 0.85f))
+                }
+                // Live Cheer (S1) send-result line, same small treatment as `locateMsg`.
+                cheerMsg?.let { msg ->
                     Spacer(Modifier.height(8.dp))
                     Text(msg, fontSize = 12.sp, color = c.onSecondary.copy(alpha = 0.85f))
                 }

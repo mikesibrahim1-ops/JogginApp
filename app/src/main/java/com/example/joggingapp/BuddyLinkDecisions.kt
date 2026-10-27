@@ -125,6 +125,42 @@ object BuddyLocate {
 }
 
 /**
+ * Pure client-side Live Cheer (S1) rate-limit. Enforces a per-buddy cooldown and a
+ * per-day cap, both keyed by the target buddy's App ID. Android/Firebase-free and
+ * referentially transparent — `nowMs` is injected — so it is JVM-unit-testable exactly
+ * like [BuddyLocate.decide] / [BuddyTransitions.canRequestLocation].
+ *
+ * Best-effort anti-spam, NOT a security boundary: Firestore rules cannot cheaply count
+ * prior cheers without a Cloud Function, so this guard stops the common accidental-spam
+ * case on the sending device only (see design §"Rate limiting").
+ */
+object CheerRateLimit {
+
+    data class Decision(val allowed: Boolean, val reason: Reason)
+    enum class Reason { OK, COOLDOWN, DAILY_CAP }
+
+    /**
+     * Decide whether a cheer to [buddyAppId] is allowed right now. Cooldown is checked
+     * before the daily cap. [lastSentAt] maps a buddy's App ID → epoch-ms of the last
+     * cheer sent to them; [sentTodayCount] maps a buddy's App ID → cheers sent in the
+     * current day window. Both default to 0 for an absent buddy (first-ever cheer OK).
+     */
+    fun decide(
+        lastSentAt: Map<String, Long>,
+        sentTodayCount: Map<String, Int>,
+        buddyAppId: String,
+        nowMs: Long
+    ): Decision {
+        val last = lastSentAt[buddyAppId] ?: 0L
+        if (nowMs - last < BuddyConstants.CHEER_COOLDOWN_MS)
+            return Decision(false, Reason.COOLDOWN)
+        if ((sentTodayCount[buddyAppId] ?: 0) >= BuddyConstants.CHEER_DAILY_CAP)
+            return Decision(false, Reason.DAILY_CAP)
+        return Decision(true, Reason.OK)
+    }
+}
+
+/**
  * Bounded backoff for re-establishing the Buddy Link backend session on launch when
  * the first anonymous sign-in failed (V1.49). Up to [MAX_ATTEMPTS] tries in total,
  * waiting [BASE_DELAY_MS], then 2×, between them.

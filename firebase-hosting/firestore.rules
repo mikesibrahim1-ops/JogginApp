@@ -266,5 +266,25 @@ service cloud.firestore {
         allow delete: if ownsUser(appId) || requesterAppId == myAppId();
       }
     }
+
+    // cheers/{recipientAppId}/inbox/{cheerId}: Live Cheer (S1). An accepted,
+    // mutually-unblocked buddy may CREATE a cheer addressed to the recipient; only the
+    // recipient reads/deletes their own inbox. Append-only (no update). Reuses the same
+    // acceptedLink + hasBlocked gate shape as locReq, so it cannot broaden any existing
+    // access; it does NOT require sharing (you can cheer a buddy who isn't broadcasting).
+    match /cheers/{recipientAppId}/inbox/{cheerId} {
+      allow read, delete: if ownsUser(recipientAppId);
+      allow create: if signedIn()
+        && acceptedLink(myAppId(), recipientAppId)
+        && !hasBlocked(recipientAppId, myAppId())
+        && !hasBlocked(myAppId(), recipientAppId)
+        && request.resource.data.from == myAppId()
+        && request.resource.data.keys().hasOnly(['from', 'fromName', 'at', 'expireAt'])
+        && request.resource.data.from is string
+        && (!('fromName' in request.resource.data) || request.resource.data.fromName is string)
+        && request.resource.data.at is timestamp
+        && request.resource.data.expireAt is timestamp
+        && request.resource.size() < 6;
+    }
   }
 }

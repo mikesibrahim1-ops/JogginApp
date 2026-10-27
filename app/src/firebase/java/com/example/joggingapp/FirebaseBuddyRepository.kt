@@ -501,6 +501,48 @@ class FirebaseBuddyRepository(private val appContext: Context) : BuddyRepository
         awaitClose { reg.remove() }
     }
 
+    // ── Live Cheer (S1) ───────────────────────────────────────────────────────
+
+    override suspend fun sendCheer(buddyAppId: String, fromName: String?): BuddyResult<Unit> = runCatching {
+        val me = myAppId ?: return BuddyResult.Failure(BuddyResult.Reason.NOT_FOUND)
+        val now = System.currentTimeMillis()
+        val at = com.google.firebase.Timestamp(java.util.Date(now))
+        val expireAt = com.google.firebase.Timestamp(java.util.Date(now + BuddyConstants.CHEER_RETENTION_MS))
+        // Append-only event under the recipient-keyed inbox (design §"Data model"); the
+        // create rule enforces accepted + mutually-unblocked + from == myAppId().
+        db.collection("cheers").document(buddyAppId)
+            .collection("inbox").add(
+                mapOf(
+                    "from" to me,
+                    "fromName" to (fromName ?: ""),
+                    "at" to at,
+                    "expireAt" to expireAt
+                )
+            ).await()
+        BuddyResult.Success(Unit)
+    }.getOrElse { mapError(it) }
+
+    override fun observeCheers(): Flow<List<BuddyCheer>> = callbackFlow {
+        val me = myAppId
+        if (me == null) { trySend(emptyList()); awaitClose { }; return@callbackFlow }
+        // Listen to my inbox (mirrors observeLocationRequests). Delete each consumed
+        // cheer after emitting so markers don't accumulate; TTL/expireAt is the backstop.
+        // Best-effort delete — a failure just re-emits on the next snapshot, which the
+        // controller's seenCheerIds baseline dedupes.
+        val reg = db.collection("cheers").document(me).collection("inbox")
+            .orderBy("at", Query.Direction.ASCENDING)
+            .addSnapshotListener { qs, _ ->
+                val cheers = qs?.documents?.mapNotNull { d ->
+                    val from = d.getString("from") ?: return@mapNotNull null
+                    val at = d.getTimestamp("at")?.toDate()?.time ?: return@mapNotNull null
+                    BuddyCheer(d.id, from, d.getString("fromName").orEmpty(), at)
+                } ?: emptyList()
+                trySend(cheers)
+                qs?.documents?.forEach { it.reference.delete() }
+            }
+        awaitClose { reg.remove() }
+    }
+
     // ── Data lifecycle ──────────────────────────────────────────────────────────
 
     override suspend fun deleteAllMyData(): BuddyResult<Unit> = runCatching {

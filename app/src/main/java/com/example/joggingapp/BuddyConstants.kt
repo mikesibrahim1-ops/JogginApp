@@ -33,6 +33,20 @@ object BuddyConstants {
     const val ON_DEMAND_REQUEST_COOLDOWN_MS: Long = 2 * 60 * 1000L
 
     /**
+     * Minimum spacing between successive Live Cheers (S1) to the SAME buddy
+     * (client-side anti-spam). Mirrors [ON_DEMAND_REQUEST_COOLDOWN_MS] but tighter —
+     * a cheer is a low-stakes social ping, so 30s balances "send again soon" against
+     * nuisance. Best-effort only (not a security boundary; see CheerRateLimit).
+     */
+    const val CHEER_COOLDOWN_MS: Long = 30 * 1000L
+
+    /** Max Live Cheers (S1) to the SAME buddy per rolling day window (client-side cap). */
+    const val CHEER_DAILY_CAP: Int = 20
+
+    /** How long a cheer inbox doc lives before Firestore TTL purges it (S1). 1 day. */
+    const val CHEER_RETENTION_MS: Long = 24L * 60L * 60L * 1000L
+
+    /**
      * Minimum spacing between stored trail breadcrumb points, so the trail stays
      * sparse (not a dense track) to minimise data. Req 5b.2. Defaults to the
      * broadcast interval — one point per broadcast.

@@ -48,6 +48,7 @@ class BuddyFirebaseMessagingService : FirebaseMessagingService() {
             "request" -> BuddyNotifier.notifyRequestReceived(applicationContext)
             "accepted" -> BuddyNotifier.notifyRequestAccepted(applicationContext, actorName)
             "unlinked" -> BuddyNotifier.notifyUnlinked(applicationContext, actorName)
+            "cheer" -> BuddyNotifier.notifyCheerReceived(applicationContext, actorName)
             else -> { /* unknown type — ignore */ }
         }
     }

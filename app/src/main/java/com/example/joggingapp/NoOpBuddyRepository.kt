@@ -49,5 +49,8 @@ object NoOpBuddyRepository : BuddyRepository {
     override suspend fun requestBuddyLocation(buddyAppId: String): BuddyResult<Unit> = unavailable()
     override fun observeLocationRequests(): Flow<List<String>> = flowOf(emptyList())
 
+    override suspend fun sendCheer(buddyAppId: String, fromName: String?): BuddyResult<Unit> = unavailable()
+    override fun observeCheers(): Flow<List<BuddyCheer>> = flowOf(emptyList())
+
     override suspend fun deleteAllMyData(): BuddyResult<Unit> = unavailable()
 }
