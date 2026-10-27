@@ -530,6 +530,64 @@ class BuddyLinkController(private val appContext: Context) {
         return true
     }
 
+    // ── Live-tracking share link for non-app users (S2) ──────────────────────────
+
+    /**
+     * The currently live public share link (S2), or null when none is active. Restored
+     * on init from the prefs the Firebase impl persists (token + verbatim expiry): null
+     * unless a token is present AND it has not already expired (so a stale prefs entry
+     * from a previous run never shows a dead share as live).
+     */
+    var activeShare by mutableStateOf<ShareLink?>(restoreActiveShare()); private set
+
+    private fun restoreActiveShare(): ShareLink? {
+        val token = prefs.getString(BuddyConstants.PREFS_ACTIVE_SHARE_TOKEN, null) ?: return null
+        val expiresAt = prefs.getLong(BuddyConstants.PREFS_ACTIVE_SHARE_EXPIRES_AT, 0L)
+        if (System.currentTimeMillis() >= expiresAt) return null
+        return ShareLink(token, expiresAt)
+    }
+
+    /**
+     * Create a public share link (S2). If a still-valid [activeShare] already exists it
+     * is returned without minting a second (one-active-share UX invariant). Otherwise a
+     * new link is created fire-and-forget; on success [activeShare] is set and the
+     * broadcast service is (re)asserted via [applySharingState] so the active share doc
+     * starts receiving fixes while CONDITION-1 holds — no new permission flow. [label]
+     * is trimmed and capped to 40 chars (the repository caps again defensively).
+     */
+    fun createShareLink(label: String?, onResult: (BuddyResult<ShareLink>) -> Unit = {}) {
+        val existing = activeShare
+        if (existing != null && System.currentTimeMillis() < existing.expiresAtMs) {
+            onResult(BuddyResult.Success(existing)); return
+        }
+        scope.launch {
+            val r = repo.createShareLink(label?.trim()?.take(40))
+            if (r is BuddyResult.Success) {
+                activeShare = r.value
+                applySharingState()
+            }
+            onResult(r)
+        }
+    }
+
+    /**
+     * Revoke the active public share link (S2). No-op when nothing is active. Clears
+     * [activeShare] ONLY on success, so a failed revoke keeps the card showing the live
+     * share rather than falsely claiming it stopped.
+     */
+    fun revokeShareLink(onResult: (BuddyResult<Unit>) -> Unit = {}) {
+        val t = activeShare?.token ?: return
+        scope.launch {
+            val r = repo.revokeShareLink(t)
+            if (r is BuddyResult.Success) activeShare = null
+            onResult(r)
+        }
+    }
+
+    /** The public viewer URL for a share [token] (reuses the invite host; S2). */
+    fun shareUrl(token: String): String =
+        "https://" + BuddyConstants.INVITE_HTTPS_HOST + "/" + BuddyConstants.SHARE_PATH_PREFIX + "?t=" + token
+
     /** Delete all my Buddy Link data + reset identity (Req 8.4). */
     fun deleteAllData() = scope.launch {
         repo.deleteAllMyData()

@@ -468,6 +468,9 @@ fun BuddyLinkSection(controller: BuddyLinkController, userName: String) {
                 }
             }
 
+            // ── Share live location (S2 public link for non-app viewers) ──────
+            ShareLiveLocationCard(controller)
+
             // ── Invites (incoming/pending; dismissable at any time, Req #4) ───
             if (controller.pending.isNotEmpty()) {
                 BuddyGroupHeader(S.buddyInvites)
@@ -787,6 +790,177 @@ fun BuddyLinkSection(controller: BuddyLinkController, userName: String) {
             onDismiss = { controller.consumeRouteActiveAlert() }
         )
     }
+}
+
+/**
+ * The "Share live location" card (S2). Rendered below the buddy-code card, gated by
+ * `controller.enabled` like the rest of the section. Two states:
+ *  - no active share: a create pill + an optional opt-in label field (reveal pattern);
+ *  - active share: the public URL, a "Live for …" remaining-time line, the optional
+ *    label, Copy + Share pills (reusing the Clipboard + ACTION_SEND pattern), and a
+ *    destructive Stop control. A failed revoke keeps the active state (the controller
+ *    clears activeShare only on success). All colours come from JogginTheme.colors.
+ */
+@Composable
+private fun ShareLiveLocationCard(controller: BuddyLinkController) {
+    val c = JogginTheme.colors
+    val S = LocalStrings.current
+    val context = LocalContext.current
+
+    // Transient status line mirroring codeMsg/cheerMsg.
+    var shareMsg by remember { mutableStateOf<String?>(null) }
+    // Opt-in optional label field (hidden until the user reveals it), like the
+    // add-by-code reveal pattern.
+    var labelRevealed by remember { mutableStateOf(false) }
+    var labelInput by remember { mutableStateOf("") }
+    // Ticks so the "Live for …" remaining-time line counts down without a backend event.
+    var nowTick by remember { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(controller.activeShare) {
+        while (true) { nowTick = System.currentTimeMillis(); kotlinx.coroutines.delay(30_000L) }
+    }
+
+    Spacer(Modifier.height(12.dp))
+    Column(
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+            .background(c.primary.copy(alpha = 0.10f)).padding(14.dp)
+    ) {
+        Text(S.shareLiveTitle, fontSize = 11.sp, color = c.onSecondary.copy(alpha = 0.7f),
+            fontWeight = FontWeight.Medium)
+        Spacer(Modifier.height(8.dp))
+
+        val share = controller.activeShare
+        if (share == null) {
+            // No active share: a create pill + an optional label field.
+            Box(
+                modifier = Modifier
+                    .clip(CircleShape)
+                    .background(c.primary)
+                    .border(BorderStroke(1.dp, c.onSurface.copy(alpha = 0.5f)), CircleShape)
+                    .clickable {
+                        controller.createShareLink(labelInput.ifBlank { null }) { result ->
+                            shareMsg = when (result) {
+                                is BuddyResult.Success -> {
+                                    labelInput = ""; labelRevealed = false
+                                    S.shareLinkCreated
+                                }
+                                is BuddyResult.Failure -> S.shareLinkCreateFailed
+                            }
+                        }
+                    }
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                    .semantics { contentDescription = S.shareLiveCreate }
+            ) {
+                Text("🔗 ${S.shareLiveCreate}", fontSize = 12.sp, color = c.onPrimary,
+                    fontWeight = FontWeight.SemiBold)
+            }
+            Spacer(Modifier.height(8.dp))
+            if (!labelRevealed) {
+                Text(
+                    S.shareLiveLabelHint, fontSize = 12.sp, color = c.primary,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier
+                        .clickable { labelRevealed = true }
+                        .semantics { contentDescription = S.shareLiveLabelHint }
+                )
+            } else {
+                androidx.compose.material.TextField(
+                    value = labelInput,
+                    onValueChange = { labelInput = it },
+                    singleLine = true,
+                    placeholder = { Text(S.shareLiveLabelHint, fontSize = 12.sp) },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        } else {
+            // Active share: URL + remaining time + label + Copy/Share + Stop.
+            val url = controller.shareUrl(share.token)
+            Text(url, fontSize = 13.sp, color = c.onSecondary, fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.semantics { contentDescription = url })
+            Spacer(Modifier.height(4.dp))
+            val remaining = formatShareRemaining(ShareLifetime.remainingMs(share.expiresAtMs, nowTick))
+            Text(S.shareLiveRemaining(remaining), fontSize = 10.sp,
+                color = c.onSecondary.copy(alpha = 0.6f))
+            Spacer(Modifier.height(10.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                // Copy pill.
+                Box(
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .background(c.primary)
+                        .border(BorderStroke(1.dp, c.onSurface.copy(alpha = 0.5f)), CircleShape)
+                        .clickable {
+                            val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            cm.setPrimaryClip(ClipData.newPlainText("Share link", url))
+                            AppLogger.log(context, LogCategory.UI, "Buddy Link: share link copied")
+                            shareMsg = S.shareLinkCopied
+                        }
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                        .semantics { contentDescription = S.shareLiveCopy }
+                ) {
+                    Text("📋 ${S.shareLiveCopy}", fontSize = 12.sp, color = c.onPrimary,
+                        fontWeight = FontWeight.SemiBold)
+                }
+                // Share pill (ACTION_SEND chooser).
+                Box(
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .background(c.primary)
+                        .border(BorderStroke(1.dp, c.onSurface.copy(alpha = 0.5f)), CircleShape)
+                        .clickable {
+                            AppLogger.log(context, LogCategory.UI, "Buddy Link: share link shared")
+                            val send = Intent(Intent.ACTION_SEND).apply {
+                                type = "text/plain"
+                                putExtra(Intent.EXTRA_SUBJECT, S.shareLiveShareSubject)
+                                putExtra(Intent.EXTRA_TEXT, S.shareLiveShareBody(url))
+                            }
+                            context.startActivity(Intent.createChooser(send, S.shareLiveShareSubject))
+                        }
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                        .semantics { contentDescription = S.shareLiveShareSubject }
+                ) {
+                    Text("↗ ${S.shareLiveShareSubject}", fontSize = 12.sp, color = c.onPrimary,
+                        fontWeight = FontWeight.SemiBold, maxLines = 1)
+                }
+            }
+            Spacer(Modifier.height(10.dp))
+            // Destructive stop control (c.error), mirroring the danger-zone styling.
+            Text(
+                "🛑 ${S.shareLiveStop}", fontSize = 12.sp, color = c.error,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable {
+                        controller.revokeShareLink { result ->
+                            shareMsg = when (result) {
+                                is BuddyResult.Success -> S.shareLinkStopped
+                                is BuddyResult.Failure -> S.shareLinkStopFailed
+                            }
+                        }
+                    }
+                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                    .semantics { contentDescription = S.shareLiveStop }
+            )
+        }
+
+        // Backend status note (non-blocking, Req 10) — same as the code card.
+        if (!controller.backendAvailable) {
+            Spacer(Modifier.height(10.dp))
+            Text(S.buddyUnavailableBackend, fontSize = 11.sp, color = c.error.copy(alpha = 0.9f))
+        }
+
+        shareMsg?.let { msg ->
+            Spacer(Modifier.height(8.dp))
+            Text(msg, fontSize = 11.sp, color = c.onSecondary.copy(alpha = 0.85f))
+        }
+    }
+}
+
+/** Format a remaining-millis duration as a compact "Hh Mm" (e.g. "3h 40m"), minute "0m". */
+internal fun formatShareRemaining(remainingMs: Long): String {
+    val totalMinutes = remainingMs / 60_000L
+    val hours = totalMinutes / 60L
+    val minutes = totalMinutes % 60L
+    return if (hours > 0L) "${hours}h ${minutes}m" else "${minutes}m"
 }
 
 /** A small section sub-header used inside the Buddy Link section. */
