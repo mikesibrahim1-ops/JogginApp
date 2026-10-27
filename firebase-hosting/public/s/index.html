@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Joggin — Live location</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #1b5e20;
+    color: #fff;
+  }
+  #map { position: absolute; inset: 0; z-index: 0; background: #0f2f12; }
+  /* Neutral full-screen card for invalid / waiting / stopped states */
+  .card-wrap {
+    position: absolute; inset: 0; z-index: 10;
+    display: flex; align-items: center; justify-content: center; padding: 24px;
+    background: linear-gradient(135deg, #1b5e20 0%, #2e7d32 50%, #43a047 100%);
+  }
+  .card-wrap.hidden { display: none; }
+  .card {
+    background: rgba(255,255,255,0.12);
+    backdrop-filter: blur(12px);
+    border-radius: 20px;
+    padding: 40px 32px;
+    max-width: 380px; width: 100%;
+    text-align: center;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+  }
+  .emoji { font-size: 48px; margin-bottom: 16px; }
+  h1 { font-size: 22px; font-weight: 700; margin-bottom: 8px; }
+  .sub { font-size: 14px; opacity: 0.85; line-height: 1.5; }
+  /* Floating status banner shown over the map when a marker is visible */
+  .banner {
+    position: absolute; left: 12px; right: 12px; top: 12px; z-index: 10;
+    background: rgba(27,94,32,0.92);
+    border-radius: 14px;
+    padding: 12px 16px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+    font-size: 14px;
+  }
+  .banner.hidden { display: none; }
+  .banner .label { font-weight: 700; margin-bottom: 2px; }
+  .banner .updated { font-size: 12px; opacity: 0.85; }
+  .banner.stale { background: rgba(230,126,34,0.95); }
+  .banner .stale-note { font-size: 12px; font-weight: 600; margin-top: 4px; }
+</style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<div id="banner" class="banner hidden">
+  <div class="label" id="banner-label">Live location</div>
+  <div class="updated" id="banner-updated"></div>
+  <div class="stale-note hidden" id="banner-stale">⚠️ May be offline — not updated recently.</div>
+</div>
+
+<div id="card-wrap" class="card-wrap">
+  <div class="card">
+    <div class="emoji" id="card-emoji">🛰️</div>
+    <h1 id="card-title">Loading…</h1>
+    <p class="sub" id="card-sub">Checking this live link.</p>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import { getFirestore, doc, onSnapshot }
+    from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+  // Public web config for project joggin-a69a7. These are public identifiers; the
+  // security boundary is the Firestore rules, not the apiKey (design §5 Finding 7).
+  // DEPLOY NOTE: register a Web app in the Firebase console (Project settings → Your
+  // apps → Web) to obtain the real appId (1:458512506238:web:…) and paste it below,
+  // then redeploy hosting. The placeholder still allows a Firestore-only read.
+  const firebaseConfig = {
+    apiKey: "AIzaSyBA-qlw91JTz3S51l-XFMiC23oxqvJe7Ck",
+    authDomain: "joggin-a69a7.firebaseapp.com",
+    projectId: "joggin-a69a7",
+    storageBucket: "joggin-a69a7.firebasestorage.app",
+    messagingSenderId: "458512506238",
+    appId: "1:458512506238:web:REGISTER_WEB_APP"
+  };
+
+  const STALE_MS = 15 * 60 * 1000; // 15 min (>=3 missed 5-min broadcast cycles)
+
+  const cardWrap    = document.getElementById("card-wrap");
+  const cardEmoji   = document.getElementById("card-emoji");
+  const cardTitle   = document.getElementById("card-title");
+  const cardSub     = document.getElementById("card-sub");
+  const banner      = document.getElementById("banner");
+  const bannerLabel = document.getElementById("banner-label");
+  const bannerUpd   = document.getElementById("banner-updated");
+  const bannerStale = document.getElementById("banner-stale");
+
+  function showCard(emoji, title, sub) {
+    cardEmoji.textContent = emoji;
+    cardTitle.textContent = title;
+    cardSub.textContent = sub;
+    cardWrap.classList.remove("hidden");
+    banner.classList.add("hidden");
+  }
+  function hideCard() { cardWrap.classList.add("hidden"); }
+
+  // (1) Parse + validate the token client-side. URL-safe Base64, no padding, 16 bytes
+  //     => 22 chars. Anything else is a neutral "stopped/invalid" state with NO
+  //     Firebase call and NO map.
+  const token = new URLSearchParams(window.location.search).get("t");
+  const TOKEN_RE = /^[A-Za-z0-9_-]+$/;
+  if (!token || token.length !== 22 || !TOKEN_RE.test(token)) {
+    showCard("🔗", "This live link has stopped", "The link is invalid or is no longer active.");
+  } else {
+    startLiveView(token);
+  }
+
+  function startLiveView(token) {
+    let map = null;
+    let marker = null;
+
+    function ensureMap(lat, lon) {
+      if (map) return;
+      map = L.map("map").setView([lat, lon], 15);
+      L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 19,
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+      }).addTo(map);
+    }
+    function removeMarker() {
+      if (marker && map) { map.removeLayer(marker); }
+      marker = null;
+    }
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+
+    onSnapshot(doc(db, "shares", token), (snap) => {
+      // (c) snapshot absent -> neutral "stopped" state.
+      if (!snap.exists()) {
+        removeMarker();
+        showCard("🔗", "This live link has stopped", "This live location is no longer being shared.");
+        return;
+      }
+
+      const d = snap.data() || {};
+      const label = (typeof d.label === "string" && d.label.trim()) ? d.label.trim() : null;
+      const hasPos = typeof d.lat === "number" && typeof d.lon === "number" && d.at != null;
+
+      // (a) readable but no position yet -> neutral "waiting" state, NO marker.
+      if (!hasPos) {
+        removeMarker();
+        showCard("🛰️", "Waiting for the first location…",
+          label ? label : "The live location will appear here shortly.");
+        return;
+      }
+
+      // (b) readable with a position -> place/update a Leaflet marker.
+      // Firestore Timestamp -> epoch ms (toMillis), falling back to Date parsing.
+      let atMs = null;
+      if (d.at && typeof d.at.toMillis === "function") atMs = d.at.toMillis();
+      else if (d.at && typeof d.at.seconds === "number") atMs = d.at.seconds * 1000;
+      const updatedText = atMs ? new Date(atMs).toLocaleString() : "just now";
+
+      hideCard();
+      ensureMap(d.lat, d.lon);
+      const pos = [d.lat, d.lon];
+      if (!marker) marker = L.marker(pos).addTo(map);
+      else marker.setLatLng(pos);
+      map.setView(pos, map.getZoom() || 15);
+
+      bannerLabel.textContent = label ? label : "Live location";
+      bannerUpd.textContent = "Last updated " + updatedText;
+
+      const stale = atMs != null && (Date.now() - atMs) > STALE_MS;
+      banner.classList.toggle("stale", stale);
+      bannerStale.classList.toggle("hidden", !stale);
+      banner.classList.remove("hidden");
+    }, (err) => {
+      // (c) permission-denied (expired/revoked) treated IDENTICALLY to not-found, so no
+      //     stale "was-here-last" position can leak after expiry/revoke.
+      removeMarker();
+      showCard("🔗", "This live link has stopped", "This live location is no longer being shared.");
+    });
+  }
+</script>
+
+</body>
+</html>

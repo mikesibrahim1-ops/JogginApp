@@ -24,6 +24,10 @@
       {
         "source": "/get",
         "destination": "/get/index.html"
+      },
+      {
+        "source": "/s",
+        "destination": "/s/index.html"
       }
     ],
     "headers": [

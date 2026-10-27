@@ -286,5 +286,87 @@ service cloud.firestore {
         && request.resource.data.expireAt is timestamp
         && request.resource.size() < 6;
     }
+
+    // ── S2 Share Link (design §1.2) ──────────────────────────────────────────────
+    // Owner-only mapping token -> ownerAppId. NOT publicly readable; only the owner.
+    // Carries expiresAt so a Firestore TTL policy can purge it (Finding 6, option b).
+    match /shareOwners/{token} {
+      allow get: if signedIn() && ownsUser(resource.data.ownerAppId);
+      allow create: if signedIn()
+        && request.resource.data.ownerAppId == myAppId()
+        && request.resource.data.keys().hasOnly(['ownerAppId','createdAt','expiresAt'])
+        && request.resource.data.ownerAppId is string
+        && request.resource.data.createdAt is timestamp
+        && request.resource.data.expiresAt is timestamp
+        && request.resource.size() < 4;
+      allow update, delete: if signedIn() && ownsUser(resource.data.ownerAppId);
+      allow list: if false;
+    }
+
+    // PUBLIC token-gated live-position doc. Token (= doc id) + server-side expiry + revoke
+    // are the ONLY gates. list:false blocks enumeration; no identity field is accepted.
+    match /shares/{token} {
+      function shareOwner(token) {
+        return get(/databases/$(database)/documents/shareOwners/$(token)).data.ownerAppId;
+      }
+
+      // PUBLIC READ — unauthenticated, single doc only.
+      allow get: if resource != null
+                 && resource.data.revoked == false
+                 && request.time < resource.data.expiresAt;
+      allow list: if false;
+
+      // OWNER CREATE — shareOwners/{token} must already exist and name the caller's App ID.
+      // The doc is created WITHOUT a position (lat/lon/at optional); only control fields are
+      // required. expiresAt is presence- and type-checked AND bounded to the future and to
+      // at most 5h out, so a tampered client cannot mint a permanent link. revoked must
+      // start false.
+      allow create: if signedIn()
+        && exists(/databases/$(database)/documents/shareOwners/$(token))
+        && ownsUser(shareOwner(token))
+        && request.resource.data.keys().hasOnly(['lat','lon','at','expiresAt','revoked','label'])
+        && 'expiresAt' in request.resource.data
+        && 'revoked' in request.resource.data
+        && request.resource.data.expiresAt is timestamp
+        && request.resource.data.expiresAt > request.time
+        && request.resource.data.expiresAt < request.time + duration.value(5, 'h')
+        && request.resource.data.revoked == false
+        && (!('lat' in request.resource.data)
+            || (request.resource.data.lat is number
+                && request.resource.data.lat >= -90 && request.resource.data.lat <= 90))
+        && (!('lon' in request.resource.data)
+            || (request.resource.data.lon is number
+                && request.resource.data.lon >= -180 && request.resource.data.lon <= 180))
+        && (!('at' in request.resource.data) || request.resource.data.at is timestamp)
+        && (!('label' in request.resource.data) || request.resource.data.label is string)
+        && request.resource.size() < 8;
+
+      // OWNER UPDATE — position fixes + revoke. expiresAt is write-once (may not move), so a
+      // later write cannot silently extend the link. revoked may flip false->true (or stay).
+      // lat/lon/at become required ONLY in practice via the writer; the rule still accepts a
+      // revoke-only update, so lat/lon/at remain optional-but-typed here too.
+      allow update: if signedIn()
+        && exists(/databases/$(database)/documents/shareOwners/$(token))
+        && ownsUser(shareOwner(token))
+        && request.resource.data.keys().hasOnly(['lat','lon','at','expiresAt','revoked','label'])
+        && 'expiresAt' in request.resource.data
+        && 'revoked' in request.resource.data
+        && request.resource.data.expiresAt is timestamp
+        && request.resource.data.expiresAt == resource.data.expiresAt   // write-once
+        && request.resource.data.revoked is bool
+        && (!('lat' in request.resource.data)
+            || (request.resource.data.lat is number
+                && request.resource.data.lat >= -90 && request.resource.data.lat <= 90))
+        && (!('lon' in request.resource.data)
+            || (request.resource.data.lon is number
+                && request.resource.data.lon >= -180 && request.resource.data.lon <= 180))
+        && (!('at' in request.resource.data) || request.resource.data.at is timestamp)
+        && (!('label' in request.resource.data) || request.resource.data.label is string)
+        && request.resource.size() < 8;
+
+      allow delete: if signedIn()
+        && exists(/databases/$(database)/documents/shareOwners/$(token))
+        && ownsUser(shareOwner(token));
+    }
   }
 }
