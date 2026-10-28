@@ -1946,8 +1946,22 @@ fun OptionsPaneContent(colorIdx: Int, savedRoutes: List<SavedRoute>, onColorSele
             }
         }
 
-        // ── App (version + manual update check) ───────────────────────────────
-        CollapsibleSection(title = S.appSection, leadingEmoji = "📦") {
+        // ── Buddy Link (LAST regular section) ─────────────────────────────────
+        if (buddyController != null) {
+            BuddyLinkSection(controller = buddyController, userName = userName)
+            // Surface a transient invite-handling result (expired / invalid / pending).
+            buddyInviteMessage?.let { msg ->
+                Spacer(Modifier.height(8.dp))
+                Text(msg, fontSize = 12.sp, color = c.onSecondary.copy(alpha = 0.8f))
+                LaunchedEffect(msg) { delay(6000L); onBuddyInviteMessageShown() }
+            }
+        }
+
+        // ── Version + language + manual update check (pinned at bottom, always ─
+        // visible, no longer a collapsible "App" section). The 🌐 icon opens the
+        // language picker; the 🔄 row runs a manual (non-throttled) update check.
+        run {
+            Spacer(Modifier.height(20.dp)); Divider(color = c.onSecondary.copy(alpha = 0.2f)); Spacer(Modifier.height(16.dp))
             val updateScope = rememberCoroutineScope()
             // null = idle, true = checking, false = done. Result text held separately.
             var checking by remember { mutableStateOf(false) }
@@ -2016,17 +2030,6 @@ fun OptionsPaneContent(colorIdx: Int, savedRoutes: List<SavedRoute>, onColorSele
                         Text(S.updateAction, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = c.onPrimary)
                     }
                 }
-            }
-        } // end App
-
-        // ── Buddy Link (LAST regular section) ─────────────────────────────────
-        if (buddyController != null) {
-            BuddyLinkSection(controller = buddyController, userName = userName)
-            // Surface a transient invite-handling result (expired / invalid / pending).
-            buddyInviteMessage?.let { msg ->
-                Spacer(Modifier.height(8.dp))
-                Text(msg, fontSize = 12.sp, color = c.onSecondary.copy(alpha = 0.8f))
-                LaunchedEffect(msg) { delay(6000L); onBuddyInviteMessageShown() }
             }
         }
 

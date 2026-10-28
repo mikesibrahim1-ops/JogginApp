@@ -344,7 +344,6 @@ class AppStrings {
     var exGroupMonth: String = ""              // group-by option: Month
     var exWeekOf: (String) -> String = { _ -> "" }      // weekly bucket header, "Week of {date}"
     // ── App section / update check (v1.47) ────────────────────────────────────
-    var appSection: String = ""                // options-pane collapsible header "App"
     var appVersionLabel: (String) -> String = { _ -> "" } // "Version 1.47"
     var checkForUpdates: String = ""           // button label
     var checkingForUpdates: String = ""        // transient while checking
@@ -665,7 +664,6 @@ private fun buildEnglishStrings(): AppStrings = AppStrings().apply {
     exGroupMonth = "Month"
     exWeekOf = { date -> "Week of $date" }
     // ── App section / update check (v1.47) ────────────────────────────────────
-    appSection = "App"
     appVersionLabel = { v -> "Version $v" }
     checkForUpdates = "Check for updates"
     checkingForUpdates = "Checking for updates…"
@@ -979,7 +977,6 @@ private fun buildGreekStrings(): AppStrings = AppStrings().apply {
     exGroupMonth = "Μήνας"
     exWeekOf = { date -> "Εβδομάδα $date" }
     // ── App section / update check (v1.47) ────────────────────────────────────
-    appSection = "Εφαρμογή"
     appVersionLabel = { v -> "Έκδοση $v" }
     checkForUpdates = "Έλεγχος για ενημερώσεις"
     checkingForUpdates = "Έλεγχος για ενημερώσεις…"
