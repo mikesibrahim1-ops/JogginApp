@@ -306,8 +306,16 @@ fun BuddyLinkSection(controller: BuddyLinkController, userName: String) {
                     modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
                         .background(c.primary.copy(alpha = 0.10f)).padding(14.dp)
                 ) {
+                    // Tapping the title toggles the code: reveals when collapsed,
+                    // collapses when already revealed (vertical padding enlarges the
+                    // touch target beyond the small text bounds).
                     Text(S.buddyYourCode, fontSize = 11.sp, color = c.onSecondary.copy(alpha = 0.7f),
-                        fontWeight = FontWeight.Medium)
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable { codeRevealed = !codeRevealed }
+                            .padding(vertical = 6.dp)
+                            .semantics { contentDescription = S.buddyYourCode })
                     Spacer(Modifier.height(6.dp))
                     if (!codeRevealed) {
                         // Default: a tappable PILL (obvious it's clickable) that reveals the
@@ -328,27 +336,12 @@ fun BuddyLinkSection(controller: BuddyLinkController, userName: String) {
                             )
                         }
                     } else {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            formatBuddyCode(myId), fontSize = 15.sp, color = c.onSecondary,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.semantics { contentDescription = S.buddyYourCode }
-                        )
-                        // Small "Hide" affordance so the revealed code can be collapsed again.
-                        Text(
-                            S.buddyHideCode, fontSize = 11.sp, color = c.primary,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .clickable { codeRevealed = false }
-                                .padding(horizontal = 8.dp, vertical = 4.dp)
-                                .semantics { contentDescription = S.buddyHideCode }
-                        )
-                    }
+                    // Revealed code. Tap the title above to collapse again.
+                    Text(
+                        formatBuddyCode(myId), fontSize = 15.sp, color = c.onSecondary,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.semantics { contentDescription = S.buddyYourCode }
+                    )
                     Spacer(Modifier.height(10.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         // Copy: filled PILL button (c.primary bg / c.onPrimary text) with a

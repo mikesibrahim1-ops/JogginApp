@@ -62,6 +62,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import androidx.core.content.ContextCompat
 import com.example.joggingapp.ui.theme.JogginTheme
 import kotlinx.coroutines.delay
@@ -1722,6 +1723,8 @@ fun OptionsPaneContent(colorIdx: Int, savedRoutes: List<SavedRoute>, onColorSele
     var showDebugConsole by remember { mutableStateOf(false) }
     var versionTapCount  by remember { mutableStateOf(0) }
     var lastVersionTapMs by remember { mutableStateOf(0L) }
+    // Language picker is opened by the 🌐 icon on the version-number row.
+    var showLanguagePicker by remember { mutableStateOf(false) }
     // restoreMessage is keyed on Unit so it survives recompositions but resets when the
     // composable leaves and re-enters composition (i.e. each time the pane is opened).
     var restoreMessage by remember { mutableStateOf<String?>(null) }
@@ -1884,42 +1887,55 @@ fun OptionsPaneContent(colorIdx: Int, savedRoutes: List<SavedRoute>, onColorSele
         }
         } // end Share App + Backup/Restore
 
-        // ── Language ──────────────────────────────────────────────────────────
-        CollapsibleSection(title = S.language, leadingEmoji = "🌐") {
-        Language.values().forEach { lang ->
-            val selected = lang == currentLanguage
-            Row(
-                modifier = Modifier.fillMaxWidth()
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(if (selected) c.primary.copy(alpha = 0.25f) else Color.Transparent)
-                    .clickable {
-                        AppLogger.log(context, LogCategory.UI, "Language changed to ${lang.displayName}")
-                        onLanguageChanged(lang)
-                    }
-                    .padding(12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                // Flag graphic in a circle
-                Box(
-                    modifier = Modifier.size(32.dp).clip(CircleShape)
-                        .background(c.surface.copy(alpha = 0.4f)),
-                    contentAlignment = Alignment.Center
+        // Language picker dialog — opened by the 🌐 icon on the version-number row
+        // (the standalone Language section was collapsed into that icon).
+        if (showLanguagePicker) {
+            Dialog(onDismissRequest = { showLanguagePicker = false }) {
+                Column(
+                    modifier = Modifier.fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(c.surface)
+                        .padding(20.dp)
                 ) {
-                    Text(lang.flag, fontSize = 20.sp)
+                    Text(S.language, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = c.onSecondary)
+                    Spacer(Modifier.height(14.dp))
+                    Language.values().forEach { lang ->
+                        val selected = lang == currentLanguage
+                        Row(
+                            modifier = Modifier.fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(if (selected) c.primary.copy(alpha = 0.25f) else Color.Transparent)
+                                .clickable {
+                                    AppLogger.log(context, LogCategory.UI, "Language changed to ${lang.displayName}")
+                                    onLanguageChanged(lang)
+                                    showLanguagePicker = false
+                                }
+                                .padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            // Flag graphic in a circle
+                            Box(
+                                modifier = Modifier.size(32.dp).clip(CircleShape)
+                                    .background(c.surface.copy(alpha = 0.4f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(lang.flag, fontSize = 20.sp)
+                            }
+                            Text(
+                                lang.nativeName,
+                                fontSize = 14.sp,
+                                color = c.onSecondary,
+                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                                modifier = Modifier.weight(1f)
+                            )
+                            if (selected) Text("✓", fontSize = 16.sp, color = c.success)
+                        }
+                        Spacer(Modifier.height(6.dp))
+                    }
                 }
-                Text(
-                    lang.nativeName,
-                    fontSize = 14.sp,
-                    color = c.onSecondary,
-                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                    modifier = Modifier.weight(1f)
-                )
-                if (selected) Text("✓", fontSize = 16.sp, color = c.success)
             }
-            Spacer(Modifier.height(6.dp))
         }
-        } // end Language
 
         // ── App (version + manual update check) ───────────────────────────────
         CollapsibleSection(title = S.appSection, leadingEmoji = "📦") {
@@ -1929,8 +1945,18 @@ fun OptionsPaneContent(colorIdx: Int, savedRoutes: List<SavedRoute>, onColorSele
             var resultText by remember { mutableStateOf<String?>(null) }
             var availableVersion by remember { mutableStateOf<String?>(null) }
 
-            Text(S.appVersionLabel(BuildConfig.VERSION_NAME), fontSize = 13.sp,
-                color = c.onSecondary, fontWeight = FontWeight.Medium)
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(S.appVersionLabel(BuildConfig.VERSION_NAME), fontSize = 13.sp,
+                    color = c.onSecondary, fontWeight = FontWeight.Medium,
+                    modifier = Modifier.weight(1f))
+                // 🌐 icon — opens the language picker (replaces the old Language section).
+                Text("🌐", fontSize = 18.sp, color = c.onSecondary,
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .clickable { showLanguagePicker = true }
+                        .padding(12.dp)
+                        .semantics { contentDescription = S.language })
+            }
             Spacer(Modifier.height(12.dp))
             Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
                 .background(c.primary.copy(alpha = 0.15f))
