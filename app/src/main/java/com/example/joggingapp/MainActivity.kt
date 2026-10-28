@@ -1968,53 +1968,73 @@ fun OptionsPaneContent(colorIdx: Int, savedRoutes: List<SavedRoute>, onColorSele
             var resultText by remember { mutableStateOf<String?>(null) }
             var availableVersion by remember { mutableStateOf<String?>(null) }
 
+            // Single bottom row: version number (white + bold, also the SECRET triple-tap
+            // debug-console target) on the left, then the 🔄 manual-update icon and the 🌐
+            // language icon collapsed to the right. c.onSecondary is Color.White on every
+            // theme (see JogginTheme), so it's the near-white token for the bold label.
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(S.appVersionLabel(BuildConfig.VERSION_NAME), fontSize = 13.sp,
-                    color = c.onSecondary, fontWeight = FontWeight.Medium,
-                    modifier = Modifier.weight(1f))
-                // 🌐 icon — opens the language picker (replaces the old Language section).
-                // NOTE: no `color`/tint is set on the glyph. Forcing a solid tint on a
-                // colour-emoji flattens it to a blank box on this device's font (the row
-                // kept its height but showed nothing). The other working emoji on this
-                // screen (flag, 👤, 🔄) also set no colour — this matches that pattern.
-                // A 48dp Box gives the required ≥48dp touch target with the glyph centred.
-                Box(
-                    modifier = Modifier
-                        .size(48.dp)
-                        .clip(CircleShape)
-                        .clickable { showLanguagePicker = true }
-                        .semantics { contentDescription = S.language },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text("🌐", fontSize = 20.sp)
-                }
-            }
-            Spacer(Modifier.height(12.dp))
-            Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
-                .background(c.primary.copy(alpha = 0.15f))
-                .clickable(enabled = !checking) {
-                    checking = true
-                    resultText = null
-                    availableVersion = null
-                    updateScope.launch {
-                        // Manual check is NON-throttled (persistTimestamp = false).
-                        val res = UpdateChecker.checkLatest(context, BuildConfig.VERSION_NAME, persistTimestamp = false)
-                        checking = false
-                        when {
-                            res.failed -> resultText = S.updateCheckFailed
-                            res.updateAvailable && res.latestVersion != null -> {
-                                availableVersion = res.latestVersion
-                                resultText = S.updateVersionAvailable(res.latestVersion)
-                            }
-                            else -> resultText = S.upToDate
+                Text(
+                    S.appVersionLabel(BuildConfig.VERSION_NAME),
+                    fontSize = 13.sp,
+                    color = c.onSecondary, // = Color.White across themes
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f).clickable {
+                        val now = System.currentTimeMillis()
+                        versionTapCount = if (now - lastVersionTapMs <= 1500L) versionTapCount + 1 else 1
+                        lastVersionTapMs = now
+                        if (versionTapCount >= 3) {
+                            versionTapCount = 0
+                            showDebugConsole = !showDebugConsole
+                            AppLogger.log(context, LogCategory.UI,
+                                "Debug console ${if (showDebugConsole) "revealed" else "hidden"} via version triple-tap")
                         }
                     }
+                )
+                // Icons share a small horizontal gap; each is a 48dp Box for a ≥48dp target.
+                // NOTE: no `color`/tint is set on the glyphs. Forcing a solid tint on a
+                // colour-emoji flattens it to a blank box on this device's font. The other
+                // working emoji on this screen (flag, 👤, 🔄) also set no colour.
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    // 🔄 icon — runs the manual (non-throttled) update check.
+                    Box(
+                        modifier = Modifier
+                            .size(48.dp)
+                            .clip(CircleShape)
+                            .clickable(enabled = !checking) {
+                                checking = true
+                                resultText = null
+                                availableVersion = null
+                                updateScope.launch {
+                                    // Manual check is NON-throttled (persistTimestamp = false).
+                                    val res = UpdateChecker.checkLatest(context, BuildConfig.VERSION_NAME, persistTimestamp = false)
+                                    checking = false
+                                    when {
+                                        res.failed -> resultText = S.updateCheckFailed
+                                        res.updateAvailable && res.latestVersion != null -> {
+                                            availableVersion = res.latestVersion
+                                            resultText = S.updateVersionAvailable(res.latestVersion)
+                                        }
+                                        else -> resultText = S.upToDate
+                                    }
+                                }
+                            }
+                            .semantics { contentDescription = S.checkForUpdates },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("🔄", fontSize = 20.sp)
+                    }
+                    // 🌐 icon — opens the language picker (replaces the old Language section).
+                    Box(
+                        modifier = Modifier
+                            .size(48.dp)
+                            .clip(CircleShape)
+                            .clickable { showLanguagePicker = true }
+                            .semantics { contentDescription = S.language },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("🌐", fontSize = 20.sp)
+                    }
                 }
-                .padding(14.dp),
-                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("🔄", fontSize = 20.sp)
-                Text(if (checking) S.checkingForUpdates else S.checkForUpdates,
-                    fontSize = 13.sp, color = c.onSecondary, fontWeight = FontWeight.SemiBold)
             }
             resultText?.let { msg ->
                 Spacer(Modifier.height(10.dp))
@@ -2211,28 +2231,6 @@ fun OptionsPaneContent(colorIdx: Int, savedRoutes: List<SavedRoute>, onColorSele
         }
         } // end if (showDebugConsole)
 
-        Spacer(Modifier.height(24.dp))
-
-        // ── Build number — pinned at the very bottom of the options pane ──────
-        // SECRET: triple-tapping this within 1.5s toggles the hidden debug console.
-        // Read dynamically from BuildConfig so it never drifts from the real version.
-        Text(
-            "V${BuildConfig.VERSION_NAME}",
-            fontSize = 11.sp,
-            color = c.onSecondary.copy(alpha = 0.4f),
-            textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth().clickable {
-                val now = System.currentTimeMillis()
-                versionTapCount = if (now - lastVersionTapMs <= 1500L) versionTapCount + 1 else 1
-                lastVersionTapMs = now
-                if (versionTapCount >= 3) {
-                    versionTapCount = 0
-                    showDebugConsole = !showDebugConsole
-                    AppLogger.log(context, LogCategory.UI,
-                        "Debug console ${if (showDebugConsole) "revealed" else "hidden"} via version triple-tap")
-                }
-            }
-        )
         Spacer(Modifier.height(16.dp))
     }
 }
