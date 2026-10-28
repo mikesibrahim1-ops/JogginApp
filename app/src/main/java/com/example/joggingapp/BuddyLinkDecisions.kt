@@ -72,6 +72,24 @@ object BuddyLinkDecisions {
 }
 
 /**
+ * Pure (Android/Firebase-free) partition of the accepted-buddy list into the active
+ * list and the Blocked group, driven by my blocked-appId set. The link is preserved
+ * while a buddy is blocked (reversible block), so a blocked buddy still arrives as a
+ * [BuddyView] from `observeBuddies()` and is merely suppressed from the active list
+ * and surfaced — with its real display name — in the Blocked group. JVM-unit-testable.
+ */
+object BuddyListFilter {
+
+    /** Buddies to show in the active list: accepted buddies whose appId I have NOT blocked. */
+    fun activeBuddies(all: List<BuddyView>, blocked: Set<String>): List<BuddyView> =
+        all.filterNot { it.user.appId in blocked }
+
+    /** Buddies to show in the Blocked group: accepted buddies I HAVE blocked (carry name). */
+    fun blockedBuddies(all: List<BuddyView>, blocked: Set<String>): List<BuddyView> =
+        all.filter { it.user.appId in blocked }
+}
+
+/**
  * Pure classifier for a tap on a buddy's name in the Buddy Link list (V1.6x
  * tap-to-locate). Decides whether tapping should centre the map on the buddy or surface
  * a specific reason it can't. Kept here (Android/Firebase-free) so it is unit-testable.

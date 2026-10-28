@@ -106,15 +106,26 @@ class BuddyLinkController(private val appContext: Context) {
     /** Derived: am I currently sharing? (mutual-on gate, CONDITION-1 — my side.) */
     val sharing: Boolean get() = enabled && gpsOn
 
-    /**
-     * The local "member since" time (ms epoch), stored create-if-absent in prefs on first
-     * enable so the Buddy section can show a stable date without an extra Firestore read.
-     * Null until the account has been provisioned at least once.
-     */
-    val myCreatedAt: Long? get() = prefs.getLong(KEY_CREATED_AT, 0L).takeIf { it > 0L }
-
     /** True when at least one buddy can currently see me (drives the eye indicator). */
     val hasWatchers: Boolean get() = enabled && watchers.isNotEmpty()
+
+    /**
+     * Accepted buddies to show in the active list — those I have NOT blocked. Derived
+     * reactively from the Compose-observable [buddies] + [blocked] via the pure
+     * [BuddyListFilter], so blocking/unblocking moves a buddy between lists within one
+     * recomposition. The raw [buddies] (and the transition baseline) stay unfiltered so
+     * block fires no false "unlinked" notification.
+     */
+    val activeBuddies: List<BuddyView>
+        get() = BuddyListFilter.activeBuddies(buddies, blocked.toSet())
+
+    /** Accepted buddies I HAVE blocked (link preserved), rendered in the Blocked group with their name. */
+    val blockedBuddies: List<BuddyView>
+        get() = BuddyListFilter.blockedBuddies(buddies, blocked.toSet())
+
+    /** Legacy/torn-down blocks with no surviving accepted link (pre-reversible-block data); rendered as short ids. */
+    val blockedOnlyIds: List<String>
+        get() = blocked.filter { id -> buddies.none { it.user.appId == id } }
 
     /**
      * The buddy to display on the home map: the first one that is currently live
@@ -376,10 +387,6 @@ class BuddyLinkController(private val appContext: Context) {
         appId = id
         enabled = true
         prefs.edit().putBoolean(KEY_ENABLED, true).apply()
-        // Record "member since" once, create-if-absent — never overwrite a prior value.
-        if (!prefs.contains(KEY_CREATED_AT)) {
-            prefs.edit().putLong(KEY_CREATED_AT, System.currentTimeMillis()).apply()
-        }
         AppLogger.log(appContext, LogCategory.PROFILE, "Buddy Link enabled")
         // Push my enabled state to the backend, then start the live session through the
         // SAME idempotent path app launch uses so listeners + sharing come up IMMEDIATELY
@@ -593,8 +600,6 @@ class BuddyLinkController(private val appContext: Context) {
         repo.deleteAllMyData()
         BuddyIdentity.reset(appContext)
         disable()
-        // Clear local "member since" so a fresh identity starts a fresh account age.
-        prefs.edit().remove(KEY_CREATED_AT).apply()
         // Fresh identity -> fresh account state: reset the share mode to the default
         // (design §3). This is the ONE place the mode resets; disable() must not.
         prefs.edit().remove(BuddyConstants.PREFS_SHARE_MODE_KEY).apply()
@@ -615,7 +620,6 @@ class BuddyLinkController(private val appContext: Context) {
 
     companion object {
         private const val KEY_ENABLED = "buddy_enabled"
-        private const val KEY_CREATED_AT = "buddy_created_at"
         // Interval for the Compose-observable liveness tick. 3s keeps the perceived
         // latency for a buddy appearing low while costing only in-memory re-reads.
         private const val LIVENESS_TICK_MS = 3000L

@@ -103,7 +103,12 @@ interface BuddyRepository {
 
     // ── Blocking ────────────────────────────────────────────────────────────────
 
-    /** Blocks a user: unlink, purge shared data, prevent re-link. Req 12. */
+    /**
+     * Blocks a user by recording them in my blocked set. Reversible: the accepted link is
+     * PRESERVED, so [unblockUser] reinstates the buddy via observeBuddies. While blocked,
+     * sensitive paths stay denied server-side by the rules' mutual `!hasBlocked` gate (no
+     * link teardown). Req 12.
+     */
     suspend fun blockUser(appId: String): BuddyResult<Unit>
 
     /** Removes a block. Req 12.5. */

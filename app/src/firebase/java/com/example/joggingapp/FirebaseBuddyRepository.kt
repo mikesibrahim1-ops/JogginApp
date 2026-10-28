@@ -432,10 +432,12 @@ class FirebaseBuddyRepository(private val appContext: Context) : BuddyRepository
 
     override suspend fun blockUser(appId: String): BuddyResult<Unit> = runCatching {
         val me = myAppId ?: return BuddyResult.Failure(BuddyResult.Reason.NOT_FOUND)
-        // Unlink + record the block; purge is handled by removing the link + rules.
+        // Record the block only; the accepted link is PRESERVED so unblock reinstates the
+        // buddy via the existing observeBuddies flow (reversible block). Sensitive paths
+        // (locations/trail/locReq/cheers) stay denied server-side via the rules' mutual
+        // `!hasBlocked` gate, so a preserved accepted link leaks nothing while blocked.
         db.collection("users").document(me).collection("blocked").document(appId)
             .set(mapOf("at" to FieldValue.serverTimestamp())).await()
-        runCatching { setLinkState(linkIdFor(me, appId), "removed") }
         BuddyResult.Success(Unit)
     }.getOrElse { mapError(it) }
 
