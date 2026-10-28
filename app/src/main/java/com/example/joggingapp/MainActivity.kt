@@ -899,6 +899,7 @@ fun JogApp(context: Context) {
                                             },
                                             onLabel = S.toggleMapShareOn,
                                             offLabel = S.toggleMapShareOff,
+                                            onExplanation = S.mapShareExplain,
                                             contentDescriptionText = S.includeMapWhenSharing,
                                         )
                                     }

@@ -9,6 +9,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.Text
@@ -25,6 +26,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntRect
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
@@ -41,9 +44,11 @@ import kotlinx.coroutines.delay
  *  - A thin border is always drawn so the pill stands out even when the surrounding
  *    background is a closely-blended colour.
  *
- * Behaviour: on every tap a short status label ([onLabel] / [offLabel]) appears in a small
- * FLOATING box (a Popup, so it never expands the toggle's row or overlaps neighbouring
- * controls), styled in the app theme, and auto-dismisses after ~3 seconds.
+ * Behaviour: turning the toggle OFF→ON flashes a short message in a small FLOATING box (a
+ * Popup, so it never expands the toggle's row or overlaps neighbouring controls) — the
+ * plain-language [onExplanation] when supplied, otherwise the legacy [onLabel]. Turning it
+ * ON→OFF shows nothing. The box floats just below the toggle, flips above when there's no
+ * room below, and auto-dismisses after ~3 seconds.
  */
 
 // Neutral off-state grey, theme-independent so it never blends into a themed background.
@@ -56,7 +61,11 @@ fun AppToggle(
     checked: Boolean,
     onToggle: () -> Unit,
     onLabel: String,
-    offLabel: String,
+    // Retained for backward compatibility with existing call sites. OFF taps are now silent
+    // (nothing flashes on on->off), so this value is no longer displayed; kept to avoid an
+    // out-of-scope API change to the shared component.
+    @Suppress("UNUSED_PARAMETER") offLabel: String,
+    onExplanation: String? = null,
     modifier: Modifier = Modifier,
     contentDescriptionText: String? = null,
 ) {
@@ -83,8 +92,13 @@ fun AppToggle(
                 .border(1.dp, ToggleBorder, RoundedCornerShape(12.dp))
                 .clickable {
                     val next = !checked
-                    flashText = if (next) onLabel else offLabel
-                    flashKey += 1
+                    // ON-only flash: on an off->on tap show the explanation (preferred) or
+                    // the legacy onLabel; on an on->off tap show NOTHING (silent turn-off).
+                    val msg = if (next) (onExplanation?.takeIf { it.isNotBlank() } ?: onLabel) else null
+                    if (msg != null) {
+                        flashText = msg
+                        flashKey += 1
+                    }
                     onToggle()
                 }
                 .then(
@@ -105,6 +119,7 @@ fun AppToggle(
                 AnimatedVisibility(visible = flashVisible, enter = fadeIn(), exit = fadeOut()) {
                     Box(
                         modifier = Modifier
+                            .widthIn(max = 240.dp)
                             .clip(RoundedCornerShape(percent = 3))
                             .background(c.primary)
                             .border(1.dp, ToggleBorder, RoundedCornerShape(percent = 3))
@@ -119,20 +134,38 @@ fun AppToggle(
 }
 
 /**
- * Positions the popup horizontally centred on the anchor (the toggle) and just below it,
- * with a small gap. Keeps the floating label visually tied to the toggle.
+ * Pure positioning logic for the floating explanation popup (no Compose runtime), so it can
+ * be unit-tested. Horizontally centres the popup on the anchor (the toggle) and clamps it on
+ * screen. Vertically it sits just below the anchor by [gapPx]; if there isn't enough room
+ * below (it would spill past the window bottom) it flips ABOVE the anchor instead, clamped to
+ * stay on screen.
+ */
+internal fun explainPopupOffset(
+    anchorBounds: IntRect,
+    windowSize: IntSize,
+    popupContentSize: IntSize,
+    gapPx: Int
+): IntOffset {
+    val x = anchorBounds.left + (anchorBounds.width - popupContentSize.width) / 2
+    val clampedX = x.coerceIn(0, (windowSize.width - popupContentSize.width).coerceAtLeast(0))
+    val fitsBelow = anchorBounds.bottom + popupContentSize.height + gapPx <= windowSize.height
+    val y = if (fitsBelow) {
+        anchorBounds.bottom + gapPx
+    } else {
+        (anchorBounds.top - gapPx - popupContentSize.height).coerceAtLeast(0)
+    }
+    return IntOffset(clampedX, y)
+}
+
+/**
+ * Positions the popup horizontally centred on the anchor (the toggle), below it by default and
+ * flipped above when there's no room below. Keeps the floating label visually tied to the toggle.
  */
 private val belowCenterProvider = object : PopupPositionProvider {
     override fun calculatePosition(
-        anchorBounds: androidx.compose.ui.unit.IntRect,
-        windowSize: androidx.compose.ui.unit.IntSize,
+        anchorBounds: IntRect,
+        windowSize: IntSize,
         layoutDirection: androidx.compose.ui.unit.LayoutDirection,
-        popupContentSize: androidx.compose.ui.unit.IntSize
-    ): IntOffset {
-        val x = anchorBounds.left + (anchorBounds.width - popupContentSize.width) / 2
-        val y = anchorBounds.bottom + 8
-        // Clamp horizontally so the floating box never spills off-screen.
-        val clampedX = x.coerceIn(0, (windowSize.width - popupContentSize.width).coerceAtLeast(0))
-        return IntOffset(clampedX, y)
-    }
+        popupContentSize: IntSize
+    ): IntOffset = explainPopupOffset(anchorBounds, windowSize, popupContentSize, gapPx = 8)
 }

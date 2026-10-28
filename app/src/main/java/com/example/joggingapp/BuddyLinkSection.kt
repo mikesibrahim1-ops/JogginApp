@@ -210,6 +210,10 @@ fun BuddyLinkSection(controller: BuddyLinkController, userName: String) {
                 onToggle = { if (on) controller.disable() else showConsent = true },
                 onLabel = if (on) S.toggleBuddyLinkOn else S.buddyEnablePending,
                 offLabel = S.toggleBuddyLinkOff,
+                // onExplanation (S.buddyLinkExplain) is intentionally NOT passed here: the raw
+                // ON tap only opens the consent dialog and may still fail, so flashing a
+                // success-implying explanation would promise enablement prematurely. The neutral
+                // pending label above is kept for honesty.
                 contentDescriptionText = S.buddyToggleDesc(on),
             )
         }
@@ -266,6 +270,7 @@ fun BuddyLinkSection(controller: BuddyLinkController, userName: String) {
                     onToggle = { if (isRoute) controller.disableRouteMode() else showRouteConsent = true },
                     onLabel = S.toggleShareRouteOn,
                     offLabel = S.toggleShareRouteOff,
+                    onExplanation = S.shareRouteExplain,
                     contentDescriptionText = S.buddyShareModeDesc(isRoute),
                 )
             }
