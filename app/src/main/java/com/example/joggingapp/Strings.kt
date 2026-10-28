@@ -109,6 +109,7 @@ class AppStrings {
     var restoreRuns: String = ""
     var restoreRunsSubtitle: String = ""
     var restoredCount: (Int) -> String = { _ -> "" }    // "Restored N run(s)"
+    var restoredWithExercise: (Int, Int) -> String = { _, _ -> "" }  // "Restored N run(s) + M exercise item(s)"
     var restoreFailed: String = ""
     // Route colour names
     var colorLightGreen: String = ""
@@ -435,6 +436,7 @@ private fun buildEnglishStrings(): AppStrings = AppStrings().apply {
     restoreRuns = "Restore Runs"
     restoreRunsSubtitle = "Pick a backup file to import runs"
     restoredCount = { n -> "Restored $n run(s)" }
+    restoredWithExercise = { runs, exercise -> "Restored $runs run(s) + $exercise exercise item(s)" }
     restoreFailed = "Failed to restore — invalid file"
     colorLightGreen = "Light Green"
     colorBlue = "Blue"
@@ -755,6 +757,7 @@ private fun buildGreekStrings(): AppStrings = AppStrings().apply {
     restoreRuns = "Επαναφορά Δραστηριοτήτων"
     restoreRunsSubtitle = "Επιλέξτε ένα αρχείο αντιγράφου για εισαγωγή"
     restoredCount = { n -> "Επαναφέρθηκαν $n δραστηριότητες" }
+    restoredWithExercise = { runs, exercise -> "Επαναφέρθηκαν $runs δραστηριότητες + $exercise στοιχεία άσκησης" }
     restoreFailed = "Η επαναφορά απέτυχε — μη έγκυρο αρχείο"
     colorLightGreen = "Ανοιχτό Πράσινο"
     colorBlue = "Μπλε"

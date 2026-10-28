@@ -1755,10 +1755,19 @@ fun OptionsPaneContent(colorIdx: Int, savedRoutes: List<SavedRoute>, onColorSele
                     BuddyIdentity.adoptId(context, restoredId)
                 }
             }
-            restoreMessage = S.restoredCount(imported.size)
+            // Exercise data (v3+). For older backups these lists are empty, so nothing is
+            // imported and the message never falsely claims exercise data was restored.
+            val exerciseImported =
+                ExerciseTargetStorage.importTargets(context, backup.exerciseTargets) +
+                    ExerciseTargetStorage.importRepLog(context, backup.repLog) +
+                    ExerciseTargetStorage.importCompleted(context, backup.completedTargets)
+            restoreMessage =
+                if (exerciseImported > 0) S.restoredWithExercise(imported.size, exerciseImported)
+                else S.restoredCount(imported.size)
             restoreSuccess = true
             AppLogger.log(context, LogCategory.BACKUP,
-                "Restore complete (v${backup.version}) — ${imported.size} imported, ${routes.size - imported.size} already existed" +
+                "Restore complete (v${backup.version}) — ${imported.size} routes imported, " +
+                    "${routes.size - imported.size} already existed, $exerciseImported exercise entries imported" +
                     (if (backup.buddyAppId != null) ", buddy identity present" else ""))
         } catch (e: Exception) {
             restoreMessage = S.restoreFailed
@@ -1950,12 +1959,21 @@ fun OptionsPaneContent(colorIdx: Int, savedRoutes: List<SavedRoute>, onColorSele
                     color = c.onSecondary, fontWeight = FontWeight.Medium,
                     modifier = Modifier.weight(1f))
                 // 🌐 icon — opens the language picker (replaces the old Language section).
-                Text("🌐", fontSize = 18.sp, color = c.onSecondary,
+                // NOTE: no `color`/tint is set on the glyph. Forcing a solid tint on a
+                // colour-emoji flattens it to a blank box on this device's font (the row
+                // kept its height but showed nothing). The other working emoji on this
+                // screen (flag, 👤, 🔄) also set no colour — this matches that pattern.
+                // A 48dp Box gives the required ≥48dp touch target with the glyph centred.
+                Box(
                     modifier = Modifier
+                        .size(48.dp)
                         .clip(CircleShape)
                         .clickable { showLanguagePicker = true }
-                        .padding(12.dp)
-                        .semantics { contentDescription = S.language })
+                        .semantics { contentDescription = S.language },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("🌐", fontSize = 20.sp)
+                }
             }
             Spacer(Modifier.height(12.dp))
             Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
@@ -2525,13 +2543,18 @@ fun shareApp(context: Context, userName: String = "") {
 fun backupRuns(context: Context) {
     try {
         val routes = RouteStorage.loadRoutes(context)
-        if (routes.isEmpty()) {
-            android.widget.Toast.makeText(context, "No runs to backup", android.widget.Toast.LENGTH_SHORT).show()
+        // Exercise data travels in the backup too (v3). Gather it alongside routes.
+        val targets = ExerciseTargetStorage.loadTargets(context)
+        val repLog = ExerciseTargetStorage.loadRepLog(context)
+        val completed = ExerciseTargetStorage.loadCompleted(context)
+        if (routes.isEmpty() && targets.isEmpty() && repLog.isEmpty() && completed.isEmpty()) {
+            android.widget.Toast.makeText(context, "Nothing to backup", android.widget.Toast.LENGTH_SHORT).show()
             return
         }
-        // Backup format v2: versioned envelope carrying the routes + the Buddy Link
-        // App ID (if provisioned) so identity/links survive reinstall or a new device.
-        val json = BackupData.toJson(routes, BuddyIdentity.getId(context))
+        // Backup format v3: versioned envelope carrying the routes, the Buddy Link App ID
+        // (if provisioned, so identity/links survive reinstall or a new device), and the
+        // user's exercise data (targets + rep log + completed targets).
+        val json = BackupData.toJson(routes, BuddyIdentity.getId(context), targets, repLog, completed)
 
         // Write to app-private external files (no permission needed on any API level)
         val dir = context.getExternalFilesDir(null) ?: context.filesDir

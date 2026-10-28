@@ -333,4 +333,59 @@ object ExerciseTargetStorage {
     fun clearCompleted(context: Context) {
         prefs(context).edit().remove(KEY_COMPLETED).apply()
     }
+
+    // ── Restore / bulk import (used by Backup & Restore, merge-by-id like routes) ──
+
+    /**
+     * Import exercise [incoming] targets, adding only those whose [ExerciseTarget.id]
+     * is not already present (mirrors [RouteStorage.saveRoute]'s skip-if-present merge).
+     * Returns the number of targets actually added.
+     */
+    fun importTargets(context: Context, incoming: List<ExerciseTarget>): Int {
+        if (incoming.isEmpty()) return 0
+        val list = loadTargets(context).toMutableList()
+        val existingIds = list.mapTo(mutableSetOf()) { it.id }
+        val toAdd = incoming.filter { it.id !in existingIds }
+        if (toAdd.isEmpty()) return 0
+        list.addAll(0, toAdd)
+        saveTargets(context, list)
+        return toAdd.size
+    }
+
+    /**
+     * Import rep-log [incoming] entries, merging by [RepLogEntry.id] (skip ids already
+     * present). The same ~400-day prune used by [logReps] is applied before saving so
+     * the log can't grow without bound. Returns the number of new entries added.
+     */
+    fun importRepLog(context: Context, incoming: List<RepLogEntry>): Int {
+        if (incoming.isEmpty()) return 0
+        val list = loadRepLog(context).toMutableList()
+        val existingIds = list.mapTo(mutableSetOf()) { it.id }
+        val toAdd = incoming.filter { it.id !in existingIds }
+        if (toAdd.isEmpty()) return 0
+        list.addAll(0, toAdd)
+        val cutoff = System.currentTimeMillis() - 400L * 86_400_000L
+        val pruned = list.filter { it.timestamp >= cutoff }
+        saveRepLog(context, pruned)
+        return toAdd.size
+    }
+
+    /**
+     * Import completed/achieved [incoming] targets, merging by [CompletedTarget.id] with
+     * a secondary guard on the natural key (targetId, periodKey) so the same achievement
+     * from another device isn't duplicated. Returns the number of new entries added.
+     */
+    fun importCompleted(context: Context, incoming: List<CompletedTarget>): Int {
+        if (incoming.isEmpty()) return 0
+        val list = loadCompleted(context).toMutableList()
+        val existingIds = list.mapTo(mutableSetOf()) { it.id }
+        val existingKeys = list.mapTo(mutableSetOf()) { it.targetId to it.periodKey }
+        val toAdd = incoming.filter {
+            it.id !in existingIds && (it.targetId to it.periodKey) !in existingKeys
+        }
+        if (toAdd.isEmpty()) return 0
+        list.addAll(0, toAdd)
+        saveCompleted(context, list)
+        return toAdd.size
+    }
 }

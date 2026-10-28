@@ -20,44 +20,79 @@ data class SavedRoute(
 )
 
 /**
- * Versioned backup envelope (backup format v2). Wraps the saved routes plus the
- * Buddy Link App ID so a restored install keeps its original identity and links
- * (Req 2.3, D4). Backward-compatible: [BackupData.parse] also accepts a legacy v1
- * backup, which was a bare JSON array of [SavedRoute] with no identity.
+ * Versioned backup envelope (backup format v3). Wraps the saved routes, the Buddy Link
+ * App ID (so a restored install keeps its original identity and links — Req 2.3, D4),
+ * and — new in v3 — the user's exercise data: targets, manual rep log, and completed
+ * (achieved) targets.
+ *
+ * Backward-compatible: [BackupData.parse] accepts
+ *   - v3: the full envelope (routes + buddyAppId + exerciseTargets + repLog + completedTargets),
+ *   - v2: the envelope without exercise fields (they default to empty lists),
+ *   - legacy v1: a bare JSON array of [SavedRoute] with no identity and no exercise data.
  */
 data class BackupData(
     val version: Int = CURRENT_VERSION,
     val buddyAppId: String? = null,
-    val routes: List<SavedRoute> = emptyList()
+    val routes: List<SavedRoute> = emptyList(),
+    val exerciseTargets: List<ExerciseTarget> = emptyList(),
+    val repLog: List<RepLogEntry> = emptyList(),
+    val completedTargets: List<CompletedTarget> = emptyList()
 ) {
     companion object {
-        const val CURRENT_VERSION = 2
-
-        /** Serialize routes + optional buddy App ID into the v2 envelope JSON. */
-        fun toJson(routes: List<SavedRoute>, buddyAppId: String?): String =
-            Gson().toJson(BackupData(CURRENT_VERSION, buddyAppId, routes))
+        const val CURRENT_VERSION = 3
 
         /**
-         * Parse a backup file. Accepts both the v2 envelope (a JSON object with a
-         * `routes` array) and a legacy v1 bare array of routes. Returns null only if
-         * the input is neither shape / unparseable.
+         * Serialize routes + optional buddy App ID into the current envelope JSON, with
+         * no exercise data (used by callers/tests that only back up routes + identity).
+         */
+        fun toJson(routes: List<SavedRoute>, buddyAppId: String?): String =
+            toJson(routes, buddyAppId, emptyList(), emptyList(), emptyList())
+
+        /** Serialize the full v3 envelope: routes + buddy App ID + exercise data. */
+        fun toJson(
+            routes: List<SavedRoute>,
+            buddyAppId: String?,
+            exerciseTargets: List<ExerciseTarget>,
+            repLog: List<RepLogEntry>,
+            completedTargets: List<CompletedTarget>
+        ): String =
+            Gson().toJson(
+                BackupData(CURRENT_VERSION, buddyAppId, routes, exerciseTargets, repLog, completedTargets)
+            )
+
+        /**
+         * Parse a backup file. Accepts the v3 envelope, the v2 envelope (exercise fields
+         * absent → empty lists), and a legacy v1 bare array of routes. Returns null only
+         * if the input is neither shape / unparseable.
          */
         fun parse(json: String): BackupData? {
             val gson = Gson()
             val trimmed = json.trimStart()
             return try {
                 if (trimmed.startsWith("[")) {
-                    // Legacy v1: bare array of routes, no identity.
+                    // Legacy v1: bare array of routes, no identity, no exercise data.
                     val type = object : TypeToken<List<SavedRoute>>() {}.type
                     val routes: List<SavedRoute> = gson.fromJson(json, type) ?: emptyList()
                     BackupData(version = 1, buddyAppId = null, routes = routes)
                 } else {
-                    // v2 envelope. Gson can leave `routes` null via reflection if the
-                    // field is absent, so guard against it through a nullable view.
+                    // v2/v3 envelope. Gson can leave list fields null via reflection when
+                    // a field is absent (e.g. a v2 file has no exercise arrays), so guard
+                    // each through a nullable view and coerce to an empty list.
                     val data = gson.fromJson(json, BackupData::class.java) ?: return null
                     @Suppress("USELESS_ELVIS")
                     val safeRoutes: List<SavedRoute> = (data.routes as List<SavedRoute>?) ?: emptyList()
-                    data.copy(routes = safeRoutes)
+                    @Suppress("USELESS_ELVIS")
+                    val safeTargets: List<ExerciseTarget> = (data.exerciseTargets as List<ExerciseTarget>?) ?: emptyList()
+                    @Suppress("USELESS_ELVIS")
+                    val safeRepLog: List<RepLogEntry> = (data.repLog as List<RepLogEntry>?) ?: emptyList()
+                    @Suppress("USELESS_ELVIS")
+                    val safeCompleted: List<CompletedTarget> = (data.completedTargets as List<CompletedTarget>?) ?: emptyList()
+                    data.copy(
+                        routes = safeRoutes,
+                        exerciseTargets = safeTargets,
+                        repLog = safeRepLog,
+                        completedTargets = safeCompleted
+                    )
                 }
             } catch (_: Exception) {
                 null
