@@ -60,6 +60,8 @@ fun BuddyLinkSection(controller: BuddyLinkController, userName: String) {
     var confirmRemove by remember { mutableStateOf<BuddyLink?>(null) }
     // Holds the buddy appId pending a "block" confirmation dialog.
     var confirmBlock by remember { mutableStateOf<String?>(null) }
+    // Holds the blocked appId pending an "unblock" confirmation dialog.
+    var confirmUnblock by remember { mutableStateOf<String?>(null) }
     // Drives the "delete all my data" confirmation dialog.
     var confirmDelete by remember { mutableStateOf(false) }
     // Drives the consent dialog when switching the share mode PING -> ROUTE (req 5a).
@@ -405,6 +407,11 @@ fun BuddyLinkSection(controller: BuddyLinkController, userName: String) {
                     } // end codeRevealed else-branch
                 }
 
+                // ── Share live location (S2 public link for non-app viewers) ──────
+                // Sits directly under the buddy-code card (user request). The card owns
+                // its own leading Spacer(12.dp), which is the only gap to the code card.
+                ShareLiveLocationCard(controller)
+
                 // ── Add a buddy: enter a friend's code ─────────────────────────
                 // Hidden by default behind a reveal control to save space.
                 Spacer(Modifier.height(12.dp))
@@ -467,9 +474,6 @@ fun BuddyLinkSection(controller: BuddyLinkController, userName: String) {
                     Text(msg, fontSize = 11.sp, color = c.onSecondary.copy(alpha = 0.85f))
                 }
             }
-
-            // ── Share live location (S2 public link for non-app viewers) ──────
-            ShareLiveLocationCard(controller)
 
             // ── Invites (incoming/pending; dismissable at any time, Req #4) ───
             if (controller.pending.isNotEmpty()) {
@@ -660,18 +664,26 @@ fun BuddyLinkSection(controller: BuddyLinkController, userName: String) {
             if (controller.blocked.isNotEmpty()) {
                 BuddyGroupHeader(S.buddyBlocked)
                 controller.blocked.forEach { appId ->
+                    val blockedName = shortId(appId)
                     Row(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                        modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        val blockedName = shortId(appId)
-                        Text(blockedName, fontSize = 12.sp, color = c.onSecondary.copy(alpha = 0.7f),
-                            modifier = Modifier.weight(1f))
-                        Text(S.buddyUnblock, fontSize = 12.sp, color = c.primary,
+                        // Tapping a blocked entry opens the unblock confirm dialog,
+                        // mirroring how tapping an active buddy opens the block confirm.
+                        // Block and unblock are the two states of the same tap affordance.
+                        // .padding(vertical = 8.dp) keeps the touch target ≥ 48dp.
+                        Column(
                             modifier = Modifier
-                                .clickable { controller.unblock(appId) }
-                                .semantics { contentDescription = S.buddyActionDesc(S.buddyUnblock, blockedName) })
+                                .weight(1f)
+                                .clickable { confirmUnblock = appId }
+                                .semantics { contentDescription = S.buddyActionDesc(S.buddyUnblock, blockedName) }
+                                .padding(vertical = 8.dp)
+                        ) {
+                            Text(blockedName, fontSize = 12.sp, color = c.onSecondary.copy(alpha = 0.7f))
+                            Text(S.buddyBlocked, fontSize = 10.sp, color = c.onSecondary.copy(alpha = 0.6f))
+                        }
                     }
                     Divider(color = c.onSecondary.copy(alpha = 0.12f))
                 }
@@ -748,6 +760,21 @@ fun BuddyLinkSection(controller: BuddyLinkController, userName: String) {
                 controller.block(appId); confirmBlock = null
             },
             onDismiss = { confirmBlock = null }
+        )
+    }
+
+    // ── Unblock confirmation (mirror of block; tap-to-confirm from Blocked list) ─
+    confirmUnblock?.let { appId ->
+        BuddyDialog(
+            title = S.buddyUnblock,
+            body = S.buddyUnblockConfirm,
+            confirmLabel = S.buddyUnblock,
+            dismissLabel = S.buddyDecline,
+            onConfirm = {
+                AppLogger.log(context, LogCategory.PROFILE, "Buddy Link: unblocked a buddy")
+                controller.unblock(appId); confirmUnblock = null
+            },
+            onDismiss = { confirmUnblock = null }
         )
     }
 
