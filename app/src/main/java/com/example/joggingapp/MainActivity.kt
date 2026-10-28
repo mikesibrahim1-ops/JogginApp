@@ -1969,16 +1969,17 @@ fun OptionsPaneContent(colorIdx: Int, savedRoutes: List<SavedRoute>, onColorSele
             var availableVersion by remember { mutableStateOf<String?>(null) }
 
             // Single bottom row: version number (white + bold, also the SECRET triple-tap
-            // debug-console target) on the left, then the 🔄 manual-update icon and the 🌐
-            // language icon collapsed to the right. c.onSecondary is Color.White on every
-            // theme (see JogginTheme), so it's the near-white token for the bold label.
+            // debug-console target) pinned left, the 🔄 manual-update icon CENTRED, and the
+            // 🌐 language icon pinned right. Equal-weight spacers on each side of 🔄 keep it
+            // centred between the version and the language icon. c.onSecondary is
+            // Color.White on every theme (see JogginTheme), the near-white token for the label.
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     S.appVersionLabel(BuildConfig.VERSION_NAME),
                     fontSize = 13.sp,
                     color = c.onSecondary, // = Color.White across themes
                     fontWeight = FontWeight.Bold,
-                    modifier = Modifier.weight(1f).clickable {
+                    modifier = Modifier.clickable {
                         val now = System.currentTimeMillis()
                         versionTapCount = if (now - lastVersionTapMs <= 1500L) versionTapCount + 1 else 1
                         lastVersionTapMs = now
@@ -1990,50 +1991,59 @@ fun OptionsPaneContent(colorIdx: Int, savedRoutes: List<SavedRoute>, onColorSele
                         }
                     }
                 )
-                // Icons share a small horizontal gap; each is a 48dp Box for a ≥48dp target.
-                // NOTE: no `color`/tint is set on the glyphs. Forcing a solid tint on a
-                // colour-emoji flattens it to a blank box on this device's font. The other
-                // working emoji on this screen (flag, 👤, 🔄) also set no colour.
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    // 🔄 icon — runs the manual (non-throttled) update check.
-                    Box(
-                        modifier = Modifier
-                            .size(48.dp)
-                            .clip(CircleShape)
-                            .clickable(enabled = !checking) {
-                                checking = true
-                                resultText = null
-                                availableVersion = null
-                                updateScope.launch {
-                                    // Manual check is NON-throttled (persistTimestamp = false).
-                                    val res = UpdateChecker.checkLatest(context, BuildConfig.VERSION_NAME, persistTimestamp = false)
-                                    checking = false
-                                    when {
-                                        res.failed -> resultText = S.updateCheckFailed
-                                        res.updateAvailable && res.latestVersion != null -> {
-                                            availableVersion = res.latestVersion
-                                            resultText = S.updateVersionAvailable(res.latestVersion)
-                                        }
-                                        else -> resultText = S.upToDate
+                Spacer(Modifier.weight(1f))
+                // 🔄 icon — runs the manual (non-throttled) update check. Centred by the
+                // equal-weight spacers either side. 48dp Box gives a ≥48dp touch target.
+                // NOTE: no `color`/tint on the glyphs — a solid tint flattens a colour-emoji
+                // to a blank box on this device's font (other emoji here also set no colour).
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(CircleShape)
+                        .clickable(enabled = !checking) {
+                            checking = true
+                            resultText = null
+                            availableVersion = null
+                            updateScope.launch {
+                                // Manual check is NON-throttled (persistTimestamp = false).
+                                val res = UpdateChecker.checkLatest(context, BuildConfig.VERSION_NAME, persistTimestamp = false)
+                                checking = false
+                                when {
+                                    res.failed -> resultText = S.updateCheckFailed
+                                    res.updateAvailable && res.latestVersion != null -> {
+                                        availableVersion = res.latestVersion
+                                        resultText = S.updateVersionAvailable(res.latestVersion)
                                     }
+                                    else -> resultText = S.upToDate
                                 }
                             }
-                            .semantics { contentDescription = S.checkForUpdates },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text("🔄", fontSize = 20.sp)
-                    }
-                    // 🌐 icon — opens the language picker (replaces the old Language section).
-                    Box(
-                        modifier = Modifier
-                            .size(48.dp)
-                            .clip(CircleShape)
-                            .clickable { showLanguagePicker = true }
-                            .semantics { contentDescription = S.language },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text("🌐", fontSize = 20.sp)
-                    }
+                        }
+                        .semantics { contentDescription = S.checkForUpdates },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("🔄", fontSize = 20.sp)
+                }
+                Spacer(Modifier.weight(1f))
+                // 🌐 icon — opens the language picker (replaces the old Language section).
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(CircleShape)
+                        .clickable { showLanguagePicker = true }
+                        .semantics { contentDescription = S.language },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("🌐", fontSize = 20.sp)
+                }
+            }
+            // The result text is TEMPORARY: it expands below the row on a check and
+            // auto-dismisses after ~4s. When an update is actually available we keep it
+            // (and its tappable Update action) visible rather than hiding an actionable
+            // prompt — only the transient "up to date"/"failed" message auto-clears.
+            if (resultText != null && availableVersion == null) {
+                LaunchedEffect(resultText) {
+                    delay(4000L)
+                    resultText = null
                 }
             }
             resultText?.let { msg ->
@@ -2230,8 +2240,6 @@ fun OptionsPaneContent(colorIdx: Int, savedRoutes: List<SavedRoute>, onColorSele
             }
         }
         } // end if (showDebugConsole)
-
-        Spacer(Modifier.height(16.dp))
     }
 }
 
