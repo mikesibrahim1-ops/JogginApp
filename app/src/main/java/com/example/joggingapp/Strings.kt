@@ -314,6 +314,14 @@ class AppStrings {
     var buddyShareModeDesc: (Boolean) -> String = { _ -> "" } // a11y: "Share route, on/off. Double-tap to toggle."
     // ── Exercise Targets ──────────────────────────────────────────────────────
     var exerciseTargets: String = ""           // section / screen title
+    // Voice coaching (spoken cue every km during an activity)
+    var voiceCoachTitle: String = ""
+    var voiceCoachOn: String = ""
+    var voiceCoachOff: String = ""
+    var voiceCoachExplain: String = ""
+    var coachKmCue: (Int, String, String) -> String = { _, _, _ -> "" }   // (km, total time, last-km split)
+    var coachMinutesSeconds: (Int, Int) -> String = { _, _ -> "" }
+    var coachHoursMinutes: (Int, Int) -> String = { _, _ -> "" }
     var exerciseTargetsSubtitle: String = ""   // options-pane row subtitle
     var exerciseTargetsEmpty: String = ""      // empty-state message
     var exTypeSitups: String = ""
@@ -651,6 +659,22 @@ private fun buildEnglishStrings(): AppStrings = AppStrings().apply {
     buddyRouteActiveAck = "Got it"
     buddyShareModeDesc = { route -> "Share route, ${if (route) "on" else "off"}. Double-tap to toggle." }
     exerciseTargets = "Exercise Targets"
+    voiceCoachTitle = "Voice coaching"
+    voiceCoachOn = "Every km"
+    voiceCoachOff = "Off"
+    voiceCoachExplain = "Every kilometre, hear your distance, total time and last-km time — even with the screen off."
+    coachKmCue = { km, total, split ->
+        "${if (km == 1) "1 kilometre" else "$km kilometres"}. Time $total. Last kilometre $split."
+    }
+    coachMinutesSeconds = { m, s ->
+        val mins = if (m == 1) "1 minute" else "$m minutes"
+        val secs = if (s == 1) "1 second" else "$s seconds"
+        if (m == 0) secs else if (s == 0) mins else "$mins $secs"
+    }
+    coachHoursMinutes = { h, m ->
+        val hrs = if (h == 1) "1 hour" else "$h hours"
+        if (m == 0) hrs else "$hrs ${if (m == 1) "1 minute" else "$m minutes"}"
+    }
     exerciseTargetsSubtitle = "Set at-home goals and track your progress"
     exerciseTargetsEmpty = "No targets yet. Add one to start tracking your at-home exercises and distance goals."
     exTypeSitups = "Sit-ups"
@@ -981,6 +1005,22 @@ private fun buildGreekStrings(): AppStrings = AppStrings().apply {
     buddyRouteActiveAck = "Το κατάλαβα"
     buddyShareModeDesc = { route -> "Κοινή χρήση διαδρομής, ${if (route) "ενεργή" else "ανενεργή"}. Πατήστε δύο φορές για εναλλαγή." }
     exerciseTargets = "Στόχοι Άσκησης"
+    voiceCoachTitle = "Φωνητική καθοδήγηση"
+    voiceCoachOn = "Κάθε χλμ"
+    voiceCoachOff = "Ανενεργή"
+    voiceCoachExplain = "Σε κάθε χιλιόμετρο ακούς την απόσταση, τον συνολικό χρόνο και τον χρόνο του τελευταίου χλμ — ακόμα και με κλειστή οθόνη."
+    coachKmCue = { km, total, split ->
+        "${if (km == 1) "1 χιλιόμετρο" else "$km χιλιόμετρα"}. Χρόνος $total. Τελευταίο χιλιόμετρο $split."
+    }
+    coachMinutesSeconds = { m, s ->
+        val mins = if (m == 1) "1 λεπτό" else "$m λεπτά"
+        val secs = if (s == 1) "1 δευτερόλεπτο" else "$s δευτερόλεπτα"
+        if (m == 0) secs else if (s == 0) mins else "$mins $secs"
+    }
+    coachHoursMinutes = { h, m ->
+        val hrs = if (h == 1) "1 ώρα" else "$h ώρες"
+        if (m == 0) hrs else "$hrs ${if (m == 1) "1 λεπτό" else "$m λεπτά"}"
+    }
     exerciseTargetsSubtitle = "Ορίστε στόχους στο σπίτι και παρακολουθήστε την πρόοδό σας"
     exerciseTargetsEmpty = "Δεν υπάρχουν στόχοι ακόμη. Προσθέστε έναν για να παρακολουθείτε τις ασκήσεις σας και τους στόχους απόστασης."
     exTypeSitups = "Κοιλιακοί"

@@ -1846,6 +1846,33 @@ fun OptionsPaneContent(colorIdx: Int, savedRoutes: List<SavedRoute>, onColorSele
         }
         } // end Route Colour
 
+        // ── Voice coaching (spoken km cues, read by ForegroundLocationService) ──────
+        // Top-level row like Exercise Targets below: emoji + title, AppToggle on the right.
+        Spacer(Modifier.height(20.dp)); Divider(color = c.onSecondary.copy(alpha = 0.2f)); Spacer(Modifier.height(16.dp))
+        run {
+            val coachPrefs = remember { context.getSharedPreferences("jog_prefs", Context.MODE_PRIVATE) }
+            var coachOn by remember { mutableStateOf(coachPrefs.getBoolean(PREF_VOICE_COACH, false)) }
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("🔊", fontSize = 16.sp)
+                    Text(S.voiceCoachTitle, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = c.onSecondary)
+                }
+                com.example.joggingapp.ui.theme.AppToggle(
+                    checked = coachOn,
+                    onToggle = {
+                        coachOn = !coachOn
+                        coachPrefs.edit().putBoolean(PREF_VOICE_COACH, coachOn).apply()
+                        AppLogger.log(context, LogCategory.UI, "Voice coaching ${if (coachOn) "on" else "off"}")
+                    },
+                    onLabel = S.voiceCoachOn,
+                    offLabel = S.voiceCoachOff,
+                    onExplanation = S.voiceCoachExplain,
+                    contentDescriptionText = S.voiceCoachTitle,
+                )
+            }
+        }
+
         // ── Exercise Targets (opens a full screen) ────────────────────────────
         // Rendered as a top-level section header (emoji + 14sp SemiBold title), matching
         // the CollapsibleSection headers above/below, so it reads as its own section rather

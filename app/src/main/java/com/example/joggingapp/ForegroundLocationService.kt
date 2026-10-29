@@ -40,6 +40,11 @@ class ForegroundLocationService : Service() {
     // Throttle GPS-accepted log entries — log every 10th point to avoid flooding
     private var acceptedPointCount = 0
 
+    // Voice coaching: spoken cue each completed km (Options → Voice coaching). Created
+    // lazily on the first cue while the pref is on, so a mid-run toggle takes effect.
+    private var voiceCoach: VoiceCoach? = null
+    private var lastSplitElapsedSec = 0L
+
     companion object {
         const val ACTION_LOCATION_BROADCAST = "com.example.joggingapp.LOCATION_UPDATE"
         const val ACTION_PAUSE  = "com.example.joggingapp.PAUSE"
@@ -169,6 +174,9 @@ class ForegroundLocationService : Service() {
         speedSumMs = 0.0
         speedCount = 0
         trackedPoints.clear()
+        lastSplitElapsedSec = 0L
+        // Warm the TTS engine up front when coaching is on so the first km cue isn't dropped.
+        if (voiceCoachEnabled() && voiceCoach == null) voiceCoach = VoiceCoach(this, loadLanguage(this))
         startTimeMs = System.currentTimeMillis()
         lowBatteryEndTriggered = false
         registerBatteryWatchdog()
@@ -319,6 +327,8 @@ class ForegroundLocationService : Service() {
         unregisterBatteryWatchdog()
         notifUpdater?.let { notifHandler.removeCallbacks(it) }
         notifUpdater = null
+        voiceCoach?.shutdown()
+        voiceCoach = null
         lastAcceptedLocation = null
         pointsReceived = 0
         try { fusedClient.removeLocationUpdates(callback) } catch (_: Exception) {}
@@ -373,7 +383,9 @@ class ForegroundLocationService : Service() {
             }
             val cleanSpeed = if (effectiveSpeed < MIN_SPEED_MS) 0f else effectiveSpeed
 
+            val prevDistanceM = totalDistanceM
             totalDistanceM += distM.toDouble()
+            maybeSpeakKmCue(prevDistanceM, totalDistanceM)
             if (cleanSpeed > 0f) { speedSumMs += cleanSpeed; speedCount++ }
             lastAcceptedLocation = location
             acceptedPointCount++
@@ -420,14 +432,36 @@ class ForegroundLocationService : Service() {
         broadcastIfValid(location)
     }
 
+    // ── Voice coaching ────────────────────────────────────────────────────────
+
+    private fun voiceCoachEnabled(): Boolean =
+        getSharedPreferences("jog_prefs", Context.MODE_PRIVATE).getBoolean(PREF_VOICE_COACH, false)
+
+    /** Active (non-paused) seconds since the activity started — same basis as the notification. */
+    private fun elapsedSec(): Long {
+        val currentPauseMs = if (isPaused && pausedAtMs > 0L) System.currentTimeMillis() - pausedAtMs else 0L
+        return (System.currentTimeMillis() - startTimeMs - totalPausedMs - currentPauseMs) / 1000L
+    }
+
+    /** Speak a cue when the running distance crosses a whole kilometre and coaching is on. */
+    private fun maybeSpeakKmCue(prevM: Double, newM: Double) {
+        val km = CoachCues.kmCrossed(prevM, newM) ?: return
+        val elapsed = elapsedSec()
+        val split = elapsed - lastSplitElapsedSec
+        lastSplitElapsedSec = elapsed
+        if (!voiceCoachEnabled()) return
+        val coach = voiceCoach ?: VoiceCoach(this, loadLanguage(this)).also { voiceCoach = it }
+        coach.speak(CoachCues.kmCue(coach.strings, km, elapsed, split))
+        AppLogger.log(this, LogCategory.SERVICE, "Voice coach: km $km cue — total ${elapsed}s split ${split}s")
+    }
+
     // ── Notification ──────────────────────────────────────────────────────────
 
     private fun buildNotification(channelId: String): Notification {
         // Localize the notification to the user's chosen language (the service has no
         // Compose LocalStrings, so resolve it from persisted prefs each build).
         val S = stringsFor(loadLanguage(this))
-        val currentPauseMs = if (isPaused && pausedAtMs > 0L) System.currentTimeMillis() - pausedAtMs else 0L
-        val elapsed = (System.currentTimeMillis() - startTimeMs - totalPausedMs - currentPauseMs) / 1000L
+        val elapsed = elapsedSec()
         val min = elapsed / 60; val sec = elapsed % 60
         val timeStr = "%02d:%02d".format(min, sec)
         val distKm = totalDistanceM / 1000.0
