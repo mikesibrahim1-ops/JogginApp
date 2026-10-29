@@ -1573,7 +1573,7 @@ fun CollapsibleSection(
             Text(title, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = c.onSecondary)
         }
         // Chevron indicates state (▸ collapsed, ▾ expanded)
-        Text(if (expanded) "▾" else "▸", fontSize = 14.sp, color = c.onSecondary.copy(alpha = 0.7f))
+        Text(if (expanded) "▾" else "▸", fontSize = 24.sp, color = c.onSecondary.copy(alpha = 0.85f))
     }
     if (expanded) {
         Spacer(Modifier.height(12.dp))
@@ -1873,6 +1873,11 @@ fun OptionsPaneContent(colorIdx: Int, savedRoutes: List<SavedRoute>, onColorSele
             }
         }
 
+        // ── Safety alert (stopped-moving SMS; detection in ForegroundLocationService) ──
+        CollapsibleSection(title = S.safetyTitle, leadingEmoji = "🆘") {
+            SafetyAlertSection()
+        }
+
         // ── Exercise Targets (opens a full screen) ────────────────────────────
         // Rendered as a top-level section header (emoji + 14sp SemiBold title), matching
         // the CollapsibleSection headers above/below, so it reads as its own section rather
@@ -1888,7 +1893,7 @@ fun OptionsPaneContent(colorIdx: Int, savedRoutes: List<SavedRoute>, onColorSele
                 Text("🎯", fontSize = 16.sp)
                 Text(S.exerciseTargets, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = c.onSecondary)
             }
-            Text("›", fontSize = 16.sp, color = c.onSecondary.copy(alpha = 0.7f))
+            Text("›", fontSize = 24.sp, color = c.onSecondary.copy(alpha = 0.85f))
         }
 
         // (Sharing section moved: the "include map when sharing" toggle now lives on each

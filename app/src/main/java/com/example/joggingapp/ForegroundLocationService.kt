@@ -45,11 +45,25 @@ class ForegroundLocationService : Service() {
     private var voiceCoach: VoiceCoach? = null
     private var lastSplitElapsedSec = 0L
 
+    // Safety alert (Options → Safety alert): "stopped moving" check on a timer. Movement =
+    // an accepted GPS point (≥ MIN_DISTANCE_M from the last). See SafetyCheck.
+    private var lastMovementMs = 0L
+    private var movementAnchor: Location? = null
+    private var lastRawLocation: Location? = null
+    private var safetyOkAtMs = 0L
+    private var safetyState = SafetyCheck.State()
+    private val safetyTicker = object : Runnable {
+        override fun run() { safetyTick(); notifHandler.postDelayed(this, SAFETY_TICK_MS) }
+    }
+
     companion object {
         const val ACTION_LOCATION_BROADCAST = "com.example.joggingapp.LOCATION_UPDATE"
         const val ACTION_PAUSE  = "com.example.joggingapp.PAUSE"
         const val ACTION_RESUME = "com.example.joggingapp.RESUME"
         const val ACTION_END    = "com.example.joggingapp.END"
+        const val ACTION_SAFETY_OK = "com.example.joggingapp.SAFETY_OK"
+        private const val SAFETY_TICK_MS = 15_000L
+        private const val SAFETY_MOVE_RADIUS_M = 30f   // beyond typical stationary GPS drift
         const val EXTRA_LAT   = "lat"
         const val EXTRA_LON   = "lon"
         const val EXTRA_SPEED = "speed"
@@ -83,6 +97,7 @@ class ForegroundLocationService : Service() {
             override fun onLocationResult(result: LocationResult) {
                 if (isPaused) return
                 val loc = result.lastLocation ?: return
+                lastRawLocation = loc   // any accuracy — safety-alert fallback when no fix passes the filters
                 broadcastIfValid(loc)
             }
         }
@@ -108,6 +123,14 @@ class ForegroundLocationService : Service() {
 
         when (intent?.action) {
 
+            // ── SAFETY "I'm OK" (from the Are-you-OK notification) ────────────
+            ACTION_SAFETY_OK -> {
+                AppLogger.log(this, LogCategory.SERVICE, "Safety alert: user tapped I'm OK")
+                safetyOkAtMs = System.currentTimeMillis()
+                safetyTick()
+                return START_STICKY
+            }
+
             // ── END ───────────────────────────────────────────────────────────
             "STOP", ACTION_END -> {
                 AppLogger.log(this, LogCategory.NOTIF,
@@ -124,6 +147,7 @@ class ForegroundLocationService : Service() {
 
                 isPaused = true
                 pausedAtMs = System.currentTimeMillis()
+                safetyTick()   // paused → clears any pending Are-you-OK prompt
                 notifUpdater?.let { notifHandler.removeCallbacks(it) }
                 try { fusedClient.removeLocationUpdates(callback) } catch (_: Exception) {}
                 val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -143,6 +167,8 @@ class ForegroundLocationService : Service() {
                     pausedAtMs = 0L
                 }
                 isPaused = false
+                lastMovementMs = System.currentTimeMillis()   // stop timer restarts on resume
+                movementAnchor = null
 
                 val channelId = createNotificationChannel()
                 notifUpdater = object : Runnable {
@@ -175,6 +201,13 @@ class ForegroundLocationService : Service() {
         speedCount = 0
         trackedPoints.clear()
         lastSplitElapsedSec = 0L
+        lastMovementMs = System.currentTimeMillis()
+        movementAnchor = null
+        lastRawLocation = null
+        safetyOkAtMs = 0L
+        safetyState = SafetyCheck.State()
+        notifHandler.removeCallbacks(safetyTicker)
+        notifHandler.postDelayed(safetyTicker, SAFETY_TICK_MS)
         // Warm the TTS engine up front when coaching is on so the first km cue isn't dropped.
         if (voiceCoachEnabled() && voiceCoach == null) voiceCoach = VoiceCoach(this, loadLanguage(this))
         startTimeMs = System.currentTimeMillis()
@@ -308,6 +341,7 @@ class ForegroundLocationService : Service() {
         try {
             fusedClient.lastLocation.addOnSuccessListener { loc ->
                 if (loc != null && !isPaused) {
+                    if (lastRawLocation == null) lastRawLocation = loc
                     Log.d("Joggin", "Last location available: ${loc.latitude}, ${loc.longitude}")
                     AppLogger.log(this, LogCategory.GPS,
                         "Last known location: lat=${String.format("%.5f", loc.latitude)} lon=${String.format("%.5f", loc.longitude)} acc=${loc.accuracy}m")
@@ -329,6 +363,8 @@ class ForegroundLocationService : Service() {
         notifUpdater = null
         voiceCoach?.shutdown()
         voiceCoach = null
+        notifHandler.removeCallbacks(safetyTicker)
+        SafetyAlerter.clearPrompt(this)
         lastAcceptedLocation = null
         pointsReceived = 0
         try { fusedClient.removeLocationUpdates(callback) } catch (_: Exception) {}
@@ -417,6 +453,14 @@ class ForegroundLocationService : Service() {
     private fun sendPoint(location: Location, cleanSpeed: Float) {
         val point = Point(location.latitude, location.longitude, System.currentTimeMillis(), cleanSpeed)
         trackedPoints.add(point)
+        // Safety "movement" = leaving a SAFETY_MOVE_RADIUS_M circle around the last anchor.
+        // Accepted points alone aren't enough: a stationary phone's GPS drifts 8-12 m (over
+        // MIN_DISTANCE_M), which kept restarting the stop timer.
+        val anchor = movementAnchor
+        if (anchor == null || anchor.distanceTo(location) >= SAFETY_MOVE_RADIUS_M) {
+            movementAnchor = location
+            lastMovementMs = point.timeMs
+        }
         try {
             sendBroadcast(Intent(ACTION_LOCATION_BROADCAST).apply {
                 setPackage(packageName)
@@ -430,6 +474,54 @@ class ForegroundLocationService : Service() {
 
     private fun broadcastLocation(location: Location) {
         broadcastIfValid(location)
+    }
+
+    // ── Safety alert ──────────────────────────────────────────────────────────
+
+    /** Advance the stopped-moving check and act on it (prompt / SMS / clear). */
+    private fun safetyTick() {
+        if (isPaused || !SafetyAlerter.isReady(this)) {
+            if (safetyState.phase != SafetyCheck.Phase.IDLE) {
+                SafetyAlerter.clearPrompt(this)
+                safetyState = SafetyCheck.State()
+            }
+            return
+        }
+        val (state, step) = SafetyCheck.next(safetyState, System.currentTimeMillis(), lastMovementMs, safetyOkAtMs)
+        safetyState = state
+        val S = stringsFor(loadLanguage(this))
+        when (step) {
+            SafetyCheck.Action.SHOW_PROMPT -> {
+                AppLogger.log(this, LogCategory.SERVICE, "Safety alert: no movement for 3 min — asking Are you OK?")
+                val ok = android.app.PendingIntent.getService(this, 3,
+                    Intent(this, ForegroundLocationService::class.java).apply { action = ACTION_SAFETY_OK },
+                    android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE)
+                SafetyAlerter.showPrompt(this, S, ok)
+            }
+            SafetyCheck.Action.SEND_ALERT -> {
+                SafetyAlerter.clearPrompt(this)
+                val name = getSharedPreferences("jog_prefs", Context.MODE_PRIVATE).getString("user_name", "") ?: ""
+                val send = { loc: Location?, source: String ->
+                    AppLogger.log(this, LogCategory.SERVICE, "Safety alert: location from $source")
+                    SafetyAlerter.sendSms(this, SafetyCheck.smsText(S, name, loc?.latitude, loc?.longitude))
+                }
+                // Best location available: last filtered fix → last raw fix (any accuracy,
+                // e.g. indoors) → a fresh one-shot request; send without one only as a last resort.
+                val known = lastAcceptedLocation ?: lastRawLocation
+                if (known != null) send(known, if (known === lastAcceptedLocation) "last fix" else "raw fix")
+                else try {
+                    fusedClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null)
+                        .addOnCompleteListener { t ->
+                            val fresh = if (t.isSuccessful) t.result else null
+                            send(fresh, if (fresh != null) "current request" else "none available")
+                        }
+                } catch (e: SecurityException) {
+                    send(null, "none (permission)")
+                }
+            }
+            SafetyCheck.Action.CLEAR_PROMPT -> SafetyAlerter.clearPrompt(this)
+            SafetyCheck.Action.NONE -> {}
+        }
     }
 
     // ── Voice coaching ────────────────────────────────────────────────────────

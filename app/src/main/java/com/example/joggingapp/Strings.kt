@@ -322,6 +322,26 @@ class AppStrings {
     var coachKmCue: (Int, String, String) -> String = { _, _, _ -> "" }   // (km, total time, last-km split)
     var coachMinutesSeconds: (Int, Int) -> String = { _, _ -> "" }
     var coachHoursMinutes: (Int, Int) -> String = { _, _ -> "" }
+    // Safety alert (stopped-moving SMS)
+    var safetyTitle: String = ""
+    var safetyOn: String = ""
+    var safetyOff: String = ""
+    var safetyExplain: String = ""
+    var safetyPickContact: String = ""
+    var safetyChangeContact: String = ""
+    var safetyNoContact: String = ""
+    var safetySendTest: String = ""
+    var safetyTestSent: String = ""
+    var safetyTestFailed: String = ""
+    var safetyPermissionNeeded: String = ""
+    var safetyChannelName: String = ""
+    var safetyPromptTitle: String = ""
+    var safetyPromptBody: String = ""
+    var safetyImOk: String = ""
+    var safetySomeone: String = ""
+    var safetyNoLocation: String = ""
+    var safetySmsBody: (String, String) -> String = { _, _ -> "" }    // (user name, map link or no-location text)
+    var safetyTestSmsBody: (String) -> String = { _ -> "" }
     var exerciseTargetsSubtitle: String = ""   // options-pane row subtitle
     var exerciseTargetsEmpty: String = ""      // empty-state message
     var exTypeSitups: String = ""
@@ -671,6 +691,25 @@ private fun buildEnglishStrings(): AppStrings = AppStrings().apply {
         val secs = if (s == 1) "1 second" else "$s seconds"
         if (m == 0) secs else if (s == 0) mins else "$mins $secs"
     }
+    safetyTitle = "Safety alert"
+    safetyOn = "On"
+    safetyOff = "Off"
+    safetyExplain = "If you stop moving for 3 minutes during an activity, Joggin asks if you're OK. No answer within 1 minute texts your contact your location."
+    safetyPickContact = "Choose contact"
+    safetyChangeContact = "Change"
+    safetyNoContact = "No contact chosen"
+    safetySendTest = "Send test text"
+    safetyTestSent = "Test text sent"
+    safetyTestFailed = "Couldn't send the text"
+    safetyPermissionNeeded = "Joggin needs permission to send texts for safety alerts."
+    safetyChannelName = "Safety alerts"
+    safetyPromptTitle = "Are you OK?"
+    safetyPromptBody = "You've stopped moving. Tap I'm OK within 1 minute, or your safety contact will be texted your location."
+    safetyImOk = "I'm OK"
+    safetySomeone = "A Joggin user"
+    safetyNoLocation = "(location unavailable)"
+    safetySmsBody = { name, link -> "Joggin safety alert: $name stopped moving during an activity and didn't respond. Last location: $link" }
+    safetyTestSmsBody = { name -> "Joggin test: $name added you as their safety contact. You'll get a text with their location if they stop moving and don't respond." }
     coachHoursMinutes = { h, m ->
         val hrs = if (h == 1) "1 hour" else "$h hours"
         if (m == 0) hrs else "$hrs ${if (m == 1) "1 minute" else "$m minutes"}"
@@ -1017,6 +1056,25 @@ private fun buildGreekStrings(): AppStrings = AppStrings().apply {
         val secs = if (s == 1) "1 δευτερόλεπτο" else "$s δευτερόλεπτα"
         if (m == 0) secs else if (s == 0) mins else "$mins $secs"
     }
+    safetyTitle = "Ειδοποίηση ασφαλείας"
+    safetyOn = "Ενεργή"
+    safetyOff = "Ανενεργή"
+    safetyExplain = "Αν σταματήσεις να κινείσαι για 3 λεπτά κατά τη δραστηριότητα, το Joggin σε ρωτά αν είσαι καλά. Χωρίς απάντηση σε 1 λεπτό, στέλνει SMS με την τοποθεσία σου στην επαφή σου."
+    safetyPickContact = "Επιλογή επαφής"
+    safetyChangeContact = "Αλλαγή"
+    safetyNoContact = "Δεν έχει επιλεγεί επαφή"
+    safetySendTest = "Δοκιμαστικό SMS"
+    safetyTestSent = "Το δοκιμαστικό SMS στάλθηκε"
+    safetyTestFailed = "Δεν ήταν δυνατή η αποστολή του SMS"
+    safetyPermissionNeeded = "Το Joggin χρειάζεται άδεια αποστολής SMS για τις ειδοποιήσεις ασφαλείας."
+    safetyChannelName = "Ειδοποιήσεις ασφαλείας"
+    safetyPromptTitle = "Είσαι καλά;"
+    safetyPromptBody = "Σταμάτησες να κινείσαι. Πάτησε «Είμαι καλά» μέσα σε 1 λεπτό, αλλιώς η επαφή ασφαλείας σου θα λάβει SMS με την τοποθεσία σου."
+    safetyImOk = "Είμαι καλά"
+    safetySomeone = "Ένας χρήστης του Joggin"
+    safetyNoLocation = "(η τοποθεσία δεν είναι διαθέσιμη)"
+    safetySmsBody = { name, link -> "Ειδοποίηση ασφαλείας Joggin: ο/η $name σταμάτησε να κινείται κατά τη δραστηριότητα και δεν απάντησε. Τελευταία τοποθεσία: $link" }
+    safetyTestSmsBody = { name -> "Δοκιμή Joggin: ο/η $name σε όρισε επαφή ασφαλείας. Θα λάβεις SMS με την τοποθεσία του/της αν σταματήσει να κινείται και δεν απαντήσει." }
     coachHoursMinutes = { h, m ->
         val hrs = if (h == 1) "1 ώρα" else "$h ώρες"
         if (m == 0) hrs else "$hrs ${if (m == 1) "1 λεπτό" else "$m λεπτά"}"
