@@ -11,7 +11,43 @@ Android GPS fitness tracker (walk/run/cycle) at `c:\Users\INFINITI\Documents\Kir
 (project `joggin-a69a7`) powers **Buddy Link** (opt-in 1:1 live-location sharing). Distributed
 as a sideloaded APK: GitHub Releases hosts the APK; a Firebase Hosting install page links to it.
 
-## 0. LATEST SESSION SUMMARY (read this first — 2026-10-18, V1.56→V1.59 + cleanup session)
+## 0. LATEST SESSION SUMMARY (read this first — 2026-10-29, V1.60→V1.62)
+Working copy is now `c:\Users\INFINITI\Documents\Kiro\JogginApp - Claude`. **Current shipped version =
+V1.62** (tag `V1.62`, `205ca51`, GitHub `releases/latest`, asset `joggin.apk`). V1.60, V1.61 and
+V1.61.1 were tagged but **never published as GitHub releases** — V1.62 is the first in-app update
+offered since V1.59. Release notes: `.kiro/specs/release-notes-v1.62.md`.
+
+- **Shipped since V1.59** (see `git log V1.59..V1.62`):
+  - V1.60: crash-safety + security hardening (`crash-risk-audit-2026-10-22`), standardized `AppToggle`
+    (`ui/AppToggle.kt`) with plain-language explain popup on toggle-ON.
+  - V1.61 / V1.61.1: Recent Runs panel in Activity History; history cards use a static osmdroid
+    snapshot (`RouteMapSnapshot.kt` + `RouteSnapshotCache.kt`) — fixes the per-card live MapView ANR;
+    achievements slicers scoped across sort modes; robust release signing via gitignored
+    `keystore.properties` (graceful unsigned fallback) + release SHA-256 in `assetlinks.json`.
+  - V1.62: colour themes revamped (single-hue schemes, default FOREST); **S1 Live Cheer**
+    (`cheers/{recipient}/inbox`); **S2 share link** for non-app users (`shares/{token}` +
+    `shareOwners/{token}` rules, reader page `firebase-hosting/public/s/index.html`); tap a buddy name
+    to locate; reversible buddy block / one-tap unblock; backup v3 envelope includes exercise
+    targets + rep log; options pane tidied (single bottom row: white/bold version with triple-tap
+    debugger, update check, 🌐 language picker). A temporary "Test achievement sound" button was
+    added and removed (`a664f1d`).
+- **Firebase state (verified 2026-10-29):** Firestore rules and hosting deployed from the repo and
+  confirmed matching (`firebase deploy --only "firestore:rules,hosting" --config
+  firebase-hosting/firebase.json --project joggin-a69a7`; rules were already up to date). **Cloud
+  Functions (`onBuddyLinkWrite`, `onCheerWrite`) are NOT deployed** — they need the Blaze plan, so
+  there is no FCM push for invites/cheers (in-app delivery still works).
+- **Share link verified end-to-end on phone 1:** create → page shows live location; log shows
+  "Share-link fix mirrored", no Firestore errors.
+- **DEVICES:** phone 1 `R5CR100AY2V` (SM-G991B) = **V1.62 ✅**. Phones 2 & 3 can update via the
+  in-app update check now that V1.62 is `releases/latest`.
+- **Claude Code permissions:** `.claude/settings.local.json` (gitignored) allows `gh release
+  create/upload` and `firebase deploy` without prompts.
+- **OPEN / NEXT STEPS:**
+  1. Two-device buddy end-to-end test (carried over) — each buddy should appear on the other's map.
+  2. Carried over: **ROTATE the GitHub token** (F1).
+  3. Optional: Blaze plan + deploy functions if push notifications for invites/cheers are wanted.
+
+## 0-b. V1.56→V1.59 + cleanup SESSION (2026-10-18)
 Continued from the V1.53→V1.55 session (see §0-a below). **Current shipped version = V1.59**
 (`0c2e6d7`, tag `V1.59`, pushed, released, `releases/latest`). HEAD on `main` = **`0c2e6d7`**,
 in sync with origin. No Firestore rules change in any of this (rules stay as deployed at V1.52).

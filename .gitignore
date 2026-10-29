@@ -70,3 +70,6 @@ fscap.txt
 gitstatus.txt
 install_out.txt
 ver_out.txt
+
+# Claude Code personal settings
+.claude/settings.local.json
