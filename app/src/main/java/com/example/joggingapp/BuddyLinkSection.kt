@@ -232,9 +232,9 @@ fun BuddyLinkSection(controller: BuddyLinkController, userName: String) {
             )
             Spacer(Modifier.height(6.dp))
             Text(
-                S.buddyOpenSettings,
+                "⚙️ ${S.buddyOpenSettings}",
                 fontSize = 12.sp,
-                color = c.primary,
+                color = c.onSecondary, // c.primary == the pane colour (invisible)
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier
                     .clip(RoundedCornerShape(8.dp))
@@ -472,10 +472,9 @@ fun BuddyLinkSection(controller: BuddyLinkController, userName: String) {
                                 modifier = Modifier
                                     .clickable { controller.accept(link.linkId) }
                                     .semantics { contentDescription = S.buddyActionDesc(S.buddyAccept, senderLabel) })
-                            Text(S.buddyInviteRemove, fontSize = 12.sp, color = c.error,
-                                modifier = Modifier
-                                    .clickable { controller.remove(link.linkId) }
-                                    .semantics { contentDescription = S.buddyActionDesc(S.buddyInviteRemove, senderLabel) })
+                            DangerPill(S.buddyInviteRemove, S.buddyActionDesc(S.buddyInviteRemove, senderLabel)) {
+                                controller.remove(link.linkId)
+                            }
                         }
                     }
                     Divider(color = c.onSecondary.copy(alpha = 0.12f))
@@ -502,7 +501,7 @@ fun BuddyLinkSection(controller: BuddyLinkController, userName: String) {
                 controller.incomingCheerFromName?.let { fromName ->
                     Text(
                         S.buddyCheerReceived(fromName),
-                        fontSize = 12.sp, color = c.primary, fontWeight = FontWeight.Medium,
+                        fontSize = 12.sp, color = c.onSecondary, fontWeight = FontWeight.Medium,
                         modifier = Modifier.padding(bottom = 6.dp)
                     )
                 }
@@ -580,18 +579,15 @@ fun BuddyLinkSection(controller: BuddyLinkController, userName: String) {
                                 .semantics { contentDescription = S.buddyCheerDesc(name) },
                             contentAlignment = Alignment.Center
                         ) { Text("💪", fontSize = 20.sp) }
-                        // Primary actions: Remove (unlink) + Block, both confirmed.
-                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        // Primary actions: Remove (unlink) + Block, both confirmed. Solid
+                        // c.error pills (like the share Stop pill) — red TEXT on the pane
+                        // colour was hard to read.
+                        Spacer(Modifier.width(6.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             view.link?.let { link ->
-                                Text(S.buddyRemove, fontSize = 12.sp, color = c.error,
-                                    modifier = Modifier
-                                        .clickable { confirmRemove = link }
-                                        .semantics { contentDescription = S.buddyActionDesc(S.buddyRemove, name) })
+                                DangerPill(S.buddyRemove, S.buddyActionDesc(S.buddyRemove, name)) { confirmRemove = link }
                             }
-                            Text(S.buddyBlock, fontSize = 12.sp, color = c.error, fontWeight = FontWeight.Medium,
-                                modifier = Modifier
-                                    .clickable { confirmBlock = view.user.appId }
-                                    .semantics { contentDescription = S.buddyActionDesc(S.buddyBlock, name) })
+                            DangerPill(S.buddyBlock, S.buddyActionDesc(S.buddyBlock, name)) { confirmBlock = view.user.appId }
                         }
                     }
                     // Secondary actions: request-now + history, only useful when live.
@@ -604,7 +600,7 @@ fun BuddyLinkSection(controller: BuddyLinkController, userName: String) {
                             Text(
                                 if (canRequest) "📍 ${S.buddyRequestLocation}" else "⏳ ${S.buddyRequestCooldown}",
                                 fontSize = 11.sp,
-                                color = if (canRequest) c.primary else c.onSecondary.copy(alpha = 0.4f),
+                                color = if (canRequest) c.onSecondary else c.onSecondary.copy(alpha = 0.4f),
                                 modifier = Modifier
                                     .then(
                                         if (canRequest) Modifier.clickable {
@@ -616,7 +612,7 @@ fun BuddyLinkSection(controller: BuddyLinkController, userName: String) {
                             )
                             Text(
                                 if (controller.showHistory) "🧭 ${S.buddyHistoryHide}" else "🧭 ${S.buddyHistoryShow}",
-                                fontSize = 11.sp, color = c.primary,
+                                fontSize = 11.sp, color = c.onSecondary,
                                 modifier = Modifier.clickable { controller.toggleHistory() }
                             )
                         }
@@ -699,10 +695,12 @@ fun BuddyLinkSection(controller: BuddyLinkController, userName: String) {
             }
 
             // ── Danger zone: delete all Buddy Link data (Req 8.4) ──────────────
+            // Solid c.error bar + white text: a 12% red tint with red text was
+            // near-unreadable on the pane colour.
             Spacer(Modifier.height(16.dp))
             Row(
                 modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
-                    .background(c.error.copy(alpha = 0.12f))
+                    .background(c.error)
                     .clickable { confirmDelete = true }
                     .padding(14.dp)
                     .semantics { contentDescription = S.buddyDeleteData },
@@ -710,7 +708,7 @@ fun BuddyLinkSection(controller: BuddyLinkController, userName: String) {
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Text("🗑", fontSize = 18.sp)
-                Text(S.buddyDeleteData, fontSize = 13.sp, color = c.error, fontWeight = FontWeight.SemiBold)
+                Text(S.buddyDeleteData, fontSize = 13.sp, color = Color.White, fontWeight = FontWeight.SemiBold)
             }
         }
     }
@@ -920,24 +918,13 @@ private fun ShareLiveLocationCard(controller: BuddyLinkController) {
                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f))
                 Spacer(Modifier.width(8.dp))
-                // Destructive stop: solid c.error pill so it reads clearly on the pane colour.
-                Box(
-                    modifier = Modifier
-                        .clip(CircleShape)
-                        .background(c.error)
-                        .clickable {
-                            controller.revokeShareLink { result ->
-                                shareMsg = when (result) {
-                                    is BuddyResult.Success -> S.shareLinkStopped
-                                    is BuddyResult.Failure -> S.shareLinkStopFailed
-                                }
-                            }
+                DangerPill(S.shareLiveStopPill, S.shareLiveStop) {
+                    controller.revokeShareLink { result ->
+                        shareMsg = when (result) {
+                            is BuddyResult.Success -> S.shareLinkStopped
+                            is BuddyResult.Failure -> S.shareLinkStopFailed
                         }
-                        .padding(horizontal = 12.dp, vertical = 6.dp)
-                        .semantics { contentDescription = S.shareLiveStop }
-                ) {
-                    Text(S.shareLiveStopPill, fontSize = 12.sp, color = Color.White,
-                        fontWeight = FontWeight.SemiBold, maxLines = 1)
+                    }
                 }
             }
             Spacer(Modifier.height(10.dp))
@@ -1003,6 +990,25 @@ internal fun formatShareRemaining(remainingMs: Long): String {
     val hours = totalMinutes / 60L
     val minutes = totalMinutes % 60L
     return if (hours > 0L) "${hours}h ${minutes}m" else "${minutes}m"
+}
+
+/**
+ * A compact destructive action pill: solid c.error background + white text, so it stays
+ * legible on the pane colour (red text on the pane was hard to read).
+ */
+@Composable
+private fun DangerPill(label: String, description: String, onClick: () -> Unit) {
+    val c = JogginTheme.colors
+    Box(
+        modifier = Modifier
+            .clip(CircleShape)
+            .background(c.error)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 5.dp)
+            .semantics { contentDescription = description }
+    ) {
+        Text(label, fontSize = 11.sp, color = Color.White, fontWeight = FontWeight.SemiBold, maxLines = 1)
+    }
 }
 
 /** A small section sub-header used inside the Buddy Link section. */
