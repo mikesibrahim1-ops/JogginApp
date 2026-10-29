@@ -1820,7 +1820,7 @@ fun OptionsPaneContent(colorIdx: Int, savedRoutes: List<SavedRoute>, onColorSele
                 }
                 Text("${theme.emoji} ${theme.displayName}", fontSize = 13.sp,
                     color = c.onSecondary, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal)
-                if (selected) Text("✓", fontSize = 14.sp, color = c.success)
+                if (selected) Text("✓", fontSize = 14.sp, color = c.onSecondary, fontWeight = FontWeight.Bold)
             }
             Spacer(Modifier.height(4.dp))
         }
@@ -1903,7 +1903,15 @@ fun OptionsPaneContent(colorIdx: Int, savedRoutes: List<SavedRoute>, onColorSele
         }
         restoreMessage?.let { msg ->
             Spacer(Modifier.height(8.dp))
-            Text(msg, fontSize = 12.sp, color = if (restoreSuccess) c.success else c.error)
+            // Solid success/error chip + white text: green/red TEXT on the pane colour
+            // was hard to read.
+            Text(
+                "${if (restoreSuccess) "✓" else "⚠️"}  $msg", fontSize = 12.sp,
+                color = Color.White, fontWeight = FontWeight.Medium,
+                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
+                    .background(if (restoreSuccess) c.success else c.error)
+                    .padding(horizontal = 10.dp, vertical = 8.dp)
+            )
         }
         } // end Share App + Backup/Restore
 
@@ -1951,7 +1959,7 @@ fun OptionsPaneContent(colorIdx: Int, savedRoutes: List<SavedRoute>, onColorSele
                                 fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
                                 modifier = Modifier.weight(1f)
                             )
-                            if (selected) Text("✓", fontSize = 16.sp, color = c.success)
+                            if (selected) Text("✓", fontSize = 16.sp, color = c.onSecondary, fontWeight = FontWeight.Bold)
                         }
                         Spacer(Modifier.height(6.dp))
                     }
@@ -2249,7 +2257,7 @@ fun OptionsPaneContent(colorIdx: Int, savedRoutes: List<SavedRoute>, onColorSele
                 modifier = Modifier
                     .weight(1f)
                     .clip(RoundedCornerShape(10.dp))
-                    .background(c.error.copy(alpha = 0.15f))
+                    .background(c.error)
                     .clickable {
                         AppLogger.clear(context)
                         logEntries = emptyList()
@@ -2258,7 +2266,7 @@ fun OptionsPaneContent(colorIdx: Int, savedRoutes: List<SavedRoute>, onColorSele
                     .padding(vertical = 10.dp),
                 contentAlignment = Alignment.Center
             ) {
-                Text(S.clearLog, fontSize = 12.sp, color = c.error, fontWeight = FontWeight.SemiBold)
+                Text(S.clearLog, fontSize = 12.sp, color = Color.White, fontWeight = FontWeight.SemiBold)
             }
         }
         } // end if (showDebugConsole)
