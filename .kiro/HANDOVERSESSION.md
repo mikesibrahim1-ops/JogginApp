@@ -11,9 +11,40 @@ Android GPS fitness tracker (walk/run/cycle) at `c:\Users\INFINITI\Documents\Kir
 (project `joggin-a69a7`) powers **Buddy Link** (opt-in 1:1 live-location sharing). Distributed
 as a sideloaded APK: GitHub Releases hosts the APK; a Firebase Hosting install page links to it.
 
-## 0. LATEST SESSION SUMMARY (read this first — 2026-10-29, V1.60→V1.62)
+## 0. LATEST SESSION SUMMARY (read this first — 2026-10-29, V1.60→V1.67)
 Working copy is now `c:\Users\INFINITI\Documents\Kiro\JogginApp - Claude`. **Current shipped version =
-V1.62** (tag `V1.62`, `205ca51`, GitHub `releases/latest`, asset `joggin.apk`). V1.60, V1.61 and
+V1.67** (tag `V1.67`, `e8137a4`, GitHub `releases/latest`, asset `joggin.apk`). Release notes for each
+version: `.kiro/specs/release-notes-v1.6X.md`.
+
+- **V1.63→V1.67 (UI legibility pass, same day):**
+  - V1.63: language picker dialog used `c.surface` (white on light themes) with white text → blank
+    white window; now `c.secondary`. The 🔄/🌐 bottom-row icons got short single-line labels
+    (`updateIconLabel`/`checkingIconLabel`; the full Greek "check for updates" overflowed); removed
+    the unused `checkForUpdates`/`checkingForUpdates` strings.
+  - V1.64: tapping the revealed Buddy code copies it (Copy pill removed; Send Buddy Invite below
+    the code — code stays full-width, it's 32 chars). Buddy titles unified at 13sp. Share live
+    location card tidied: status row (live dot + "Live for …" + red Stop) + short Copy/Share pills;
+    raw URL no longer shown (`shareLiveSharePill`/`shareLiveStopPill` strings).
+  - V1.65: shared `DangerPill` composable (solid `c.error` + white text) for Remove / Block /
+    invite Remove / share Stop; delete-data bar solid red.
+  - V1.66: shared `WarningNote` composable for Buddy Link warnings (permission denied,
+    background-location needed, backend unavailable). Verified on-device by briefly revoking
+    background location (`pm revoke` → screenshot → `pm grant`).
+  - V1.67: options-pane restore result is a solid success/error chip; theme/language ✓ ticks use
+    `c.onSecondary`; debug-console Clear log solid red.
+  - **⚠ THEME GOTCHA (root cause of most of the above):** `c.primary` == `c.secondary` (the
+    options-pane colour) in EVERY theme, and `c.surface` is white on light themes. On the pane, use
+    `c.onSecondary` for text and solid-background chips (white text) for success/error — never
+    `c.primary`/`c.success`/`c.error` as a text colour. Several links ("Add a buddy by code",
+    "Optional label", "Open settings", "Request location", "Show history") were invisible because
+    of this and are now fixed.
+- **Driving the phone for screenshots:** open the options pane by swiping left on the bottom card
+  (`adb shell input swipe 1000 2000 150 2000 300`; tapping "Options" does nothing); pull screenshots
+  with `screencap -p /sdcard/x.png` + `adb pull` (PowerShell `>` redirection corrupts the PNG). Wait
+  ~6s after launch before swiping.
+
+### V1.60→V1.62 (earlier the same day)
+V1.62 = tag `V1.62`, `205ca51`. V1.60, V1.61 and
 V1.61.1 were tagged but **never published as GitHub releases** — V1.62 is the first in-app update
 offered since V1.59. Release notes: `.kiro/specs/release-notes-v1.62.md`.
 
@@ -38,8 +69,8 @@ offered since V1.59. Release notes: `.kiro/specs/release-notes-v1.62.md`.
   there is no FCM push for invites/cheers (in-app delivery still works).
 - **Share link verified end-to-end on phone 1:** create → page shows live location; log shows
   "Share-link fix mirrored", no Firestore errors.
-- **DEVICES:** phone 1 `R5CR100AY2V` (SM-G991B) = **V1.62 ✅**. Phones 2 & 3 can update via the
-  in-app update check now that V1.62 is `releases/latest`.
+- **DEVICES:** phone 1 `R5CR100AY2V` (SM-G991B) = **V1.67 ✅**. Phones 2 & 3 can update via the
+  in-app update check (`releases/latest` = V1.67).
 - **Claude Code permissions:** `.claude/settings.local.json` (gitignored) allows `gh release
   create/upload` and `firebase deploy` without prompts.
 - **OPEN / NEXT STEPS:**
