@@ -77,7 +77,7 @@ import java.util.Locale
  * run. Brisk walking tops out ~6.4 km/h, so a walk stays a walk below this. Used only for the
  * speed-based activity inference on `activityType == 0` routes (explicit Run/Cycle modes bypass it).
  */
-private const val WALK_RUN_THRESHOLD_KMH = 6.5f
+internal const val WALK_RUN_THRESHOLD_KMH = 6.5f
 
 val ROUTE_COLORS = listOf(
     "Light Green" to Color(0xFF66BB6A),
@@ -1065,6 +1065,7 @@ fun RecentRunsPanel(routes: List<SavedRoute>, onClearAll: () -> Unit, modifier: 
     val c = JogginTheme.colors
     val S = LocalStrings.current
     var showAll by remember { mutableStateOf(false) }
+    var tab by remember { mutableStateOf(StatsTab.RECENT) }
 
     Box(modifier = modifier.fillMaxWidth().padding(12.dp)) {
         Card(
@@ -1077,13 +1078,14 @@ fun RecentRunsPanel(routes: List<SavedRoute>, onClearAll: () -> Unit, modifier: 
             border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF9AA0A6))
         ) {
             Column(modifier = Modifier.padding(14.dp)) {
-                Row(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("📊", fontSize = 16.sp)
-                    Text(S.recentRuns, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = c.onSurface)
-                }
+                // Recent / Records / Trends tabs (Records + Trends: StatsPanels.kt).
+                Box(Modifier.padding(bottom = 8.dp)) { StatsTabRow(tab) { tab = it } }
                 Divider(color = c.divider)
-                if (routes.isEmpty()) {
+                if (tab != StatsTab.RECENT) {
+                    Column(modifier = Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState())) {
+                        if (tab == StatsTab.RECORDS) RecordsTab(routes) else TrendsTab(routes)
+                    }
+                } else if (routes.isEmpty()) {
                     Text(S.noRunsYet.substringBefore("\n"), fontSize = 13.sp, color = c.textSecondary,
                         modifier = Modifier.padding(vertical = 16.dp))
                 } else {
@@ -1099,10 +1101,13 @@ fun RecentRunsPanel(routes: List<SavedRoute>, onClearAll: () -> Unit, modifier: 
                             modifier = Modifier.padding(top = 10.dp).clickable { showAll = !showAll })
                     }
                 }
-                Spacer(Modifier.height(12.dp))
-                Divider(color = c.divider)
-                Text(S.clearAllRuns, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = c.error,
-                    modifier = Modifier.padding(top = 12.dp).clickable { onClearAll() })
+                // Clear-all belongs to the run list, so only the Recent tab offers it.
+                if (tab == StatsTab.RECENT) {
+                    Spacer(Modifier.height(12.dp))
+                    Divider(color = c.divider)
+                    Text(S.clearAllRuns, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = c.error,
+                        modifier = Modifier.padding(top = 12.dp).clickable { onClearAll() })
+                }
             }
         }
     }
