@@ -111,6 +111,7 @@ class AppStrings {
     var restoredCount: (Int) -> String = { _ -> "" }    // "Restored N run(s)"
     var restoredWithExercise: (Int, Int) -> String = { _, _ -> "" }  // "Restored N run(s) + M exercise item(s)"
     var restoreFailed: String = ""
+    var testAchievementSound: String = ""      // test button: fire a sample achievement notification
     // Route colour names
     var colorLightGreen: String = ""
     var colorBlue: String = ""
@@ -437,6 +438,7 @@ private fun buildEnglishStrings(): AppStrings = AppStrings().apply {
     restoredCount = { n -> "Restored $n run(s)" }
     restoredWithExercise = { runs, exercise -> "Restored $runs run(s) + $exercise exercise item(s)" }
     restoreFailed = "Failed to restore — invalid file"
+    testAchievementSound = "Test achievement sound"
     colorLightGreen = "Light Green"
     colorBlue = "Blue"
     colorOrange = "Orange"
@@ -757,6 +759,7 @@ private fun buildGreekStrings(): AppStrings = AppStrings().apply {
     restoredCount = { n -> "Επαναφέρθηκαν $n δραστηριότητες" }
     restoredWithExercise = { runs, exercise -> "Επαναφέρθηκαν $runs δραστηριότητες + $exercise στοιχεία άσκησης" }
     restoreFailed = "Η επαναφορά απέτυχε — μη έγκυρο αρχείο"
+    testAchievementSound = "Δοκιμή ήχου επιτεύγματος"
     colorLightGreen = "Ανοιχτό Πράσινο"
     colorBlue = "Μπλε"
     colorOrange = "Πορτοκαλί"

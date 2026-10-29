@@ -1967,6 +1967,22 @@ fun OptionsPaneContent(colorIdx: Int, savedRoutes: List<SavedRoute>, onColorSele
             }
         }
 
+        // ── Test: play the achievement notification (so the unlock sound can be
+        // heard on demand). Fires the same notification the achievement-unlock path
+        // uses, which posts on the IMPORTANCE_DEFAULT channel → default sound + vibrate.
+        Spacer(Modifier.height(20.dp)); Divider(color = c.onSecondary.copy(alpha = 0.2f)); Spacer(Modifier.height(16.dp))
+        Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+            .background(c.primary.copy(alpha = 0.15f))
+            .clickable {
+                BuddyNotifier.notifyAchievementUnlocked(context, S.testAchievementSound, "test_sound")
+                AppLogger.log(context, LogCategory.UI, "Test achievement sound fired")
+            }
+            .padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("🔔", fontSize = 20.sp)
+            Text(S.testAchievementSound, fontSize = 13.sp, color = c.onSecondary, fontWeight = FontWeight.SemiBold)
+        }
+
         // ── Version + language + manual update check (pinned at bottom, always ─
         // visible, no longer a collapsible "App" section). The 🌐 icon opens the
         // language picker; the 🔄 row runs a manual (non-throttled) update check.
