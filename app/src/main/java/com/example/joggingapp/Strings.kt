@@ -345,8 +345,8 @@ class AppStrings {
     var exWeekOf: (String) -> String = { _ -> "" }      // weekly bucket header, "Week of {date}"
     // ── App section / update check (v1.47) ────────────────────────────────────
     var appVersionLabel: (String) -> String = { _ -> "" } // "Version 1.47"
-    var checkForUpdates: String = ""           // button label
-    var checkingForUpdates: String = ""        // transient while checking
+    var updateIconLabel: String = ""           // short label under the 🔄 icon on the options-pane bottom row
+    var checkingIconLabel: String = ""         // short label under the 🔄 icon while checking
     var upToDate: String = ""                  // "You're up to date"
     var updateAvailable: String = ""           // dialog title "Update available"
     var updateVersionAvailable: (String) -> String = { _ -> "" } // "Version X.Y available"
@@ -665,8 +665,8 @@ private fun buildEnglishStrings(): AppStrings = AppStrings().apply {
     exWeekOf = { date -> "Week of $date" }
     // ── App section / update check (v1.47) ────────────────────────────────────
     appVersionLabel = { v -> "Version $v" }
-    checkForUpdates = "Check for updates"
-    checkingForUpdates = "Checking for updates…"
+    updateIconLabel = "Update"
+    checkingIconLabel = "Checking…"
     upToDate = "You're up to date"
     updateAvailable = "Update available"
     updateVersionAvailable = { v -> "Version $v available" }
@@ -978,8 +978,8 @@ private fun buildGreekStrings(): AppStrings = AppStrings().apply {
     exWeekOf = { date -> "Εβδομάδα $date" }
     // ── App section / update check (v1.47) ────────────────────────────────────
     appVersionLabel = { v -> "Έκδοση $v" }
-    checkForUpdates = "Έλεγχος για ενημερώσεις"
-    checkingForUpdates = "Έλεγχος για ενημερώσεις…"
+    updateIconLabel = "Ενημέρωση"
+    checkingIconLabel = "Έλεγχος…"
     upToDate = "Έχετε την πιο πρόσφατη έκδοση"
     updateAvailable = "Διαθέσιμη ενημέρωση"
     updateVersionAvailable = { v -> "Διαθέσιμη έκδοση $v" }

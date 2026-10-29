@@ -60,6 +60,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -1907,13 +1908,15 @@ fun OptionsPaneContent(colorIdx: Int, savedRoutes: List<SavedRoute>, onColorSele
         } // end Share App + Backup/Restore
 
         // Language picker dialog — opened by the 🌐 icon on the version-number row
-        // (the standalone Language section was collapsed into that icon).
+        // (the standalone Language section was collapsed into that icon). Uses the pane's
+        // c.secondary background so the white c.onSecondary text stays legible, matching the
+        // old in-pane Language section (c.surface is white on light themes → invisible text).
         if (showLanguagePicker) {
             Dialog(onDismissRequest = { showLanguagePicker = false }) {
                 Column(
                     modifier = Modifier.fillMaxWidth()
                         .clip(RoundedCornerShape(16.dp))
-                        .background(c.surface)
+                        .background(c.secondary)
                         .padding(20.dp)
                 ) {
                     Text(S.language, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = c.onSecondary)
@@ -2002,14 +2005,14 @@ fun OptionsPaneContent(colorIdx: Int, savedRoutes: List<SavedRoute>, onColorSele
                     }
                 )
                 Spacer(Modifier.weight(1f))
-                // 🔄 icon — runs the manual (non-throttled) update check. Centred by the
-                // equal-weight spacers either side. 48dp Box gives a ≥48dp touch target.
+                // 🔄 icon + label — runs the manual (non-throttled) update check. Centred by
+                // the equal-weight spacers either side; min 48dp gives a ≥48dp touch target.
                 // NOTE: no `color`/tint on the glyphs — a solid tint flattens a colour-emoji
                 // to a blank box on this device's font (other emoji here also set no colour).
-                Box(
+                Column(
                     modifier = Modifier
-                        .size(48.dp)
-                        .clip(CircleShape)
+                        .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
+                        .clip(RoundedCornerShape(10.dp))
                         .clickable(enabled = !checking) {
                             checking = true
                             resultText = null
@@ -2028,22 +2031,31 @@ fun OptionsPaneContent(colorIdx: Int, savedRoutes: List<SavedRoute>, onColorSele
                                 }
                             }
                         }
-                        .semantics { contentDescription = S.checkForUpdates },
-                    contentAlignment = Alignment.Center
+                        .padding(horizontal = 6.dp, vertical = 4.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
                 ) {
                     Text("🔄", fontSize = 20.sp)
+                    // Short label (full "Check for updates" overflowed the row in Greek);
+                    // single line with ellipsis as a guard for any future longer language.
+                    Text(if (checking) S.checkingIconLabel else S.updateIconLabel,
+                        fontSize = 10.sp, color = c.onSecondary, fontWeight = FontWeight.SemiBold,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 Spacer(Modifier.weight(1f))
-                // 🌐 icon — opens the language picker (replaces the old Language section).
-                Box(
+                // 🌐 icon + label — opens the language picker (replaces the old Language section).
+                Column(
                     modifier = Modifier
-                        .size(48.dp)
-                        .clip(CircleShape)
+                        .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
+                        .clip(RoundedCornerShape(10.dp))
                         .clickable { showLanguagePicker = true }
-                        .semantics { contentDescription = S.language },
-                    contentAlignment = Alignment.Center
+                        .padding(horizontal = 6.dp, vertical = 4.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
                 ) {
                     Text("🌐", fontSize = 20.sp)
+                    Text(S.language, fontSize = 10.sp, color = c.onSecondary, fontWeight = FontWeight.SemiBold,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
             // The result text is TEMPORARY: it expands below the row on a check and
