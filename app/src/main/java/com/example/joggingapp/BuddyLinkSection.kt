@@ -308,8 +308,9 @@ fun BuddyLinkSection(controller: BuddyLinkController, userName: String) {
                 ) {
                     // Tapping the title toggles the code: reveals when collapsed,
                     // collapses when already revealed (vertical padding enlarges the
-                    // touch target beyond the small text bounds).
-                    Text(S.buddyYourCode, fontSize = 11.sp, color = c.onSecondary.copy(alpha = 0.7f),
+                    // touch target beyond the small text bounds). Same size/weight/colour as
+                    // the "Share my route" label above so the section titles are uniform.
+                    Text(S.buddyYourCode, fontSize = 13.sp, color = c.onSecondary,
                         fontWeight = FontWeight.Medium,
                         modifier = Modifier
                             .clip(RoundedCornerShape(8.dp))
@@ -336,35 +337,26 @@ fun BuddyLinkSection(controller: BuddyLinkController, userName: String) {
                             )
                         }
                     } else {
-                    // Revealed code. Tap the title above to collapse again.
-                    Text(
-                        formatBuddyCode(myId), fontSize = 15.sp, color = c.onSecondary,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.semantics { contentDescription = S.buddyYourCode }
-                    )
-                    Spacer(Modifier.height(10.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        // Copy: filled PILL button (c.primary bg / c.onPrimary text) with a
-                        // contrasting c.onSurface border so the pill outline is always visible
-                        // against the card background in every theme (does not blend in).
-                        Box(
+                    // Revealed code (full width — the 32-char code is too long to share a row
+                    // with a button). Tapping the code copies it to the clipboard (replaces the
+                    // old Copy pill); tap the title above to collapse.
+                        Text(
+                            formatBuddyCode(myId), fontSize = 15.sp, color = c.onSecondary,
+                            fontWeight = FontWeight.SemiBold,
                             modifier = Modifier
-                                .clip(CircleShape)
-                                .background(c.primary)
-                                .border(BorderStroke(1.dp, c.onSurface.copy(alpha = 0.5f)), CircleShape)
+                                .clip(RoundedCornerShape(8.dp))
                                 .clickable {
                                     val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                                     cm.setPrimaryClip(ClipData.newPlainText("Buddy code", myId))
                                     AppLogger.log(context, LogCategory.UI, "Buddy Link code copied")
                                     codeMsg = S.buddyCodeCopied
                                 }
-                                .padding(horizontal = 16.dp, vertical = 8.dp)
-                                .semantics { contentDescription = S.buddyCodeCopy }
-                        ) {
-                            Text("📋 ${S.buddyCodeCopy}", fontSize = 12.sp, color = c.onPrimary,
-                                fontWeight = FontWeight.SemiBold)
-                        }
-                        // Share: same pill chrome + contrasting border, identical behaviour as before.
+                                .padding(vertical = 6.dp)
+                                .semantics { contentDescription = "${S.buddyYourCode}: ${S.buddyCodeCopy}" }
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        // Share: filled PILL button (c.primary bg / c.onPrimary text) with a
+                        // contrasting c.onSurface border so the outline is visible in every theme.
                         Box(
                             modifier = Modifier
                                 .clip(CircleShape)
@@ -389,7 +381,6 @@ fun BuddyLinkSection(controller: BuddyLinkController, userName: String) {
                             Text("↗ ${S.buddyCodeShare}", fontSize = 12.sp, color = c.onPrimary,
                                 fontWeight = FontWeight.SemiBold)
                         }
-                    }
                     } // end codeRevealed else-branch
                 }
 
@@ -405,7 +396,9 @@ fun BuddyLinkSection(controller: BuddyLinkController, userName: String) {
                 var codeInput by remember { mutableStateOf("") }
                 if (!addByCodeRevealed) {
                     Text(
-                        S.buddyAddByCode, fontSize = 13.sp, color = c.primary,
+                        // c.onSecondary, not c.primary: primary == the pane colour (secondary)
+                        // in every theme, which made this link invisible.
+                        "＋ ${S.buddyAddByCode}", fontSize = 13.sp, color = c.onSecondary,
                         fontWeight = FontWeight.SemiBold,
                         modifier = Modifier
                             .clickable { addByCodeRevealed = true }
@@ -823,11 +816,11 @@ fun BuddyLinkSection(controller: BuddyLinkController, userName: String) {
 /**
  * The "Share live location" card (S2). Rendered below the buddy-code card, gated by
  * `controller.enabled` like the rest of the section. Two states:
- *  - no active share: a create pill + an optional opt-in label field (reveal pattern);
- *  - active share: the public URL, a "Live for …" remaining-time line, the optional
- *    label, Copy + Share pills (reusing the Clipboard + ACTION_SEND pattern), and a
- *    destructive Stop control. A failed revoke keeps the active state (the controller
- *    clears activeShare only on success). All colours come from JogginTheme.colors.
+ *  - no active share: an optional opt-in label (reveal pattern) above a create pill;
+ *  - active share: a status row (live dot + "Live for …" + destructive Stop pill), then
+ *    Copy + Share pills (reusing the Clipboard + ACTION_SEND pattern). The raw URL is
+ *    not displayed. A failed revoke keeps the active state (the controller clears
+ *    activeShare only on success). All colours come from JogginTheme.colors.
  */
 @Composable
 private fun ShareLiveLocationCard(controller: BuddyLinkController) {
@@ -852,13 +845,43 @@ private fun ShareLiveLocationCard(controller: BuddyLinkController) {
         modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
             .background(c.primary.copy(alpha = 0.10f)).padding(14.dp)
     ) {
-        Text(S.shareLiveTitle, fontSize = 11.sp, color = c.onSecondary.copy(alpha = 0.7f),
-            fontWeight = FontWeight.Medium)
-        Spacer(Modifier.height(8.dp))
+        // Same size/weight/colour as the "Your Buddy code" / "Share my route" titles.
+        Text(S.shareLiveTitle, fontSize = 13.sp, color = c.onSecondary, fontWeight = FontWeight.Medium)
+        Spacer(Modifier.height(10.dp))
 
         val share = controller.activeShare
         if (share == null) {
-            // No active share: a create pill + an optional label field.
+            // No active share: an optional label (link → themed field), then the create pill.
+            if (!labelRevealed) {
+                // c.onSecondary, not c.primary: primary == the pane colour in every theme.
+                Text(
+                    "✏️ ${S.shareLiveLabelHint}", fontSize = 12.sp,
+                    color = c.onSecondary.copy(alpha = 0.75f),
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { labelRevealed = true }
+                        .padding(vertical = 4.dp)
+                        .semantics { contentDescription = S.shareLiveLabelHint }
+                )
+            } else {
+                androidx.compose.material.TextField(
+                    value = labelInput,
+                    onValueChange = { labelInput = it },
+                    singleLine = true,
+                    placeholder = { Text(S.shareLiveLabelHint, fontSize = 12.sp) },
+                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 13.sp),
+                    colors = androidx.compose.material.TextFieldDefaults.textFieldColors(
+                        textColor = c.onSecondary,
+                        backgroundColor = Color.Transparent,
+                        cursorColor = c.onSecondary,
+                        focusedIndicatorColor = c.onSecondary,
+                        unfocusedIndicatorColor = c.onSecondary.copy(alpha = 0.5f),
+                        placeholderColor = c.onSecondary.copy(alpha = 0.5f)
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+            Spacer(Modifier.height(10.dp))
             Box(
                 modifier = Modifier
                     .clip(CircleShape)
@@ -881,35 +904,44 @@ private fun ShareLiveLocationCard(controller: BuddyLinkController) {
                 Text("🔗 ${S.shareLiveCreate}", fontSize = 12.sp, color = c.onPrimary,
                     fontWeight = FontWeight.SemiBold)
             }
-            Spacer(Modifier.height(8.dp))
-            if (!labelRevealed) {
-                Text(
-                    S.shareLiveLabelHint, fontSize = 12.sp, color = c.primary,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier
-                        .clickable { labelRevealed = true }
-                        .semantics { contentDescription = S.shareLiveLabelHint }
-                )
-            } else {
-                androidx.compose.material.TextField(
-                    value = labelInput,
-                    onValueChange = { labelInput = it },
-                    singleLine = true,
-                    placeholder = { Text(S.shareLiveLabelHint, fontSize = 12.sp) },
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
         } else {
-            // Active share: URL + remaining time + label + Copy/Share + Stop.
+            // Active share: one status row (live dot + time left · Stop pill), then
+            // Copy / Share pills. The long raw URL is not shown — Copy/Share carry it.
             val url = controller.shareUrl(share.token)
-            Text(url, fontSize = 13.sp, color = c.onSecondary, fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.semantics { contentDescription = url })
-            Spacer(Modifier.height(4.dp))
             val remaining = formatShareRemaining(ShareLifetime.remainingMs(share.expiresAtMs, nowTick))
-            Text(S.shareLiveRemaining(remaining), fontSize = 10.sp,
-                color = c.onSecondary.copy(alpha = 0.6f))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(Modifier.size(8.dp).clip(CircleShape).background(c.success))
+                Spacer(Modifier.width(8.dp))
+                Text(S.shareLiveRemaining(remaining), fontSize = 13.sp, color = c.onSecondary,
+                    fontWeight = FontWeight.SemiBold, maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f))
+                Spacer(Modifier.width(8.dp))
+                // Destructive stop: solid c.error pill so it reads clearly on the pane colour.
+                Box(
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .background(c.error)
+                        .clickable {
+                            controller.revokeShareLink { result ->
+                                shareMsg = when (result) {
+                                    is BuddyResult.Success -> S.shareLinkStopped
+                                    is BuddyResult.Failure -> S.shareLinkStopFailed
+                                }
+                            }
+                        }
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                        .semantics { contentDescription = S.shareLiveStop }
+                ) {
+                    Text(S.shareLiveStopPill, fontSize = 12.sp, color = Color.White,
+                        fontWeight = FontWeight.SemiBold, maxLines = 1)
+                }
+            }
             Spacer(Modifier.height(10.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 // Copy pill.
                 Box(
                     modifier = Modifier
@@ -925,8 +957,8 @@ private fun ShareLiveLocationCard(controller: BuddyLinkController) {
                         .padding(horizontal = 16.dp, vertical = 8.dp)
                         .semantics { contentDescription = S.shareLiveCopy }
                 ) {
-                    Text("📋 ${S.shareLiveCopy}", fontSize = 12.sp, color = c.onPrimary,
-                        fontWeight = FontWeight.SemiBold)
+                    Text("📋 ${S.buddyCodeCopy}", fontSize = 12.sp, color = c.onPrimary,
+                        fontWeight = FontWeight.SemiBold, maxLines = 1)
                 }
                 // Share pill (ACTION_SEND chooser).
                 Box(
@@ -946,28 +978,10 @@ private fun ShareLiveLocationCard(controller: BuddyLinkController) {
                         .padding(horizontal = 16.dp, vertical = 8.dp)
                         .semantics { contentDescription = S.shareLiveShareSubject }
                 ) {
-                    Text("↗ ${S.shareLiveShareSubject}", fontSize = 12.sp, color = c.onPrimary,
+                    Text("↗ ${S.shareLiveSharePill}", fontSize = 12.sp, color = c.onPrimary,
                         fontWeight = FontWeight.SemiBold, maxLines = 1)
                 }
             }
-            Spacer(Modifier.height(10.dp))
-            // Destructive stop control (c.error), mirroring the danger-zone styling.
-            Text(
-                "🛑 ${S.shareLiveStop}", fontSize = 12.sp, color = c.error,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(8.dp))
-                    .clickable {
-                        controller.revokeShareLink { result ->
-                            shareMsg = when (result) {
-                                is BuddyResult.Success -> S.shareLinkStopped
-                                is BuddyResult.Failure -> S.shareLinkStopFailed
-                            }
-                        }
-                    }
-                    .padding(horizontal = 8.dp, vertical = 4.dp)
-                    .semantics { contentDescription = S.shareLiveStop }
-            )
         }
 
         // Backend status note (non-blocking, Req 10) — same as the code card.
