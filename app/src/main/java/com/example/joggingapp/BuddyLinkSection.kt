@@ -224,12 +224,7 @@ fun BuddyLinkSection(controller: BuddyLinkController, userName: String) {
         // "Allow all the time" and then re-tap. The toggle stays honestly OFF meanwhile.
         if (permissionDenied && !controller.enabled) {
             Spacer(Modifier.height(10.dp))
-            Text(
-                S.buddyPermissionDeniedAllowAllTime,
-                fontSize = 11.sp,
-                color = c.error.copy(alpha = 0.9f),
-                modifier = Modifier.semantics { contentDescription = S.buddyPermissionDeniedAllowAllTime }
-            )
+            WarningNote(S.buddyPermissionDeniedAllowAllTime)
             Spacer(Modifier.height(6.dp))
             Text(
                 "⚙️ ${S.buddyOpenSettings}",
@@ -279,18 +274,13 @@ fun BuddyLinkSection(controller: BuddyLinkController, userName: String) {
             // permission was denied or later revoked — broadcasting can't run without it.
             if (!bgGranted) {
                 Spacer(Modifier.height(10.dp))
-                Text(
-                    S.buddyPermissionNeeded,
-                    fontSize = 11.sp,
-                    color = c.error.copy(alpha = 0.9f),
-                    modifier = Modifier.semantics { contentDescription = S.buddyPermissionNeeded }
-                )
+                WarningNote(S.buddyPermissionNeeded)
             }
 
             // Backend status note (non-blocking, Req 10).
             if (!controller.backendAvailable) {
                 Spacer(Modifier.height(10.dp))
-                Text(S.buddyUnavailableBackend, fontSize = 11.sp, color = c.error.copy(alpha = 0.9f))
+                WarningNote(S.buddyUnavailableBackend)
             }
 
             // ── My Buddy code card (Copy / Share) + member-since ──────────────
@@ -974,7 +964,7 @@ private fun ShareLiveLocationCard(controller: BuddyLinkController) {
         // Backend status note (non-blocking, Req 10) — same as the code card.
         if (!controller.backendAvailable) {
             Spacer(Modifier.height(10.dp))
-            Text(S.buddyUnavailableBackend, fontSize = 11.sp, color = c.error.copy(alpha = 0.9f))
+            WarningNote(S.buddyUnavailableBackend)
         }
 
         shareMsg?.let { msg ->
@@ -1008,6 +998,28 @@ private fun DangerPill(label: String, description: String, onClick: () -> Unit) 
             .semantics { contentDescription = description }
     ) {
         Text(label, fontSize = 11.sp, color = Color.White, fontWeight = FontWeight.SemiBold, maxLines = 1)
+    }
+}
+
+/**
+ * A warning/status note: solid c.error box + white text with a ⚠️, so it stays legible on
+ * the pane colour (small red text on the pane was hard to read). Same treatment as
+ * [DangerPill] and the delete-data bar.
+ */
+@Composable
+private fun WarningNote(text: String) {
+    val c = JogginTheme.colors
+    Row(
+        modifier = Modifier.fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(c.error)
+            .padding(horizontal = 10.dp, vertical = 8.dp)
+            .semantics { contentDescription = text },
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text("⚠️", fontSize = 13.sp)
+        Text(text, fontSize = 11.sp, color = Color.White, fontWeight = FontWeight.Medium)
     }
 }
 
