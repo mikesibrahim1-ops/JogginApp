@@ -1775,7 +1775,12 @@ fun OptionsPaneContent(colorIdx: Int, savedRoutes: List<SavedRoute>, onColorSele
             AppLogger.log(context, LogCategory.ERROR, "Restore failed: ${e.message}")
         }
     }
-    Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp)) {
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+    // heightIn(min = maxHeight) forces the scrolling Column to be at least as tall as the
+    // pane viewport, so the single weighted Spacer below has bounded space to expand and can
+    // push the App-Theme-through-version block to the bottom; when content is taller than the
+    // viewport the Column grows past it and the whole pane scrolls as one unit.
+    Column(modifier = Modifier.fillMaxWidth().heightIn(min = this@BoxWithConstraints.maxHeight).verticalScroll(rememberScrollState()).padding(24.dp)) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Text(S.options, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = c.onSecondary)
             // ✕ button: close pane AND clear any stale restore message
@@ -1790,6 +1795,11 @@ fun OptionsPaneContent(colorIdx: Int, savedRoutes: List<SavedRoute>, onColorSele
         }
         Spacer(Modifier.height(16.dp))
         ProfileSection(userName = userName, onUserNameChanged = onUserNameChanged)
+
+        // Flexible gap: pins the Bio block above at the TOP and pushes everything below
+        // (App Theme → … → version row → diagnostics) toward the BOTTOM when the pane is
+        // taller than its content. Collapses to 0 when content exceeds the viewport.
+        Spacer(Modifier.weight(1f))
 
         // ── App Theme ─────────────────────────────────────────────────────────
         CollapsibleSection(title = S.appTheme, leadingEmoji = "🎨") {
@@ -2241,6 +2251,7 @@ fun OptionsPaneContent(colorIdx: Int, savedRoutes: List<SavedRoute>, onColorSele
         }
         } // end if (showDebugConsole)
     }
+    } // end BoxWithConstraints
 }
 
 @Composable fun StatItem(value: String, label: String) { val c = JogginTheme.colors; Column(horizontalAlignment = Alignment.CenterHorizontally) { Text(value, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = c.onBackground); Text(label, fontSize = 11.sp, color = c.textSecondary, textAlign = TextAlign.Center) } }
