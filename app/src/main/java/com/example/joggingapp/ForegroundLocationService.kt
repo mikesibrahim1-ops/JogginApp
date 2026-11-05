@@ -36,6 +36,8 @@ class ForegroundLocationService : Service() {
 
     // Track all accepted points for recovery if activity doesn't receive end broadcast
     private val trackedPoints = mutableListOf<Point>()
+    private val pauseBreaks = mutableListOf<Int>()   // trackedPoints.size when each pause began
+    private var runActive = false
 
     // Throttle GPS-accepted log entries — log every 10th point to avoid flooding
     private var acceptedPointCount = 0
@@ -79,6 +81,18 @@ class ForegroundLocationService : Service() {
         // Auto-end the activity when battery falls to/below this (and not charging),
         // so the run is saved before the phone dies rather than being lost.
         private const val LOW_BATTERY_END_PERCENT = 5
+
+        // Main thread only, like the fields it exposes.
+        private var instance: ForegroundLocationService? = null
+
+        /** The run in progress, or null when none is. Call from the main thread. */
+        fun currentRun(): ActiveRun.Snapshot? = instance?.takeIf { it.runActive }?.let {
+            ActiveRun.Snapshot(
+                ActiveRun.pathWithBreaks(it.trackedPoints.toList(), it.pauseBreaks.toList()),
+                it.elapsedSec().toInt(),
+                it.isPaused
+            )
+        }
     }
 
     private var pointsReceived = 0
@@ -92,6 +106,7 @@ class ForegroundLocationService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        instance = this
         fusedClient = LocationServices.getFusedLocationProviderClient(this)
         callback = object : LocationCallback() {
             override fun onLocationResult(result: LocationResult) {
@@ -146,6 +161,8 @@ class ForegroundLocationService : Service() {
                     "PAUSE received — points so far=${trackedPoints.size} dist=${String.format("%.2f", totalDistanceM / 1000.0)}km")
 
                 isPaused = true
+                pauseBreaks.add(trackedPoints.size)
+                LiveActivityBus.state.value = LiveActivityState.PAUSED
                 pausedAtMs = System.currentTimeMillis()
                 safetyTick()   // paused → clears any pending Are-you-OK prompt
                 notifUpdater?.let { notifHandler.removeCallbacks(it) }
@@ -167,6 +184,7 @@ class ForegroundLocationService : Service() {
                     pausedAtMs = 0L
                 }
                 isPaused = false
+                LiveActivityBus.state.value = LiveActivityState.TRACKING
                 lastMovementMs = System.currentTimeMillis()   // stop timer restarts on resume
                 movementAnchor = null
 
@@ -190,9 +208,19 @@ class ForegroundLocationService : Service() {
             }
         }
 
+        // A run is already recording: a second start must never wipe it.
+        if (runActive) {
+            AppLogger.log(this, LogCategory.SERVICE,
+                "Start ignored — run already in progress, points=${trackedPoints.size}")
+            return START_STICKY
+        }
+
         // ── FRESH START ───────────────────────────────────────────────────────
         Log.d("Joggin", "Foreground service starting")
+        runActive = true
+        pauseBreaks.clear()
         isPaused = false
+        LiveActivityBus.state.value = LiveActivityState.TRACKING
         lastAcceptedLocation = null
         pointsReceived = 0
         acceptedPointCount = 0
@@ -307,6 +335,7 @@ class ForegroundLocationService : Service() {
      * summary, then tear down the foreground service.
      */
     private fun endActivityAndStop(reason: String) {
+        runActive = false
         // Stop ticker so it cannot re-post after we cancel
         notifUpdater?.let { notifHandler.removeCallbacks(it) }
         notifUpdater = null
@@ -357,6 +386,9 @@ class ForegroundLocationService : Service() {
     }
 
     override fun onDestroy() {
+        runActive = false
+        if (instance === this) instance = null
+        LiveActivityBus.state.value = LiveActivityState.IDLE
         Log.d("Joggin", "Foreground service stopping")
         unregisterBatteryWatchdog()
         notifUpdater?.let { notifHandler.removeCallbacks(it) }

@@ -11,7 +11,29 @@ Android GPS fitness tracker (walk/run/cycle) at `c:\Users\INFINITI\Documents\Kir
 (project `joggin-a69a7`) powers **Buddy Link** (opt-in 1:1 live-location sharing). Distributed
 as a sideloaded APK: GitHub Releases hosts the APK; a Firebase Hosting install page links to it.
 
-## 0. LATEST SESSION SUMMARY (read this first — 2026-10-29, V1.60→V1.67)
+## 0-new. V1.71 SESSION (2026-11-05) — read this first
+**Current shipped version = V1.71** (tag `V1.71`, GitHub `releases/latest`, asset `joggin.apk`,
+the debug APK copied via `archive-build.ps1`, same debug signing key as V1.70). Notes:
+`.kiro/specs/release-notes-v1.71.md`. Firestore rules (`runSignals/{appId}/inbox`) are deployed.
+- **Run together** (`RunTogether.kt`, `BuddyLinkController` "Run together" section): invite →
+  accept → both phones start tracking; Route on for that run only. Tested on two phones 11-05
+  (started 1–2 s apart). Every step logs a "Run together: …" line in `app_log.txt`.
+- **BuddyLinkController is now one per process** (`BuddyLinkController.get`), not `remember`ed
+  per screen: a rebuilt screen used to drop a pending invite (received signals are deleted).
+- **Pick who to invite:** "🤝 Invite to join" on each live buddy row in Buddy Link; the home-card
+  button opens `RunTogetherPickDialog` when several buddies are live.
+- **Partner route:** `BuddyRouteOverlay` draws it dotted, offset a few px sideways so it sits
+  beside the user's line. Saved in `SavedRoute.buddyPoints`/`buddyName`, shown on the summary,
+  history card and snapshot. That copy is out of reach of the 7-day cleanup and "Delete my data";
+  the run-together consent text (EN/EL) says so.
+- **Home rings toggle:** `TargetRingsPref` (`show_target_rings`, default on), in Options under
+  Exercise Targets.
+- **NOT yet tested on a walk:** the invite picker, the dotted side-by-side line, the saved partner
+  route, the rings toggle, and an invite surviving a rotation. Read both phones' logs after the
+  next two-phone walk.
+- Phone 1 (S21, `R5CR100AY2V`) records steps=0 on nearly every walk; phone 2 (A54) is fine.
+
+## 0. PREVIOUS SESSION SUMMARY (2026-10-29, V1.60→V1.67)
 Working copy is now `c:\Users\INFINITI\Documents\Kiro\JogginApp - Claude`. **Current shipped version =
 V1.67** (tag `V1.67`, `e8137a4`, GitHub `releases/latest`, asset `joggin.apk`). Release notes for each
 version: `.kiro/specs/release-notes-v1.6X.md`.

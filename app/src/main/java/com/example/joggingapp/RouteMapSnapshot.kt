@@ -80,8 +80,14 @@ object RouteMapSnapshot {
                 }
 
                 try {
-                    val minLat = points.minOf { it.lat }; val maxLat = points.maxOf { it.lat }
-                    val minLon = points.minOf { it.lon }; val maxLon = points.maxOf { it.lon }
+                    // Run together (V1.71): the buddy's dotted route, framed with mine.
+                    val buddy = route.buddyPoints.orEmpty().filter { !it.lat.isNaN() && !it.lon.isNaN() }
+                    val framed = points + buddy
+                    val minLat = framed.minOf { it.lat }; val maxLat = framed.maxOf { it.lat }
+                    val minLon = framed.minOf { it.lon }; val maxLon = framed.maxOf { it.lon }
+                    if (buddy.size >= 2) {
+                        mapView.overlays.add(BuddyRouteOverlay(buddy.map { GeoPoint(it.lat, it.lon) }, ROUTE_STROKE))
+                    }
 
                     val line = Polyline(mapView).apply {
                         outlinePaint.color = routeColorArgb

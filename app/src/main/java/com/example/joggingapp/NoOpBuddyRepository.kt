@@ -44,13 +44,18 @@ object NoOpBuddyRepository : BuddyRepository {
     override fun observeBlocked(): Flow<List<String>> = flowOf(emptyList())
 
     override suspend fun writeMyLocation(
-        lat: Double, lon: Double, atMs: Long, mode: BuddyShareMode
+        lat: Double, lon: Double, atMs: Long, appendTrail: Boolean
     ): BuddyResult<Unit> = unavailable()
     override suspend fun requestBuddyLocation(buddyAppId: String): BuddyResult<Unit> = unavailable()
     override fun observeLocationRequests(): Flow<List<String>> = flowOf(emptyList())
 
     override suspend fun sendCheer(buddyAppId: String, fromName: String?): BuddyResult<Unit> = unavailable()
     override fun observeCheers(): Flow<List<BuddyCheer>> = flowOf(emptyList())
+
+    override suspend fun sendRunSignal(
+        buddyAppId: String, kind: RunSignalKind, inviteId: String, activityType: Int, fromName: String?
+    ): BuddyResult<Unit> = unavailable()
+    override fun observeRunSignals(): Flow<List<RunSignal>> = flowOf(emptyList())
 
     override suspend fun createShareLink(label: String?): BuddyResult<ShareLink> = unavailable()
     override suspend fun writeShareFix(
@@ -59,4 +64,5 @@ object NoOpBuddyRepository : BuddyRepository {
     override suspend fun revokeShareLink(token: String): BuddyResult<Unit> = unavailable()
 
     override suspend fun deleteAllMyData(): BuddyResult<Unit> = unavailable()
+    override suspend fun pruneMyTrail(olderThanMs: Long): BuddyResult<Int> = unavailable()
 }

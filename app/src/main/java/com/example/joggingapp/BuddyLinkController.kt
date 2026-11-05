@@ -16,12 +16,15 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Buddy Link controller / state holder. Plain class (not an AndroidX ViewModel — the
  * app has no lifecycle-viewmodel dependency and keeps state in Compose) that owns the
- * Buddy Link UI state and mediates the [BuddyRepository]. Create it in a `remember { }`
- * and call [start] from a DisposableEffect; call [dispose] on leaving composition.
+ * Buddy Link UI state and mediates the [BuddyRepository]. Get the process-wide instance
+ * with [get] and call [start] once the UI is up. It lives as long as the process, not the
+ * screen: a rebuilt screen (rotation, theme change, closing and reopening) must not drop a
+ * run-together invite in flight, because a received signal is deleted from the server.
  * (Named Controller to avoid clashing with the BuddyLinkState enum in BuddyModels.kt.)
  *
  * The master toggle is persisted locally in prefs so the UI reflects it instantly and
@@ -38,6 +41,7 @@ class BuddyLinkController(private val appContext: Context) {
     var enabled by mutableStateOf(prefs.getBoolean(KEY_ENABLED, false)); private set
     var appId by mutableStateOf<String?>(BuddyIdentity.getId(appContext)); private set
     var gpsOn by mutableStateOf(false); private set
+    var deleteDataFailed by mutableStateOf(false); private set
     var backendAvailable by mutableStateOf(false); private set
     var buddies by mutableStateOf<List<BuddyView>>(emptyList()); private set
     /**
@@ -77,12 +81,21 @@ class BuddyLinkController(private val appContext: Context) {
     fun consumeRouteActiveAlert() { routeActiveAlertPending = false }
 
     /**
-     * The trail to actually draw on the map: the observed [buddyTrail] only while the
-     * user has history enabled AND a buddy is live; otherwise empty so the overlay is
-     * hidden. Makes the trail a user-invoked "History" view rather than always-on.
+     * The trail to draw on the map while a buddy is live: their current route by default
+     * (so a shared activity needs no extra tap), or everything loaded when the user has
+     * opted into "History". Empty when no buddy is live, hiding the overlay.
      */
     val visibleBuddyTrail: List<BuddyTrailPoint>
-        get() = if (showHistory && primaryBuddyView != null) buddyTrail else emptyList()
+        get() {
+            val primary = primaryBuddyView ?: return emptyList()
+            val since = runTogetherStartedAt
+            return when {
+                showHistory -> buddyTrail
+                // Running together: just the part walked together, as the run promised.
+                primary.user.appId == runPartnerId && since > 0L -> runPartnerPointsSince(since)
+                else -> BuddyLiveRoute.currentSegment(buddyTrail, livenessTick)
+            }
+        }
 
     /** Toggle the buddy history trail overlay (task 6.4). */
     fun toggleHistory() { showHistory = !showHistory }
@@ -98,7 +111,9 @@ class BuddyLinkController(private val appContext: Context) {
     private fun applyShareMode(mode: BuddyShareMode) {
         if (shareMode == mode) return
         shareMode = mode
-        prefs.edit().putString(BuddyConstants.PREFS_SHARE_MODE_KEY, mode.wire).apply()
+        // Any explicit change makes the mode permanent, so it clears the this-run-only marker.
+        prefs.edit().putString(BuddyConstants.PREFS_SHARE_MODE_KEY, mode.wire)
+            .remove(BuddyConstants.PREFS_RUN_ROUTE_TEMPORARY).apply()
         AppLogger.log(appContext, LogCategory.PROFILE, "Buddy Link share mode -> ${mode.wire}")
         scope.launch { repo.updateMyUser(shareMode = mode) }
     }
@@ -107,7 +122,7 @@ class BuddyLinkController(private val appContext: Context) {
     val sharing: Boolean get() = enabled && gpsOn
 
     /** True when at least one buddy can currently see me (drives the eye indicator). */
-    val hasWatchers: Boolean get() = enabled && watchers.isNotEmpty()
+    val hasWatchers: Boolean get() = sharing && watchers.isNotEmpty()
 
     /**
      * Accepted buddies to show in the active list — those I have NOT blocked. Derived
@@ -132,7 +147,15 @@ class BuddyLinkController(private val appContext: Context) {
      * (mutually sharing + a fix newer than 15 min). Null when no buddy is live, so
      * the map simply draws no buddy overlay. (v1 is 1:1, so at most one.)
      */
-    val primaryBuddyView: BuddyView? get() = buddies.firstOrNull { it.isLiveNow(livenessTick) }
+    val primaryBuddyView: BuddyView? get() {
+        val live = buddies.filter { it.isLiveNow(livenessTick) }
+        // The buddy I'm running with wins over whoever happens to be listed first.
+        return live.firstOrNull { it.user.appId == runPartnerId } ?: live.firstOrNull()
+    }
+
+    /** Buddies I could invite to a run right now: live and not blocked. */
+    val liveBuddies: List<BuddyView>
+        get() = activeBuddies.filter { it.isLiveNow(livenessTick) }
 
     /**
      * Tick-driven liveness check for the buddy list rows. Reads [livenessTick] so the
@@ -152,6 +175,7 @@ class BuddyLinkController(private val appContext: Context) {
     fun start() {
         if (started) return
         started = true
+        observeRunRouteLifetime()
         if (!enabled) return   // nothing to observe until enabled
         ensureSession()
         refreshSharingOnLaunch()   // FR6: assert sharing on launch (belt-and-suspenders)
@@ -192,7 +216,7 @@ class BuddyLinkController(private val appContext: Context) {
      * session IMMEDIATELY — no app restart required. Safe to call repeatedly:
      * [beginObserving] early-returns while already observing.
      */
-    private fun ensureSession() {
+    private fun ensureSession(displayName: String? = null) {
         // V1.58: provisioning is now UNCONDITIONAL. Whenever Buddy Link is enabled we
         // ALWAYS run ensureSessionWithRetry(id) BEFORE attaching listeners — even when a
         // cached anon session already exists (needsSession()==false). ensureSession
@@ -204,11 +228,34 @@ class BuddyLinkController(private val appContext: Context) {
         val id = appId
         if (id != null) {
             scope.launch {
-                ensureSessionWithRetry(id)
+                // Publish my state BEFORE attaching listeners. The rules deny location reads
+                // until my `sharing` is true, and the earlier write in updateGpsState can
+                // fail if it beats the session. shareMode gates the buddy's trail read.
+                if (ensureSessionWithRetry(id) && enabled) {
+                    repo.updateMyUser(
+                        displayName = displayName, buddyEnabled = true, gpsOn = gpsOn,
+                        sharing = sharing, shareMode = shareMode
+                    )
+                    pruneOldTrail()
+                }
                 if (enabled) beginObserving()
             }
         } else {
             beginObserving()
+        }
+    }
+
+    /** Enforces the retention promise here: the Firestore TTL policy isn't relied on. */
+    private fun pruneOldTrail() {
+        scope.launch {
+            val cutoff = System.currentTimeMillis() - BuddyConstants.RETENTION_MS
+            when (val r = repo.pruneMyTrail(cutoff)) {
+                is BuddyResult.Success -> if (r.value > 0) {
+                    AppLogger.log(appContext, LogCategory.PROFILE, "Buddy trail pruned: ${r.value} old points")
+                }
+                is BuddyResult.Failure ->
+                    AppLogger.log(appContext, LogCategory.ERROR, "Buddy trail prune failed: ${r.reason}")
+            }
         }
     }
 
@@ -232,7 +279,7 @@ class BuddyLinkController(private val appContext: Context) {
     }
 
     // Tracks the appId whose trail we're currently observing, so we only re-subscribe
-    // when the displayed buddy actually changes.
+    // when the observable buddy actually changes.
     private var trailBuddyId: String? = null
     private var trailJob: Job? = null
 
@@ -275,6 +322,7 @@ class BuddyLinkController(private val appContext: Context) {
         observeJobs += repo.observeWatchers().onEach { watchers = it }.launchIn(scope)
         // Live Cheer (S1): surface an incoming cheer in-app while foregrounded.
         observeJobs += repo.observeCheers().onEach { handleIncomingCheers(it) }.launchIn(scope)
+        observeJobs += repo.observeRunSignals().onEach { handleRunSignals(it) }.launchIn(scope)
         // Liveness ticker: bump the Compose-observable tick every few seconds so the
         // time-based isLiveNow() reads in primaryBuddyView/isBuddyLive re-evaluate as
         // time passes (and after later partial emissions), making the map + buddy list
@@ -337,18 +385,25 @@ class BuddyLinkController(private val appContext: Context) {
     }
 
     /**
-     * (Re)subscribes to the displayed buddy's trail when the primary live buddy
-     * changes. Cancels the previous subscription and clears the trail when there is
-     * no live buddy.
+     * (Re)subscribes to the primary live buddy's trail. The rules only allow that read in
+     * ROUTE mode, so a buddy switching to ROUTE subscribes here and switching back clears
+     * the trail. Cancels the previous subscription when there is no such buddy.
      */
     private fun refreshTrailSubscription() {
-        val id = primaryBuddyView?.user?.appId
+        val id = primaryBuddyView?.user?.takeIf { it.shareMode == BuddyShareMode.ROUTE }?.appId
         if (id == trailBuddyId) return
         trailBuddyId = id
         trailJob?.cancel(); trailJob = null
         buddyTrail = emptyList()
         if (id != null) {
-            trailJob = repo.observeBuddyTrail(id).onEach { buddyTrail = it }.launchIn(scope)
+            trailJob = repo.observeBuddyTrail(id).onEach { pts ->
+                buddyTrail = pts
+                // Kept apart from buddyTrail, which empties when the partner ends first and
+                // switches Route back off: their part of the run must survive until I save.
+                if (id == runPartnerId) {
+                    runPartnerTrail = (runPartnerTrail + pts).distinctBy { it.at }.sortedBy { it.at }
+                }
+            }.launchIn(scope)
         }
     }
 
@@ -385,32 +440,33 @@ class BuddyLinkController(private val appContext: Context) {
     fun enableConfirmed(displayName: String) {
         val id = BuddyIdentity.ensureId(appContext)
         appId = id
+        deleteDataFailed = false
         enabled = true
         prefs.edit().putBoolean(KEY_ENABLED, true).apply()
         AppLogger.log(appContext, LogCategory.PROFILE, "Buddy Link enabled")
-        // Push my enabled state to the backend, then start the live session through the
-        // SAME idempotent path app launch uses so listeners + sharing come up IMMEDIATELY
-        // (no app restart). ensureSession() handles session-retry-before-observe itself.
-        scope.launch {
-            repo.updateMyUser(
-                displayName = displayName, buddyEnabled = true, gpsOn = gpsOn,
-                sharing = sharing, shareMode = shareMode
-            )
-        }
         // Re-alert on EVERY enable while ROUTE is the persisted mode (req 5b): raise a
         // one-shot flag the UI consumes. Set here (not a LaunchedEffect) so it fires once
         // per explicit enable, not on every recomposition.
         if (shareMode == BuddyShareMode.ROUTE) routeActiveAlertPending = true
-        ensureSession()
+        // Starts the session through the same path as app launch, so listeners and sharing come
+        // up without a restart. The profile, including the name, is written once it succeeds:
+        // the rules refuse a brand-new identity's profile before then.
+        ensureSession(displayName)
         applySharingState()   // start the location foreground service when CONDITION-1 holds
     }
 
     /** Turns Buddy Link OFF: stops sharing immediately (Req 1.6). */
     fun disable() {
+        restoreRunRoute()
+        scope.launch { repo.updateMyUser(buddyEnabled = false, sharing = false) }
+        stopLocally()
+    }
+
+    /** Stops sharing and clears local state, without writing anything to the backend. */
+    private fun stopLocally() {
         enabled = false
         prefs.edit().putBoolean(KEY_ENABLED, false).apply()
         AppLogger.log(appContext, LogCategory.PROFILE, "Buddy Link disabled")
-        scope.launch { repo.updateMyUser(buddyEnabled = false, sharing = false) }
         // Cancel the attached listeners and reset the observing flag so a later
         // re-enable re-attaches a fresh set (no duplicate listeners / doubled diffs).
         observeJobs.forEach { it.cancel() }; observeJobs.clear(); observing = false
@@ -423,6 +479,7 @@ class BuddyLinkController(private val appContext: Context) {
         // Live Cheer (S1) state reset alongside the rest.
         lastCheerSentAt = emptyMap(); cheersSentToday.clear(); cheerDayStart = 0L
         incomingCheerFromName = null; seenCheerIds = null
+        resetRunTogether()
         showHistory = false
         applySharingState()   // sharing is now false -> stops the broadcast service
     }
@@ -525,6 +582,258 @@ class BuddyLinkController(private val appContext: Context) {
         return decision
     }
 
+    // ── Run together ────────────────────────────────────────────────────────────
+
+    /** The invite I sent and am waiting on, or null. */
+    var outgoingRun by mutableStateOf<OutgoingRunInvite?>(null); private set
+    /** The invite waiting for my answer, or null. */
+    var incomingRun by mutableStateOf<RunSignal?>(null); private set
+    /** Set when both sides agreed; the UI starts tracking, then calls [consumeRunStart]. */
+    var runStart by mutableStateOf<RunStart?>(null); private set
+    var runNotice by mutableStateOf<RunNotice?>(null); private set
+    fun consumeRunStart() { runStart = null }
+    fun consumeRunNotice() { runNotice = null }
+
+    private var outgoingTimeout: Job? = null
+    private var incomingTimeout: Job? = null
+    private var seenRunSignalIds = emptySet<String>()
+    /** The buddy I agreed to run with, from "both agreed" until that run ends. */
+    var runPartnerId by mutableStateOf<String?>(null); private set
+    var runPartnerName by mutableStateOf<String?>(null); private set
+    /** When the joint run started tracking here; 0 before it starts. */
+    var runTogetherStartedAt by mutableStateOf(0L); private set
+    /** A buddy picked to invite (home card or Buddy Link); the UI shows the send dialog. */
+    var runInviteTarget by mutableStateOf<BuddyView?>(null); private set
+    fun askToRun(view: BuddyView) { if (outgoingRun == null) runInviteTarget = view }
+    fun clearRunInviteTarget() { runInviteTarget = null }
+
+    /** The partner's trail points from [sinceMs] on, oldest first. */
+    fun runPartnerPointsSince(sinceMs: Long): List<BuddyTrailPoint> =
+        if (runPartnerId != null) runPartnerTrail.filter { it.at >= sinceMs } else emptyList()
+
+    /** Every trail point of the partner seen during this pairing, oldest first. */
+    private var runPartnerTrail by mutableStateOf<List<BuddyTrailPoint>>(emptyList())
+
+    /**
+     * The partner's route for the activity being saved, with their name, or null when
+     * this wasn't a run together or nothing of theirs arrived (V1.71: kept in history).
+     */
+    fun runPartnerRouteForSave(): Pair<String, List<Point>>? {
+        val since = runTogetherStartedAt
+        if (runPartnerId == null || since <= 0L) return null
+        val pts = runPartnerPointsSince(since - RUN_PARTNER_SAVE_SLACK_MS)
+        runLog("saving partner route — ${pts.size} points")
+        if (pts.size < 2) return null
+        return (runPartnerName ?: "") to pts.map { Point(it.lat, it.lon, it.at, 0f) }
+    }
+
+    /** Ends the run-together pairing (run over, or the run never started). */
+    fun endRunTogether() {
+        if (runPartnerId == null) return
+        runLog("run together over")
+        runPartnerId = null; runPartnerName = null; runTogetherStartedAt = 0L
+        runPartnerTrail = emptyList()
+        refreshTrailSubscription()
+    }
+
+    // The run hasn't started yet: its first tracking state turns Route on, until this time.
+    private var runRouteDeadline = 0L
+
+    /** True while a joint run is starting, so the UI doesn't also ask for Route consent. */
+    val runRoutePending: Boolean get() = System.currentTimeMillis() < runRouteDeadline
+
+    fun inviteToRun(buddy: BuddyView, activityType: Int, fromName: String) {
+        if (outgoingRun != null) return
+        val invite = OutgoingRunInvite(
+            java.util.UUID.randomUUID().toString(), buddy.user.appId,
+            buddy.user.displayName.ifBlank { buddyShortId(buddy.user.appId) }, activityType
+        )
+        outgoingRun = invite
+        runNotice = null
+        runLog("invite created for ${buddyShortId(invite.buddyAppId)} — type=$activityType invite=${invite.inviteId.take(8)}")
+        outgoingTimeout = scope.launch {
+            delay(BuddyConstants.RUN_INVITE_TTL_MS)
+            runLog("invite ${invite.inviteId.take(8)} got no answer — cancelling")
+            outgoingRun = null
+            runNotice = RunNotice(RunNotice.Kind.NO_ANSWER, invite.buddyName)
+            sendRunSignal(invite.buddyAppId, RunSignalKind.CANCEL, invite.inviteId, activityType)
+        }
+        scope.launch {
+            // Offline the write only queues, and arrives too late to be shown: report it now.
+            val result = withTimeoutOrNull(BuddyConstants.RUN_SIGNAL_SEND_TIMEOUT_MS) {
+                repo.sendRunSignal(invite.buddyAppId, RunSignalKind.INVITE, invite.inviteId, activityType, fromName)
+            }
+            if (result is BuddyResult.Success) runLog("invite ${invite.inviteId.take(8)} sent")
+            if (result !is BuddyResult.Success && outgoingRun?.inviteId == invite.inviteId) {
+                val why = (result as? BuddyResult.Failure)?.reason ?: "timed out"
+                AppLogger.log(appContext, LogCategory.ERROR, "Run-together invite not sent: $why")
+                closeOutgoing()
+                runNotice = RunNotice(RunNotice.Kind.SEND_FAILED, invite.buddyName)
+            }
+        }
+    }
+
+    fun cancelRunInvite() {
+        val invite = outgoingRun ?: return
+        runLog("invite ${invite.inviteId.take(8)} cancelled by me")
+        closeOutgoing()
+        sendRunSignal(invite.buddyAppId, RunSignalKind.CANCEL, invite.inviteId, invite.activityType)
+    }
+
+    fun acceptRunInvite() {
+        val invite = incomingRun ?: return
+        runLog("invite ${invite.inviteId.take(8)} accepted by me")
+        closeIncoming()
+        sendRunSignal(invite.fromAppId, RunSignalKind.ACCEPT, invite.inviteId, invite.activityType)
+        beginRunTogether(invite.activityType, invite.fromAppId, invite.fromName)
+    }
+
+    fun declineRunInvite() {
+        val invite = incomingRun ?: return
+        runLog("invite ${invite.inviteId.take(8)} declined by me")
+        closeIncoming()
+        sendRunSignal(invite.fromAppId, RunSignalKind.DECLINE, invite.inviteId, invite.activityType)
+    }
+
+    private fun handleRunSignals(signals: List<RunSignal>) {
+        val now = System.currentTimeMillis()
+        signals.filter { it.id !in seenRunSignalIds }.forEach { signal ->
+            seenRunSignalIds = seenRunSignalIds + signal.id
+            val outgoing = outgoingRun
+            val action = RunTogether.decide(signal, outgoing, incomingRun, now)
+            runLog("received ${signal.kind.wire} from ${buddyShortId(signal.fromAppId)} invite=${signal.inviteId.take(8)} " +
+                "age=${(now - signal.at) / 1000}s waitingOnMine=${outgoing != null} → $action")
+            when (action) {
+                RunTogether.Action.SHOW_INVITE -> showIncomingInvite(signal)
+                RunTogether.Action.ACCEPT_CROSSED_INVITE -> {
+                    closeOutgoing()
+                    sendRunSignal(signal.fromAppId, RunSignalKind.ACCEPT, signal.inviteId, signal.activityType)
+                    beginRunTogether(outgoing?.activityType ?: signal.activityType, signal.fromAppId, signal.fromName)
+                }
+                RunTogether.Action.OUTGOING_ACCEPTED -> {
+                    closeOutgoing()
+                    if (outgoing != null) {
+                        if (!AppForeground.isForeground) BuddyNotifier.notifyRunAccepted(appContext, outgoing.buddyName)
+                        beginRunTogether(outgoing.activityType, outgoing.buddyAppId, outgoing.buddyName)
+                    }
+                }
+                RunTogether.Action.OUTGOING_DECLINED -> {
+                    closeOutgoing()
+                    if (outgoing != null) runNotice = RunNotice(RunNotice.Kind.DECLINED, outgoing.buddyName)
+                }
+                RunTogether.Action.INCOMING_CANCELLED -> closeIncoming()
+                RunTogether.Action.IGNORE -> Unit
+            }
+        }
+    }
+
+    private fun showIncomingInvite(signal: RunSignal) {
+        closeIncoming()
+        incomingRun = signal
+        val name = signal.fromName.ifBlank { buddyShortId(signal.fromAppId) }
+        val background = !AppForeground.isForeground
+        if (background) BuddyNotifier.notifyRunInvite(appContext, name, signal.activityType)
+        runLog("invite ${signal.inviteId.take(8)} shown " + if (background) "as a notification" else "in the app")
+        incomingTimeout = scope.launch {
+            delay(BuddyConstants.RUN_INVITE_TTL_MS)
+            if (incomingRun?.id == signal.id) {
+                runLog("invite ${signal.inviteId.take(8)} expired unanswered")
+                incomingRun = null
+            }
+        }
+    }
+
+    private fun closeOutgoing() {
+        outgoingTimeout?.cancel(); outgoingTimeout = null
+        outgoingRun = null
+    }
+
+    private fun closeIncoming() {
+        incomingTimeout?.cancel(); incomingTimeout = null
+        incomingRun = null
+    }
+
+    private fun sendRunSignal(buddyAppId: String, kind: RunSignalKind, inviteId: String, activityType: Int) {
+        scope.launch {
+            val result = repo.sendRunSignal(buddyAppId, kind, inviteId, activityType, null)
+            if (result is BuddyResult.Success) runLog("${kind.wire} sent for invite ${inviteId.take(8)}")
+            if (result is BuddyResult.Failure) {
+                AppLogger.log(appContext, LogCategory.ERROR, "Run-together ${kind.wire} not sent: ${result.reason}")
+            }
+        }
+    }
+
+    private fun beginRunTogether(activityType: Int, partnerId: String, partnerName: String) {
+        val now = System.currentTimeMillis()
+        runPartnerId = partnerId
+        runPartnerName = partnerName.ifBlank { buddyShortId(partnerId) }
+        runTogetherStartedAt = 0L
+        runPartnerTrail = emptyList()
+        refreshTrailSubscription()
+        if (LiveActivityBus.state.value == LiveActivityState.IDLE) {
+            runLog("both agreed — asking the app to start tracking (type=$activityType)")
+            runRouteDeadline = now + 2 * BuddyConstants.RUN_INVITE_TTL_MS
+            runStart = RunStart(activityType, now)
+        } else {
+            runLog("both agreed — already tracking, sharing Route for this run")
+            runTogetherStartedAt = now
+            turnOnRunRoute()   // already tracking: nothing to start, just share the route
+        }
+    }
+
+    /** Route for this run only: the person's agreement to the invite covers just this run. */
+    private fun turnOnRunRoute() {
+        runRouteDeadline = 0L
+        if (shareMode != BuddyShareMode.PING) {
+            runLog("Route already on — nothing to turn on for this run")
+            return
+        }
+        enableRouteMode()
+        prefs.edit().putBoolean(BuddyConstants.PREFS_RUN_ROUTE_TEMPORARY, true).apply()
+        runLog("Route turned on for this run only")
+    }
+
+    private fun restoreRunRoute() {
+        if (prefs.getBoolean(BuddyConstants.PREFS_RUN_ROUTE_TEMPORARY, false)) {
+            disableRouteMode()
+            runLog("run over — Route turned back off")
+        }
+    }
+
+    private fun runLog(msg: String) = AppLogger.log(appContext, LogCategory.PROFILE, "Run together: $msg")
+
+    /**
+     * Follows the tracking service, the source of truth for when a run starts and ends. The
+     * first value also undoes a this-run-only Route left behind if the app died mid-run.
+     */
+    private fun observeRunRouteLifetime() {
+        var wasActive = false
+        LiveActivityBus.state.onEach { state ->
+            if (state == LiveActivityState.IDLE) {
+                restoreRunRoute()
+                // Only a run that actually ran ends the pairing; IDLE also shows before it starts.
+                if (wasActive) endRunTogether()
+                wasActive = false
+            } else {
+                wasActive = true
+                if (runRoutePending) turnOnRunRoute()
+                if (runPartnerId != null && runTogetherStartedAt == 0L) {
+                    runTogetherStartedAt = System.currentTimeMillis()
+                    runLog("run started with ${buddyShortId(runPartnerId!!)}")
+                }
+            }
+        }.launchIn(scope)
+    }
+
+    private fun resetRunTogether() {
+        closeOutgoing(); closeIncoming()
+        runStart = null; runNotice = null
+        runRouteDeadline = 0L
+        runPartnerId = null; runPartnerName = null; runTogetherStartedAt = 0L; runInviteTarget = null
+        runPartnerTrail = emptyList()
+        seenRunSignalIds = emptySet()
+    }
+
     /**
      * Asks a buddy for a fresh fix now, rate-limited per buddy (Req 6.1b / G6). Returns
      * false (and does nothing) if still within the cooldown window, so callers can
@@ -595,11 +904,36 @@ class BuddyLinkController(private val appContext: Context) {
     fun shareUrl(token: String): String =
         "https://" + BuddyConstants.INVITE_HTTPS_HOST + "/" + BuddyConstants.SHARE_PATH_PREFIX + "?t=" + token
 
-    /** Delete all my Buddy Link data + reset identity (Req 8.4). */
+    /**
+     * Delete all my Buddy Link data + reset identity (Req 8.4). The identity is the only way
+     * back to the data, so it's kept on failure and the user can turn Buddy Link on and retry.
+     */
     fun deleteAllData() = scope.launch {
-        repo.deleteAllMyData()
+        deleteDataFailed = false
+        val id = appId
+        // A this-run-only Route ends here too, also without a write (see below).
+        if (prefs.getBoolean(BuddyConstants.PREFS_RUN_ROUTE_TEMPORARY, false)) {
+            shareMode = BuddyShareMode.PING
+            prefs.edit().putString(BuddyConstants.PREFS_SHARE_MODE_KEY, BuddyShareMode.PING.wire)
+                .remove(BuddyConstants.PREFS_RUN_ROUTE_TEMPORARY).apply()
+        }
+        // Stop first without a profile write, which would recreate the doc being deleted.
+        stopLocally()
+        val result = withTimeoutOrNull(DELETE_TIMEOUT_MS) {
+            // Restores a session if needed, and ownership if an earlier attempt got partway.
+            if (id != null) repo.ensureSession(id)
+            activeShare?.token?.let { repo.revokeShareLink(it) }
+            repo.deleteAllMyData()
+        }
+        if (result !is BuddyResult.Success) {
+            val why = (result as? BuddyResult.Failure)?.reason ?: "timed out"
+            AppLogger.log(appContext, LogCategory.ERROR, "Buddy Link data delete failed: $why")
+            deleteDataFailed = true
+            return@launch
+        }
+        AppLogger.log(appContext, LogCategory.PROFILE, "Buddy Link data deleted")
+        activeShare = null
         BuddyIdentity.reset(appContext)
-        disable()
         // Fresh identity -> fresh account state: reset the share mode to the default
         // (design §3). This is the ONE place the mode resets; disable() must not.
         prefs.edit().remove(BuddyConstants.PREFS_SHARE_MODE_KEY).apply()
@@ -623,5 +957,16 @@ class BuddyLinkController(private val appContext: Context) {
         // Interval for the Compose-observable liveness tick. 3s keeps the perceived
         // latency for a buddy appearing low while costing only in-memory re-reads.
         private const val LIVENESS_TICK_MS = 3000L
+        private const val DELETE_TIMEOUT_MS = 60_000L
+        // A partner fix written just before my tracking started still belongs to the run.
+        private const val RUN_PARTNER_SAVE_SLACK_MS = 60_000L
+
+        @Volatile private var instance: BuddyLinkController? = null
+
+        /** The one controller for this process (V1.71: survives screen rebuilds). */
+        fun get(context: Context): BuddyLinkController =
+            instance ?: synchronized(this) {
+                instance ?: BuddyLinkController(context.applicationContext).also { instance = it }
+            }
     }
 }

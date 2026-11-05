@@ -16,7 +16,11 @@ data class SavedRoute(
     val activityType: Int = 0,  // 0=Walk, 1=Run, 2=Cycle (primary/last used)
     val steps: Int = 0,
     val activityTypes: List<Int>? = null,  // null for routes saved before blend feature
-    val title: String? = null  // user-editable run title; null = show default label
+    val title: String? = null,  // user-editable run title; null = show default label
+    // V1.71 run together: the buddy's route during this activity, drawn dotted. Null otherwise
+    // (and for every older save: Gson leaves a missing field null).
+    val buddyPoints: List<Point>? = null,
+    val buddyName: String? = null
 )
 
 /**

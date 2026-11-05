@@ -10,13 +10,19 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.location.Location
+import android.net.ConnectivityManager
+import android.net.Network
 import android.os.Build
 import android.os.IBinder
+import android.os.Looper
 import android.content.pm.ServiceInfo
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.google.android.gms.location.CurrentLocationRequest
 import com.google.android.gms.location.FusedLocationProviderClient
+import com.google.android.gms.location.LocationCallback
+import com.google.android.gms.location.LocationRequest
+import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import kotlinx.coroutines.CoroutineScope
@@ -24,7 +30,9 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 
@@ -34,8 +42,10 @@ import kotlinx.coroutines.launch
  * regardless of whether a workout is active (Req 6.3, design §11).
  *
  * While running it:
- *  - broadcasts my latest fix to the backend every ~5 min ([BuddyConstants.BROADCAST_INTERVAL_MS])
- *    via [BuddyRepository.writeMyLocation] (which also appends a sparse trail point);
+ *  - while idle, broadcasts my latest fix every ~5 min ([BuddyConstants.BROADCAST_INTERVAL_MS])
+ *    via [BuddyRepository.writeMyLocation];
+ *  - during a workout ([LiveActivityBus]), shares live: fixes every ~10s, plus the route
+ *    in ROUTE mode (see [BuddyLiveRoute.decide]);
  *  - reacts to on-demand "request location now" flags ([BuddyRepository.observeLocationRequests])
  *    by pushing a fresh fix promptly, outside the normal cadence (Req 6.1b, §8);
  *  - shows a "broadcast on" foreground notification (Req 6.2).
@@ -54,11 +64,25 @@ class BuddyLocationService : Service() {
     private val scope = CoroutineScope(SupervisorJob())
     private var broadcastLoop: Job? = null
 
+    // Live sharing state; only touched from the main-thread location callback.
+    private var lastLiveFix: Location? = null
+    private var lastLiveTrail: Location? = null
+    private var liveUpdatesOn = false
+    private var lastLiveFailure: BuddyResult.Reason? = null
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    @Volatile private var offline = false
+    private val liveCallback = object : LocationCallback() {
+        override fun onLocationResult(result: LocationResult) {
+            result.lastLocation?.let { onLiveFix(it) }
+        }
+    }
+
     companion object {
         const val ACTION_START = "com.example.joggingapp.BUDDY_START"
         const val ACTION_STOP  = "com.example.joggingapp.BUDDY_STOP"
         private const val NOTIF_ID = 2
         private const val CHANNEL_ID = "joggin_buddy"
+        private const val REASON_LIVE = "live"
     }
 
     override fun onCreate() {
@@ -105,6 +129,8 @@ class BuddyLocationService : Service() {
         if (broadcastLoop == null) {
             startBroadcastLoop()
             observeOnDemandRequests()
+            observeActivityState()
+            watchNetwork()
         }
         return START_STICKY
     }
@@ -136,7 +162,101 @@ class BuddyLocationService : Service() {
         }
     }
 
-    /** Periodic ~5-min broadcast of my latest fix while the service runs (Req 6.1). */
+    /**
+     * When the connection comes back while idle, sends a fix straight away instead of leaving
+     * the buddy on a stale position until the next 5-minute broadcast. A workout's live
+     * updates cover themselves, and Firestore uploads whatever it queued while offline.
+     */
+    private fun watchNetwork() {
+        if (networkCallback != null) return
+        val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        offline = cm.activeNetwork == null
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            override fun onLost(network: Network) {
+                if (cm.activeNetwork == null) offline = true
+            }
+            override fun onAvailable(network: Network) {
+                if (!offline) return   // also fires on registering, with nothing to catch up on
+                offline = false
+                AppLogger.log(this@BuddyLocationService, LogCategory.SERVICE, "Buddy Link connection restored")
+                if (LiveActivityBus.state.value == LiveActivityState.IDLE) pushFreshFix(reason = "reconnected")
+            }
+        }
+        try {
+            cm.registerDefaultNetworkCallback(callback)
+            networkCallback = callback
+        } catch (e: RuntimeException) {
+            AppLogger.log(this, LogCategory.ERROR, "Buddy network watch not started: ${e.message}")
+        }
+    }
+
+    private fun stopWatchingNetwork() {
+        networkCallback?.let { (getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager).unregisterNetworkCallback(it) }
+        networkCallback = null
+    }
+
+    /** Switches to live sharing for the duration of a workout, then back to the idle cadence. */
+    private fun observeActivityState() {
+        LiveActivityBus.state
+            .map { it != LiveActivityState.IDLE }
+            .distinctUntilChanged()
+            .onEach { active ->
+                if (active) startLiveUpdates()
+                else if (liveUpdatesOn) {
+                    stopLiveUpdates()
+                    pushFreshFix(reason = "activity ended")
+                }
+            }
+            .launchIn(scope)
+    }
+
+    private fun startLiveUpdates() {
+        if (liveUpdatesOn) return
+        if (!hasFineLocation()) {
+            AppLogger.log(this, LogCategory.GPS, "Buddy live sharing skipped — no fine-location permission")
+            return
+        }
+        val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, BuddyConstants.LIVE_INTERVAL_MS).build()
+        try {
+            fusedClient.requestLocationUpdates(request, liveCallback, Looper.getMainLooper())
+            liveUpdatesOn = true
+            AppLogger.log(this, LogCategory.SERVICE, "Buddy live sharing started")
+        } catch (e: SecurityException) {
+            AppLogger.log(this, LogCategory.ERROR, "Buddy live sharing SecurityException: ${e.message}")
+        }
+    }
+
+    private fun stopLiveUpdates() {
+        if (!liveUpdatesOn) return
+        fusedClient.removeLocationUpdates(liveCallback)
+        liveUpdatesOn = false
+        lastLiveFix = null
+        lastLiveTrail = null
+        lastLiveFailure = null
+        AppLogger.log(this, LogCategory.SERVICE, "Buddy live sharing stopped")
+    }
+
+    private fun onLiveFix(loc: Location) {
+        val decision = BuddyLiveRoute.decide(
+            state = LiveActivityBus.state.value,
+            mode = currentShareMode(),
+            movedFromLastFixM = lastLiveFix?.distanceTo(loc),
+            movedFromLastTrailM = lastLiveTrail?.distanceTo(loc),
+            msSinceLastFix = lastLiveFix?.let { loc.time - it.time } ?: 0L
+        )
+        if (!decision.writeFix) return
+        lastLiveFix = loc
+        if (decision.appendTrail) lastLiveTrail = loc
+        writeFix(loc, reason = REASON_LIVE, appendTrail = decision.appendTrail)
+    }
+
+    /** Absent/unknown -> PING (fail-safe to the privacy-preserving mode). */
+    private fun currentShareMode(): BuddyShareMode = BuddyShareMode.fromWire(
+        getSharedPreferences("jog_prefs", Context.MODE_PRIVATE)
+            .getString(BuddyConstants.PREFS_SHARE_MODE_KEY, null)
+    )
+
+    /** Periodic ~5-min broadcast of my latest fix while idle (Req 6.1). */
     private fun startBroadcastLoop() {
         broadcastLoop = scope.launch {
             // V1.58 belt-and-braces ordering guard: the service is started via
@@ -149,7 +269,7 @@ class BuddyLocationService : Service() {
                 repo.ensureSession(id)
             }
             while (true) {
-                pushFreshFix(reason = "interval")
+                if (LiveActivityBus.state.value == LiveActivityState.IDLE) pushFreshFix(reason = "interval")
                 delay(BuddyConstants.BROADCAST_INTERVAL_MS)
             }
         }
@@ -204,25 +324,27 @@ class BuddyLocationService : Service() {
         }
     }
 
-    private fun writeFix(loc: Location, reason: String) {
+    private fun writeFix(loc: Location, reason: String, appendTrail: Boolean = false) {
         scope.launch {
-            // Read the sharer's current mode from prefs at write time so a mid-activity
-            // mode flip takes effect on the next broadcast (design §5.3). Absent/unknown
-            // -> PING (fail-safe to the privacy-preserving mode).
-            val mode = BuddyShareMode.fromWire(
-                getSharedPreferences("jog_prefs", Context.MODE_PRIVATE)
-                    .getString(BuddyConstants.PREFS_SHARE_MODE_KEY, null)
-            )
             val now = System.currentTimeMillis()
-            val res = repo.writeMyLocation(loc.latitude, loc.longitude, now, mode)
+            val res = repo.writeMyLocation(loc.latitude, loc.longitude, now, appendTrail)
+            val live = reason == REASON_LIVE
             when (res) {
-                is BuddyResult.Success ->
-                    AppLogger.log(this@BuddyLocationService, LogCategory.SERVICE,
+                is BuddyResult.Success -> {
+                    // Live fixes arrive every ~10s, so log only the failures below.
+                    if (live) lastLiveFailure = null
+                    else AppLogger.log(this@BuddyLocationService, LogCategory.SERVICE,
                         "Buddy fix broadcast ($reason) — lat=${"%.4f".format(loc.latitude)} lon=${"%.4f".format(loc.longitude)}")
-                is BuddyResult.Failure ->
-                    // Non-fatal: offline / NoOp backend. Skip quietly (Req 6.5, Req 10).
-                    AppLogger.log(this@BuddyLocationService, LogCategory.SERVICE,
-                        "Buddy fix ($reason) not sent — backend ${res.reason}")
+                }
+                is BuddyResult.Failure -> {
+                    // Non-fatal: offline / NoOp backend (Req 6.5, Req 10). Live failures are
+                    // logged once per reason so a long outage can't flood the log.
+                    if (!live || lastLiveFailure != res.reason) {
+                        AppLogger.log(this@BuddyLocationService, LogCategory.SERVICE,
+                            "Buddy fix ($reason) not sent — backend ${res.reason}")
+                    }
+                    if (live) lastLiveFailure = res.reason
+                }
             }
 
             // S2 live-tracking share link: additively mirror the SAME fix into the active
@@ -239,7 +361,7 @@ class BuddyLocationService : Service() {
             if (token != null && validity.readable) {
                 when (val shareRes = repo.writeShareFix(token, loc.latitude, loc.longitude, now, expiresAt, label)) {
                     is BuddyResult.Success ->
-                        AppLogger.log(this@BuddyLocationService, LogCategory.SERVICE,
+                        if (!live) AppLogger.log(this@BuddyLocationService, LogCategory.SERVICE,
                             "Share-link fix mirrored ($reason)")
                     is BuddyResult.Failure ->
                         AppLogger.log(this@BuddyLocationService, LogCategory.SERVICE,
@@ -250,6 +372,8 @@ class BuddyLocationService : Service() {
     }
 
     private fun stopEverything() {
+        stopLiveUpdates()
+        stopWatchingNetwork()
         broadcastLoop?.cancel(); broadcastLoop = null
         stopForeground(STOP_FOREGROUND_REMOVE)
         try {
@@ -260,6 +384,8 @@ class BuddyLocationService : Service() {
     }
 
     override fun onDestroy() {
+        stopLiveUpdates()
+        stopWatchingNetwork()
         broadcastLoop?.cancel(); broadcastLoop = null
         scope.cancel()
         AppLogger.log(this, LogCategory.SERVICE, "BuddyLocationService destroyed (stopped/killed)")

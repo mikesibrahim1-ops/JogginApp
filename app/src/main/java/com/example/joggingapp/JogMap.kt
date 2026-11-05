@@ -335,7 +335,7 @@ fun JogMap(
         mapView.post { mapView.invalidate() }
     }
 
-    // ── Buddy overlay: avatar marker at the buddy's latest fix + sparse trail ─────
+    // ── Buddy overlay: avatar marker at the buddy's latest fix + their route ──────
     // Rendered only when a buddy is live (mutual-on + fix < 15 min); otherwise the
     // overlays are removed. The trail is drawn in a distinct dashed BLUE (#2196F3) style,
     // distinct from the user's own route by being the only dashed polyline — colour alone
@@ -351,22 +351,16 @@ fun JogMap(
         // Clear any previous buddy overlays (tagged via relatedObject).
         mapView.overlays.removeAll { it is Marker && it.relatedObject == BUDDY_TAG }
         mapView.overlays.removeAll { it is Polyline && it.relatedObject == BUDDY_TAG }
+        mapView.overlays.removeAll { it is BuddyRouteOverlay }
 
         val live = buddyView?.isLiveNow() == true
         val loc = buddyView?.location
         if (live && loc != null) {
             // Trail first (drawn under the marker)
             if (buddyTrail.size >= 2) {
-                val trail = Polyline(mapView).apply {
-                    relatedObject = BUDDY_TAG
-                    // Dashed BLUE (#2196F3), distinct from the user's own route by being the
-                    // only dashed polyline — colour alone is insufficient since the user's
-                    // route colour is user-selectable and may also be blue.
-                    outlinePaint.color = android.graphics.Color.parseColor("#2196F3")
-                    outlinePaint.strokeWidth = 7f
-                    outlinePaint.pathEffect = android.graphics.DashPathEffect(floatArrayOf(18f, 12f), 0f)
-                    setPoints(buddyTrail.sortedBy { it.at }.map { GeoPoint(it.lat, it.lon) })
-                }
+                // Dotted blue, beside my route where they overlap (V1.71). Dots, not colour,
+                // tell it apart: my route colour is user-selectable and may also be blue.
+                val trail = BuddyRouteOverlay(buddyTrail.sortedBy { it.at }.map { GeoPoint(it.lat, it.lon) })
                 mapView.overlays.add(0, trail)
             }
 

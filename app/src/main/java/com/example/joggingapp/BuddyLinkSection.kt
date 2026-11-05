@@ -28,6 +28,8 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import kotlinx.coroutines.delay
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -216,6 +218,11 @@ fun BuddyLinkSection(controller: BuddyLinkController, userName: String) {
                 // pending label above is kept for honesty.
                 contentDescriptionText = S.buddyToggleDesc(on),
             )
+        }
+
+        if (controller.deleteDataFailed) {
+            Spacer(Modifier.height(10.dp))
+            WarningNote(S.buddyDeleteFailed)
         }
 
         // ── Enable-failed feedback (non-silent, Req: no silent failure) ───────
@@ -605,6 +612,18 @@ fun BuddyLinkSection(controller: BuddyLinkController, userName: String) {
                                 fontSize = 11.sp, color = c.onSecondary,
                                 modifier = Modifier.clickable { controller.toggleHistory() }
                             )
+                            // Run together from the buddy's own row (V1.71), when not already
+                            // on an activity or waiting on another invite.
+                            val activity by LiveActivityBus.state.collectAsState()
+                            if (activity == LiveActivityState.IDLE && controller.outgoingRun == null) {
+                                Text(
+                                    "🤝 ${S.runTogetherRowAction}",
+                                    fontSize = 11.sp, color = c.onSecondary, fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier
+                                        .clickable { controller.askToRun(view) }
+                                        .semantics { contentDescription = S.runTogetherRowAction }
+                                )
+                            }
                         }
                     } else {
                         Spacer(Modifier.height(6.dp))
@@ -777,13 +796,9 @@ fun BuddyLinkSection(controller: BuddyLinkController, userName: String) {
 
     // ── Route-share consent (switch PING -> ROUTE, req 5a) ───────────────────
     if (showRouteConsent) {
-        BuddyDialog(
-            title = S.buddyRouteConsentTitle,
-            body = S.buddyRouteConsentBody,
-            confirmLabel = S.buddyRouteConsentAgree,
-            dismissLabel = S.buddyRouteConsentDecline,
-            onConfirm = { controller.enableRouteMode(); showRouteConsent = false },
-            onDismiss = { showRouteConsent = false }
+        RouteConsentDialog(
+            onAgree = { controller.enableRouteMode(); showRouteConsent = false },
+            onDecline = { showRouteConsent = false }
         )
     }
 
@@ -1077,6 +1092,146 @@ fun BuddyInviteDialog(senderLabel: String, onAccept: () -> Unit, onIgnore: () ->
         dismissLabel = S.buddyInviteIgnore,
         onConfirm = onAccept,
         onDismiss = onIgnore
+    )
+}
+
+/** Consent to share my route, from the Share-my-route toggle or the start-of-activity prompt. */
+@Composable
+fun RouteConsentDialog(onAgree: () -> Unit, onDecline: () -> Unit) {
+    val S = LocalStrings.current
+    BuddyDialog(
+        title = S.buddyRouteConsentTitle,
+        body = S.buddyRouteConsentBody,
+        confirmLabel = S.buddyRouteConsentAgree,
+        dismissLabel = S.buddyRouteConsentDecline,
+        onConfirm = onAgree,
+        onDismiss = onDecline
+    )
+}
+
+/**
+ * The home-card entry point for running together. Its own composable because
+ * [BuddyLinkController.primaryBuddyView] reads the 3s tick, which must not recompose JogApp.
+ */
+@Composable
+fun RunTogetherRow(controller: BuddyLinkController, activityType: Int, onPickBuddy: () -> Unit) {
+    val S = LocalStrings.current
+    val c = JogginTheme.colors
+    val waiting = controller.outgoingRun
+    val live = controller.liveBuddies
+    val buddy = live.singleOrNull()
+    val label = when {
+        waiting != null -> S.runTogetherWaiting(waiting.buddyName)
+        buddy != null -> S.runTogetherJoin(activityType, buddy.user.displayName.ifBlank { buddyShortId(buddy.user.appId) })
+        live.size > 1 -> S.runTogetherChoose(activityType)
+        else -> null
+    }
+    if (label != null) {
+        Spacer(Modifier.height(12.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).background(c.primary)
+                    .clickable(enabled = waiting == null && live.isNotEmpty()) {
+                        if (buddy != null) controller.askToRun(buddy) else onPickBuddy()
+                    }
+                    .padding(horizontal = 12.dp, vertical = 12.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(label, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = c.onPrimary, textAlign = TextAlign.Center)
+            }
+            if (waiting != null) {
+                Box(
+                    modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(c.divider.copy(alpha = 0.3f))
+                        .clickable { controller.cancelRunInvite() }.padding(horizontal = 12.dp, vertical = 12.dp),
+                    contentAlignment = Alignment.Center
+                ) { Text(S.buddyRouteConsentDecline, fontSize = 13.sp, color = c.onSurface) }
+            }
+        }
+    }
+    controller.runNotice?.let { notice ->
+        Spacer(Modifier.height(8.dp))
+        Text(
+            when (notice.kind) {
+                RunNotice.Kind.DECLINED -> S.runTogetherDeclined(notice.buddyName)
+                RunNotice.Kind.NO_ANSWER -> S.runTogetherNoAnswer(notice.buddyName)
+                RunNotice.Kind.SEND_FAILED -> S.runTogetherSendFailed
+            },
+            fontSize = 12.sp, color = c.textSecondary, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth()
+        )
+        LaunchedEffect(notice) { delay(6000L); controller.consumeRunNotice() }
+    }
+}
+
+/** Several buddies are online: pick who to invite. */
+@Composable
+fun RunTogetherPickDialog(buddies: List<BuddyView>, activityType: Int, onPick: (BuddyView) -> Unit, onCancel: () -> Unit) {
+    val S = LocalStrings.current
+    val c = JogginTheme.colors
+    Box(
+        modifier = Modifier.fillMaxSize().background(Color(0x99000000)).clickable(onClick = onCancel),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth(0.85f).clip(RoundedCornerShape(16.dp))
+                .background(c.secondary).padding(20.dp)
+                .clickable(enabled = false) {}
+        ) {
+            Text(S.runTogetherPickTitle(activityType), fontSize = 16.sp, fontWeight = FontWeight.Bold, color = c.onSecondary)
+            Spacer(Modifier.height(12.dp))
+            if (buddies.isEmpty()) {
+                Text(S.runTogetherNobodyOnline, fontSize = 13.sp, color = c.onSecondary.copy(alpha = 0.85f))
+            }
+            buddies.forEach { view ->
+                val name = view.user.displayName.ifBlank { buddyShortId(view.user.appId) }
+                Box(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(10.dp))
+                        // c.primary == c.secondary (this card) in every theme: tint with onSecondary.
+                        .background(c.onSecondary.copy(alpha = 0.15f)).clickable { onPick(view) }
+                        .padding(horizontal = 12.dp, vertical = 12.dp),
+                    contentAlignment = Alignment.CenterStart
+                ) { Text("🤝  $name", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = c.onSecondary) }
+            }
+            Spacer(Modifier.height(12.dp))
+            Box(
+                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+                    .background(c.divider.copy(alpha = 0.3f)).clickable(onClick = onCancel).padding(vertical = 12.dp),
+                contentAlignment = Alignment.Center
+            ) { Text(S.buddyRouteConsentDecline, fontSize = 13.sp, color = c.onSecondary) }
+        }
+    }
+}
+
+/** Confirms sending a run-together invite, stating what it will share. */
+@Composable
+fun RunTogetherSendDialog(buddy: BuddyView, activityType: Int, onSend: () -> Unit, onCancel: () -> Unit) {
+    val S = LocalStrings.current
+    val name = buddy.user.displayName.ifBlank { buddyShortId(buddy.user.appId) }
+    BuddyDialog(
+        title = S.runTogetherJoin(activityType, name),
+        body = S.runTogetherSendBody(name),
+        confirmLabel = S.runTogetherSend,
+        dismissLabel = S.buddyRouteConsentDecline,
+        onConfirm = onSend,
+        onDismiss = onCancel
+    )
+}
+
+/** Asks the invited buddy to join, stating what accepting will share. */
+@Composable
+fun RunTogetherInviteDialog(invite: RunSignal, onAccept: () -> Unit, onDecline: () -> Unit) {
+    val S = LocalStrings.current
+    val name = invite.fromName.ifBlank { buddyShortId(invite.fromAppId) }
+    BuddyDialog(
+        title = S.runTogetherInviteTitle(invite.activityType, name),
+        body = S.runTogetherInviteBody(name),
+        confirmLabel = S.runTogetherAccept,
+        dismissLabel = S.runTogetherNotNow,
+        onConfirm = onAccept,
+        onDismiss = onDecline
     )
 }
 

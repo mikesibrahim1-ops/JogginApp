@@ -15,6 +15,8 @@ object BuddyConstants {
     /** Max age for stored location + trail data before it is purged. Req 8.1. */
     const val RETENTION_DAYS: Int = 7
     const val RETENTION_MS: Long = RETENTION_DAYS * 24L * 60L * 60L * 1000L
+    /** Documents deleted per round when clearing a collection. */
+    const val DELETE_PAGE_SIZE: Long = 400L
 
     /** Invite links expire this long after generation. Req 3.5b. */
     const val INVITE_EXPIRY_DAYS: Int = 7
@@ -46,12 +48,32 @@ object BuddyConstants {
     /** How long a cheer inbox doc lives before Firestore TTL purges it (S1). 1 day. */
     const val CHEER_RETENTION_MS: Long = 24L * 60L * 60L * 1000L
 
-    /**
-     * Minimum spacing between stored trail breadcrumb points, so the trail stays
-     * sparse (not a dense track) to minimise data. Req 5b.2. Defaults to the
-     * broadcast interval — one point per broadcast.
-     */
-    const val TRAIL_MIN_SPACING_MS: Long = BROADCAST_INTERVAL_MS
+    /** GPS update interval while sharing live during a workout. */
+    const val LIVE_INTERVAL_MS: Long = 10 * 1000L
+
+    /** Live movement below this is skipped, limiting Firestore writes when standing still. */
+    const val LIVE_MIN_MOVE_M: Float = 10f
+
+    /** A stationary sharer still refreshes their fix this often, so they stay live. */
+    const val LIVE_HEARTBEAT_MS: Long = 60 * 1000L
+
+    /** A trail gap longer than this separates two routes (a drink stop stays within one). */
+    const val LIVE_ROUTE_GAP_MS: Long = 30 * 60 * 1000L
+
+    /** Most trail points a viewer loads, bounding Firestore reads per attach. */
+    const val TRAIL_QUERY_LIMIT: Long = 1500L
+
+    /** Delay before re-attaching a location/trail listener the rules denied. */
+    const val LISTENER_RETRY_MS: Long = 30 * 1000L
+
+    /** How long a "run together" invite waits for an answer. */
+    const val RUN_INVITE_TTL_MS: Long = 2 * 60 * 1000L
+
+    /** Longest wait for the backend to take an invite before telling the sender it failed. */
+    const val RUN_SIGNAL_SEND_TIMEOUT_MS: Long = 15 * 1000L
+
+    /** Set while Route mode is on only for the current run, so it can be undone afterwards. */
+    const val PREFS_RUN_ROUTE_TEMPORARY = "buddy_run_route_temporary"
 
     /**
      * SharedPreferences key (in `jog_prefs`) storing the sharer's [BuddyShareMode] wire

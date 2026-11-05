@@ -66,6 +66,7 @@ service cloud.firestore {
       allow read: if signedIn() && request.auth.uid == uid;
       allow write: if signedIn() && request.auth.uid == uid
                    && request.resource.data.appId is string;
+      allow delete: if signedIn() && request.auth.uid == uid;
     }
 
     // Has the caller already registered authMap/{uid} → this appId? (Written FIRST by
@@ -218,6 +219,8 @@ service cloud.firestore {
         && request.resource.data.at is timestamp
         && request.resource.data.expireAt is timestamp
         && request.resource.size() < 8;
+      // The write rule above reads request.resource, which is null on a delete.
+      allow delete: if ownsUser(appId);
       allow read: if signedIn()
         && acceptedLink(myAppId(), appId)
         && userDoc(appId).sharing == true
@@ -235,6 +238,8 @@ service cloud.firestore {
           && request.resource.data.at is timestamp
           && request.resource.data.expireAt is timestamp
           && request.resource.size() < 6;
+        // Owner cleanup: the app prunes old points and "Delete my data" removes the rest.
+        allow read, delete: if ownsUser(appId);
         allow read: if signedIn()
           && acceptedLink(myAppId(), appId)
           && userDoc(appId).sharing == true
@@ -265,6 +270,28 @@ service cloud.firestore {
           && request.resource.size() < 3;
         allow delete: if ownsUser(appId) || requesterAppId == myAppId();
       }
+    }
+
+    // runSignals/{recipientAppId}/inbox/{signalId}: the "run together" handshake. Same
+    // accepted + mutually-unblocked gate as cheers; append-only, read and deleted by the
+    // recipient. Carries no location.
+    match /runSignals/{recipientAppId}/inbox/{signalId} {
+      allow read, delete: if ownsUser(recipientAppId);
+      allow create: if signedIn()
+        && acceptedLink(myAppId(), recipientAppId)
+        && !hasBlocked(recipientAppId, myAppId())
+        && !hasBlocked(myAppId(), recipientAppId)
+        && request.resource.data.from == myAppId()
+        && request.resource.data.keys().hasOnly(['from', 'fromName', 'kind', 'inviteId', 'activityType', 'at', 'expireAt'])
+        && (!('fromName' in request.resource.data) || request.resource.data.fromName is string)
+        && request.resource.data.kind in ['invite', 'accept', 'decline', 'cancel']
+        && request.resource.data.inviteId is string
+        && request.resource.data.inviteId.size() <= 64
+        && request.resource.data.activityType is int
+        && request.resource.data.activityType >= 0
+        && request.resource.data.activityType <= 2
+        && request.resource.data.at is timestamp
+        && request.resource.data.expireAt is timestamp;
     }
 
     // cheers/{recipientAppId}/inbox/{cheerId}: Live Cheer (S1). An accepted,

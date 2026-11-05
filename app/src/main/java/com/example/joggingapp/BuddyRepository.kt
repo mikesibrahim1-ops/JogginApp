@@ -120,13 +120,13 @@ interface BuddyRepository {
     // ── Location ──────────────────────────────────────────────────────────────
 
     /**
-     * Writes my latest fix (the circle, always) and — only in [BuddyShareMode.ROUTE] —
-     * appends a sparse trail point (design §5). The [mode] defaults to PING (fail-safe:
-     * circle only, never leak a trail for an omitted mode). Req 6.1, 5b.
+     * Writes my latest fix (the circle, always) and, when [appendTrail] is true, a trail
+     * point in the same atomic batch. [appendTrail] defaults to false (fail-safe: never
+     * leak a trail by omission); callers decide via [shouldAppendTrailPoint]. Req 6.1, 5b.
      */
     suspend fun writeMyLocation(
         lat: Double, lon: Double, atMs: Long,
-        mode: BuddyShareMode = BuddyShareMode.PING
+        appendTrail: Boolean = false
     ): BuddyResult<Unit>
 
     /** Ask a buddy for a fresh fix now (on-demand). Req 6.1b. */
@@ -151,6 +151,16 @@ interface BuddyRepository {
      * (self-clean), so the inbox never accumulates; TTL is the backstop.
      */
     fun observeCheers(): Flow<List<BuddyCheer>>
+
+    // ── Run together ──────────────────────────────────────────────────────────
+
+    /** Sends one handshake message to `runSignals/{buddyAppId}/inbox`. Accepted, unblocked buddies only. */
+    suspend fun sendRunSignal(
+        buddyAppId: String, kind: RunSignalKind, inviteId: String, activityType: Int, fromName: String?
+    ): BuddyResult<Unit>
+
+    /** Emits handshake messages addressed to me, deleting each one after emitting it. */
+    fun observeRunSignals(): Flow<List<RunSignal>>
 
     // ── Live-tracking share link for non-app users (S2) ──────────────────────────
 
@@ -178,8 +188,14 @@ interface BuddyRepository {
 
     // ── Data lifecycle ──────────────────────────────────────────────────────────
 
-    /** Deletes all of my Buddy Link data (user doc, links, location, trail). Req 8.4. */
+    /**
+     * Deletes all of my Buddy Link data (user doc, links, location, trail). Req 8.4. Any
+     * failure is returned and leaves ownership intact, so calling it again can finish.
+     */
     suspend fun deleteAllMyData(): BuddyResult<Unit>
+
+    /** Deletes my trail points older than [olderThanMs] and returns how many. Req 8.1. */
+    suspend fun pruneMyTrail(olderThanMs: Long): BuddyResult<Int>
 }
 
 /**

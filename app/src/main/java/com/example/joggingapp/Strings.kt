@@ -216,6 +216,7 @@ class AppStrings {
     var buddyBlockConfirm: String = ""         // confirm block
     var buddyDeleteData: String = ""           // "Delete my Buddy Link data"
     var buddyDeleteConfirm: String = ""        // confirm delete-all
+    var buddyDeleteFailed: String = ""         // delete-all failed, how to retry
     var buddyHistoryShow: String = ""          // "Show history" toggle label
     var buddyHistoryHide: String = ""          // "Hide history" toggle label
     var buddyStatusSharing: String = ""        // "Sharing"
@@ -271,6 +272,28 @@ class AppStrings {
     var buddyCheerReceived: (String) -> String = { _ -> "" }     // in-app line: "💪 {name} is cheering you on!"
     var buddyNotifCheerTitle: (String) -> String = { _ -> "" }   // push title: "💪 {name} is cheering you on!"
     var buddyNotifCheerBody: String = ""                         // push body
+    // ── Run together ────────────────────────────────────────────────────────────
+    var runTogetherJoin: (Int, String) -> String = { _, _ -> "" }         // button + send dialog title
+    var runTogetherSendBody: (String) -> String = { _ -> "" }             // send dialog: what happens
+    var runTogetherSend: String = ""                                      // send dialog confirm
+    var runTogetherInviteTitle: (Int, String) -> String = { _, _ -> "" }  // invite dialog title
+    var runTogetherInviteBody: (String) -> String = { _ -> "" }           // invite dialog: what happens
+    var runTogetherAccept: String = ""                                    // invite dialog confirm
+    var runTogetherNotNow: String = ""                                    // invite dialog dismiss
+    var runTogetherWaiting: (String) -> String = { _ -> "" }              // waiting for an answer
+    var runTogetherDeclined: (String) -> String = { _ -> "" }             // buddy said no
+    var runTogetherNoAnswer: (String) -> String = { _ -> "" }             // invite timed out
+    var runTogetherSendFailed: String = ""                                // invite couldn't be sent
+    var runTogetherNotifAccepted: (String) -> String = { _ -> "" }        // accepted while backgrounded
+    var runTogetherChoose: (Int) -> String = { _ -> "" }                  // home button, several buddies online
+    var runTogetherPickTitle: (Int) -> String = { _ -> "" }               // picker title
+    var runTogetherNobodyOnline: String = ""                              // picker, nobody left online
+    var runTogetherRowAction: String = ""                                 // Buddy Link row action
+    var buddyRouteLegend: (String) -> String = { _ -> "" }                // "••• Ana's route" under a map
+    var targetRingsHomeTitle: String = ""                                 // options: rings on home card
+    var targetRingsHomeOn: String = ""
+    var targetRingsHomeOff: String = ""
+    var targetRingsHomeExplain: String = ""
     // ── S2 Live-tracking share link (for non-app viewers) ────────────────────────
     var shareLiveTitle: String = ""                              // card title
     var shareLiveCreate: String = ""                             // create pill label
@@ -587,6 +610,7 @@ private fun buildEnglishStrings(): AppStrings = AppStrings().apply {
     buddyBlockConfirm = "Block this buddy? They won't see your location or cheers while blocked. You can unblock them any time to reinstate them."
     buddyDeleteData = "Delete my Buddy Link data"
     buddyDeleteConfirm = "Delete all your Buddy Link data (identity, links, shared location) and turn Buddy Link off? This can't be undone."
+    buddyDeleteFailed = "Your Buddy Link data wasn't fully deleted. Check your connection, turn Buddy Link on and try again."
     buddyHistoryShow = "Show history"
     buddyHistoryHide = "Hide history"
     buddyStatusSharing = "Sharing"
@@ -639,6 +663,43 @@ private fun buildEnglishStrings(): AppStrings = AppStrings().apply {
     buddyCheerReceived = { name -> "💪 $name is cheering you on!" }
     buddyNotifCheerTitle = { name -> "💪 $name is cheering you on!" }
     buddyNotifCheerBody = "Tap to open Joggin."
+    runTogetherJoin = { type, name -> when (type) {
+        1 -> "Join a run together with: $name"
+        2 -> "Join a ride together with: $name"
+        else -> "Join a walk together with: $name"
+    } }
+    runTogetherSendBody = { name -> "$name gets an invite. If they accept, the activity starts on both phones. $name sees your route live on their map until your activity ends, and their phone keeps a copy of it with that activity in their history." }
+    runTogetherChoose = { type -> when (type) {
+        1 -> "Join a run together…"
+        2 -> "Join a ride together…"
+        else -> "Join a walk together…"
+    } }
+    runTogetherPickTitle = { type -> when (type) {
+        1 -> "Who do you want to run with?"
+        2 -> "Who do you want to ride with?"
+        else -> "Who do you want to walk with?"
+    } }
+    runTogetherNobodyOnline = "None of your buddies is online right now."
+    runTogetherRowAction = "Invite to join"
+    buddyRouteLegend = { name -> "$name's route" }
+    targetRingsHomeTitle = "Rings on the home screen"
+    targetRingsHomeOn = "Show"
+    targetRingsHomeOff = "Hide"
+    targetRingsHomeExplain = "Shows your exercise target progress as rings above the start button."
+    runTogetherSend = "Send invite"
+    runTogetherInviteTitle = { type, name -> when (type) {
+        1 -> "$name wants to run together"
+        2 -> "$name wants to ride together"
+        else -> "$name wants to walk together"
+    } }
+    runTogetherInviteBody = { name -> "If you accept, your activity starts now. $name sees your route live on their map until your activity ends, and their phone keeps a copy of it with that activity in their history." }
+    runTogetherAccept = "Accept and start"
+    runTogetherNotNow = "Not now"
+    runTogetherWaiting = { name -> "Waiting for $name…" }
+    runTogetherDeclined = { name -> "$name can't join right now." }
+    runTogetherNoAnswer = { name -> "$name didn't answer." }
+    runTogetherSendFailed = "The invite couldn't be sent. Check your connection and try again."
+    runTogetherNotifAccepted = { name -> "$name accepted. Open Joggin to start." }
     shareLiveTitle = "Share live location"
     shareLiveCreate = "Create share link"
     shareLiveLabelHint = "Optional label (e.g. Evening run)"
@@ -671,7 +732,7 @@ private fun buildEnglishStrings(): AppStrings = AppStrings().apply {
     buddyShareModePing = "Location only (ping)"
     buddyShareModeRoute = "Route (path)"
     buddyRouteConsentTitle = "Share your route?"
-    buddyRouteConsentBody = "Turning this on shows your buddy the actual path you take, drawn on their map, until you turn Buddy Link off or switch back to location-only. It updates about every 5 minutes."
+    buddyRouteConsentBody = "During your activities, your buddy sees the actual path you take, drawn live on their map. This stays on for future activities until you turn Buddy Link off or switch back to location-only."
     buddyRouteConsentAgree = "I understand, share route"
     buddyRouteConsentDecline = "Cancel"
     buddyRouteActiveTitle = "Route sharing is on"
@@ -959,6 +1020,7 @@ private fun buildGreekStrings(): AppStrings = AppStrings().apply {
     buddyBlockConfirm = "Αποκλεισμός αυτού του φίλου; Δεν θα βλέπει την τοποθεσία ή τα cheers σας όσο είναι αποκλεισμένος. Μπορείτε να άρετε τον αποκλεισμό οποτεδήποτε για να τον επαναφέρετε."
     buddyDeleteData = "Διαγραφή των δεδομένων μου Buddy Link"
     buddyDeleteConfirm = "Διαγραφή όλων των δεδομένων Buddy Link (ταυτότητα, συνδέσεις, κοινόχρηστη τοποθεσία) και απενεργοποίηση του Buddy Link; Δεν αναιρείται."
+    buddyDeleteFailed = "Τα δεδομένα σας Buddy Link δεν διαγράφηκαν πλήρως. Ελέγξτε τη σύνδεσή σας, ενεργοποιήστε το Buddy Link και δοκιμάστε ξανά."
     buddyHistoryShow = "Εμφάνιση ιστορικού"
     buddyHistoryHide = "Απόκρυψη ιστορικού"
     buddyStatusSharing = "Κοινή χρήση"
@@ -1004,6 +1066,43 @@ private fun buildGreekStrings(): AppStrings = AppStrings().apply {
     buddyCheerReceived = { name -> "💪 Ο/Η $name σε ενθαρρύνει!" }
     buddyNotifCheerTitle = { name -> "💪 Ο/Η $name σε ενθαρρύνει!" }
     buddyNotifCheerBody = "Πάτησε για άνοιγμα του Joggin."
+    runTogetherJoin = { type, name -> when (type) {
+        1 -> "Κοινό τρέξιμο με: $name"
+        2 -> "Κοινή ποδηλασία με: $name"
+        else -> "Κοινό περπάτημα με: $name"
+    } }
+    runTogetherSendBody = { name -> "Ο/Η $name θα λάβει πρόσκληση. Αν την αποδεχτεί, η δραστηριότητα ξεκινά και στα δύο τηλέφωνα. Ο/Η $name βλέπει τη διαδρομή σας ζωντανά στον χάρτη μέχρι να τελειώσει η δραστηριότητά σας, και το τηλέφωνό του/της κρατά ένα αντίγραφό της με εκείνη τη δραστηριότητα στο ιστορικό." }
+    runTogetherChoose = { type -> when (type) {
+        1 -> "Κοινό τρέξιμο…"
+        2 -> "Κοινή ποδηλασία…"
+        else -> "Κοινό περπάτημα…"
+    } }
+    runTogetherPickTitle = { type -> when (type) {
+        1 -> "Με ποιον θέλετε να τρέξετε;"
+        2 -> "Με ποιον θέλετε να κάνετε ποδήλατο;"
+        else -> "Με ποιον θέλετε να περπατήσετε;"
+    } }
+    runTogetherNobodyOnline = "Κανένας φίλος σας δεν είναι συνδεδεμένος αυτή τη στιγμή."
+    runTogetherRowAction = "Πρόσκληση για κοινή δραστηριότητα"
+    buddyRouteLegend = { name -> "Διαδρομή: $name" }
+    targetRingsHomeTitle = "Δακτύλιοι στην αρχική οθόνη"
+    targetRingsHomeOn = "Εμφάνιση"
+    targetRingsHomeOff = "Απόκρυψη"
+    targetRingsHomeExplain = "Δείχνει την πρόοδο των στόχων άσκησης ως δακτυλίους πάνω από το κουμπί έναρξης."
+    runTogetherSend = "Αποστολή πρόσκλησης"
+    runTogetherInviteTitle = { type, name -> when (type) {
+        1 -> "Ο/Η $name θέλει να τρέξετε μαζί"
+        2 -> "Ο/Η $name θέλει να κάνετε ποδήλατο μαζί"
+        else -> "Ο/Η $name θέλει να περπατήσετε μαζί"
+    } }
+    runTogetherInviteBody = { name -> "Αν αποδεχτείτε, η δραστηριότητά σας ξεκινά τώρα. Ο/Η $name βλέπει τη διαδρομή σας ζωντανά στον χάρτη μέχρι να τελειώσει η δραστηριότητά σας, και το τηλέφωνό του/της κρατά ένα αντίγραφό της με εκείνη τη δραστηριότητα στο ιστορικό." }
+    runTogetherAccept = "Αποδοχή και έναρξη"
+    runTogetherNotNow = "Όχι τώρα"
+    runTogetherWaiting = { name -> "Αναμονή για τον/την $name…" }
+    runTogetherDeclined = { name -> "Ο/Η $name δεν μπορεί να συμμετάσχει τώρα." }
+    runTogetherNoAnswer = { name -> "Ο/Η $name δεν απάντησε." }
+    runTogetherSendFailed = "Η πρόσκληση δεν στάλθηκε. Ελέγξτε τη σύνδεσή σας και δοκιμάστε ξανά."
+    runTogetherNotifAccepted = { name -> "Ο/Η $name αποδέχτηκε. Ανοίξτε το Joggin για έναρξη." }
     shareLiveTitle = "Κοινή χρήση ζωντανής τοποθεσίας"
     shareLiveCreate = "Δημιουργία συνδέσμου"
     shareLiveLabelHint = "Προαιρετική ετικέτα (π.χ. Βραδινό τρέξιμο)"
@@ -1036,7 +1135,7 @@ private fun buildGreekStrings(): AppStrings = AppStrings().apply {
     buddyShareModePing = "Μόνο τοποθεσία (ping)"
     buddyShareModeRoute = "Διαδρομή (πορεία)"
     buddyRouteConsentTitle = "Κοινή χρήση διαδρομής;"
-    buddyRouteConsentBody = "Ενεργοποιώντας το, ο φίλος σας βλέπει την πραγματική διαδρομή που ακολουθείτε, σχεδιασμένη στον χάρτη του, μέχρι να απενεργοποιήσετε τον Σύνδεσμο Φίλου ή να επιστρέψετε σε μόνο τοποθεσία. Ενημερώνεται περίπου κάθε 5 λεπτά."
+    buddyRouteConsentBody = "Κατά τις δραστηριότητές σας, ο φίλος σας βλέπει την πραγματική διαδρομή που ακολουθείτε, σχεδιασμένη ζωντανά στον χάρτη του. Παραμένει ενεργό και για επόμενες δραστηριότητες, μέχρι να απενεργοποιήσετε τον Σύνδεσμο Φίλου ή να επιστρέψετε σε μόνο τοποθεσία."
     buddyRouteConsentAgree = "Κατάλαβα, κοινή χρήση"
     buddyRouteConsentDecline = "Άκυρο"
     buddyRouteActiveTitle = "Η κοινή χρήση διαδρομής είναι ενεργή"

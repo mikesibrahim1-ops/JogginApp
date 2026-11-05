@@ -42,6 +42,7 @@ object BuddyNotifier {
     private const val NOTIF_ID_LOCATION_SHARED = 3004
     private const val NOTIF_ID_ONLINE = 3005
     private const val NOTIF_ID_CHEER = 3006
+    private const val NOTIF_ID_RUN_TOGETHER = 3007
     // Distinct id space from the buddy social notifs (3001–3005); a per-achievement
     // offset keeps multiple unlocks in one session from overwriting each other.
     private const val NOTIF_ID_ACHIEVEMENT = 4001
@@ -140,6 +141,18 @@ object BuddyNotifier {
     fun notifyCheerReceived(context: Context, buddyName: String) {
         val s = stringsFor(loadLanguage(context))
         post(context, NOTIF_ID_CHEER, s.buddyNotifCheerTitle(buddyName), s.buddyNotifCheerBody)
+    }
+
+    /** A buddy invited me to run together while the app wasn't on screen. */
+    fun notifyRunInvite(context: Context, buddyName: String, activityType: Int) {
+        val s = stringsFor(loadLanguage(context))
+        post(context, NOTIF_ID_RUN_TOGETHER, s.runTogetherInviteTitle(activityType, buddyName), s.buddyNotifCheerBody)
+    }
+
+    /** My buddy accepted while the app wasn't on screen; tracking starts when it's reopened. */
+    fun notifyRunAccepted(context: Context, buddyName: String) {
+        val s = stringsFor(loadLanguage(context))
+        post(context, NOTIF_ID_RUN_TOGETHER, s.runTogetherNotifAccepted(buddyName), s.buddyNotifCheerBody)
     }
 
     /**

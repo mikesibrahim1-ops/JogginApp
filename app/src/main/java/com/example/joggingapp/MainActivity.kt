@@ -68,6 +68,7 @@ import androidx.core.content.ContextCompat
 import com.example.joggingapp.ui.theme.JogginTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -107,10 +108,18 @@ class MainActivity : ComponentActivity() {
         // Capture a "focus buddy on the map" request if launched by a buddy-online notif.
         handleBuddyFocusIntent(intent)
         AppLogger.log(this, LogCategory.UI, "App launched — " +
+            "recreated=${savedInstanceState != null} " +
             "device=${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL} " +
             "Android ${android.os.Build.VERSION.RELEASE} (API ${android.os.Build.VERSION.SDK_INT})")
         setContent { JogApp(this) }
 
+    }
+
+    // V1.71: say why the screen was torn down, so a run of quick relaunches in the log
+    // can be told apart (rotation/theme change vs the app being closed).
+    override fun onDestroy() {
+        AppLogger.log(this, LogCategory.UI, "Screen closed — changingConfig=$isChangingConfigurations finishing=$isFinishing")
+        super.onDestroy()
     }
 
     // Invites can arrive while the app is already running (singleTop relaunch).
@@ -266,6 +275,35 @@ fun JogApp(context: Context) {
     val usedActivityModes = remember { mutableStateListOf<Int>() }
     var stepCount        by remember { mutableStateOf(0) }
     var stepBaseline     by remember { mutableStateOf(-1f) }
+    // Reconnects this screen to a run the tracking service is still recording. Without it a
+    // reopened app looks idle, and tapping Start would begin again and lose the run so far.
+    fun adoptRun(run: ActiveRun.Snapshot) {
+        trackState = if (run.paused) TrackState.PAUSED else TrackState.TRACKING
+        path.clear()
+        path.addAll(run.path)
+        val moving = run.path.filter { !it.lat.isNaN() && it.speed > 0f }
+        avgSpeedMs = if (moving.isNotEmpty()) moving.map { it.speed }.average().toFloat() else 0f
+        minSpeedMs = moving.minOfOrNull { it.speed } ?: Float.MAX_VALUE
+        maxSpeedMs = moving.maxOfOrNull { it.speed } ?: 0f
+        elapsedSeconds = run.elapsedSeconds
+        activityMode = ActiveRun.activityMode
+        usedActivityModes.clear()
+        usedActivityModes.addAll(ActiveRun.usedModes)
+        stepBaseline = ActiveRun.stepBaseline
+        stepCount = ActiveRun.stepCount
+        AppLogger.log(context, LogCategory.TRACKING,
+            "Reconnected to run in progress — state=$trackState elapsed=${fmtTime(elapsedSeconds)} pathSize=${path.size} steps=$stepCount")
+    }
+    // Once per screen, before anything below reads this state.
+    remember {
+        val run = ForegroundLocationService.currentRun()
+        if (run != null) adoptRun(run)
+        run != null
+    }
+    LaunchedEffect(activityMode, usedActivityModes.size) {
+        ActiveRun.activityMode = activityMode
+        ActiveRun.usedModes = usedActivityModes.toList()
+    }
     var showSummary      by remember { mutableStateOf(false) }
     var summaryRoute     by remember { mutableStateOf<SavedRoute?>(null) }
     var summarySteps     by remember { mutableStateOf(0) }
@@ -314,6 +352,8 @@ fun JogApp(context: Context) {
                 val v = e.values[0]
                 if (stepBaseline < 0f) stepBaseline = v
                 stepCount = (v - stepBaseline).toInt().coerceAtLeast(0)
+                ActiveRun.stepBaseline = stepBaseline
+                ActiveRun.stepCount = stepCount
             }
             override fun onAccuracyChanged(s: Sensor?, a: Int) {}
         }
@@ -338,9 +378,11 @@ fun JogApp(context: Context) {
     fun resetStats() {
         path.clear(); avgSpeedMs = 0f; minSpeedMs = Float.MAX_VALUE; maxSpeedMs = 0f
         stepCount = 0; stepBaseline = -1f; elapsedSeconds = 0
+        ActiveRun.resetSteps()
         usedActivityModes.clear()
     }
     fun doStart() {
+        ForegroundLocationService.currentRun()?.let { adoptRun(it); return }
         resetStats()
         usedActivityModes.add(activityMode)
         trackState = TrackState.TRACKING
@@ -411,10 +453,13 @@ fun JogApp(context: Context) {
             val met = when (activityMode) { 1 -> if (avgSpeedMs * 3.6f < 9f) 8f else 10f; 2 -> 6f; else -> 3.5f }
             val blend = if (usedActivityModes.isNotEmpty()) usedActivityModes.distinct() else listOf(activityMode)
             val now = System.currentTimeMillis()
+            // Run together: keep the buddy's route with this activity (V1.71).
+            val partner = BuddyLinkController.get(context).runPartnerRouteForSave()
             val route = SavedRoute(id = now.toString(), points = realPoints,
                 avgSpeed = avgSpeedMs, minSpeed = if (minSpeedMs == Float.MAX_VALUE) 0f else minSpeedMs,
                 maxSpeed = maxSpeedMs, calories = met * 70f * dh, timestamp = now,
-                activityType = activityMode, steps = stepCount, activityTypes = blend)
+                activityType = activityMode, steps = stepCount, activityTypes = blend,
+                buddyPoints = partner?.second, buddyName = partner?.first)
             RouteStorage.saveRoute(context, route)
             savedRoutes = RouteStorage.loadRoutes(context)
             summaryRoute = route; summarySteps = stepCount; showSummary = true
@@ -474,12 +519,10 @@ fun JogApp(context: Context) {
     }
 
     // ── Buddy Link controller (Phase 3-4) ────────────────────────────────────
-    // Single instance for the whole app; observes the (currently NoOp) repository.
-    val buddyController = remember { BuddyLinkController(context.applicationContext) }
-    DisposableEffect(Unit) {
-        buddyController.start()
-        onDispose { buddyController.dispose() }
-    }
+    // One instance per process, kept across screen rebuilds so a pending run-together
+    // invite isn't lost. Not disposed here: start() is idempotent.
+    val buddyController = remember { BuddyLinkController.get(context) }
+    LaunchedEffect(Unit) { buddyController.start() }
     // A transient, localized message shown after handling an invite deep link.
     var buddyInviteMessage by remember { mutableStateOf<String?>(null) }
     // Sender appId of an opened invite awaiting the recipient's Accept/Ignore choice.
@@ -508,6 +551,46 @@ fun JogApp(context: Context) {
                 buddyFocusNonce = System.currentTimeMillis()
             }
             delay(500L)
+        }
+    }
+
+    // Co-op prompt: the route is only shared with consent, so when a buddy is live during
+    // an activity and I'm on location-only, offer Route once per activity.
+    var routePromptAsked by remember { mutableStateOf(false) }
+    var showRoutePrompt by remember { mutableStateOf(false) }
+    // derivedStateOf: primaryBuddyView reads the 3s tick, which must not recompose all of JogApp.
+    val buddyLiveNow by remember { derivedStateOf { buddyController.primaryBuddyView != null } }
+    LaunchedEffect(trackState, buddyLiveNow, buddyController.shareMode) {
+        if (trackState == TrackState.IDLE) {
+            routePromptAsked = false
+        } else if (!routePromptAsked && buddyLiveNow && buddyController.shareMode == BuddyShareMode.PING
+            && !buddyController.runRoutePending) {
+            routePromptAsked = true
+            showRoutePrompt = true
+        }
+    }
+
+    // Run together: starts tracking once both agreed. Starting a location service from the
+    // background isn't allowed, so wait for the app to be open, but not indefinitely.
+    // Several buddies online: the home card's button opens a list to pick from.
+    var showRunPicker by remember { mutableStateOf(false) }
+    LaunchedEffect(buddyController.runStart) {
+        val start = buddyController.runStart ?: return@LaunchedEffect
+        val waitMs = start.at + BuddyConstants.RUN_INVITE_TTL_MS - System.currentTimeMillis()
+        val open = withTimeoutOrNull(waitMs.coerceAtLeast(0L)) {
+            while (!AppForeground.isForeground) delay(500L)
+            true
+        }
+        buddyController.consumeRunStart()
+        if (open != true) buddyController.endRunTogether()   // the run never started here
+        if (open == true && trackState == TrackState.IDLE) {
+            AppLogger.log(context, LogCategory.PROFILE, "Run together: starting tracking now (type=${start.activityType})")
+            activityMode = start.activityType
+            showSummary = false
+            requestAndStart()
+        } else {
+            AppLogger.log(context, LogCategory.PROFILE, "Run together: auto-start skipped — " +
+                if (open != true) "app wasn't opened in time" else "already tracking ($trackState)")
         }
     }
 
@@ -812,6 +895,13 @@ fun JogApp(context: Context) {
                                             StatItem(String.format("%.2f", distKm), S.statDistanceKm); VDivider()
                                             StatItem(if (avgKmh > 0f) String.format("%.1f", avgKmh) else "---", S.statKmh)
                                         }
+                                        // Exercise Targets progress rings (idle only — keeps the live-run card focused).
+                                        if (trackState == TrackState.IDLE) {
+                                            if (TargetRingsPref.shown(context)) {
+                                                TargetRings(savedRoutes, refreshKey = showExerciseTargets) { showExerciseTargets = true }
+                                            }
+                                            RunTogetherRow(buddyController, activityMode) { showRunPicker = true }
+                                        }
                                         Spacer(Modifier.height(20.dp))
 
                                         when (trackState) {
@@ -1045,6 +1135,44 @@ fun JogApp(context: Context) {
                     onIgnore = { pendingInviteFrom = null }
                 )
             }
+
+            if (showRoutePrompt) {
+                RouteConsentDialog(
+                    onAgree = { buddyController.enableRouteMode(); showRoutePrompt = false },
+                    onDecline = { showRoutePrompt = false }
+                )
+            }
+
+            if (showRunPicker) {
+                RunTogetherPickDialog(
+                    buddies = buddyController.liveBuddies,
+                    activityType = activityMode,
+                    onPick = { showRunPicker = false; buddyController.askToRun(it) },
+                    onCancel = { showRunPicker = false }
+                )
+            }
+
+            // Picked on the home card or from a buddy's row in Buddy Link.
+            buddyController.runInviteTarget?.let { buddy ->
+                LaunchedEffect(buddy) { optionsPaneOpen = false }
+                RunTogetherSendDialog(
+                    buddy = buddy,
+                    activityType = activityMode,
+                    onSend = {
+                        buddyController.inviteToRun(buddy, activityMode, userName)
+                        buddyController.clearRunInviteTarget()
+                    },
+                    onCancel = { buddyController.clearRunInviteTarget() }
+                )
+            }
+
+            buddyController.incomingRun?.let { invite ->
+                RunTogetherInviteDialog(
+                    invite = invite,
+                    onAccept = { buddyController.acceptRunInvite() },
+                    onDecline = { buddyController.declineRunInvite() }
+                )
+            }
         }
       }
     }
@@ -1263,7 +1391,7 @@ fun HistoryRunCard(route: SavedRoute, onDelete: () -> Unit, onTitleChanged: (Str
                 .clip(RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))) {
                 if (hasGpsData) {
                     // Instant placeholder — pure Canvas line, no I/O.
-                    RouteThumbnail(points = route.points, modifier = Modifier.fillMaxSize())
+                    RouteThumbnail(points = route.points, modifier = Modifier.fillMaxSize(), buddyPoints = route.buddyPoints)
                     // Target bitmap size = this box in pixels (sized to the card: no OOM).
                     val density = LocalDensity.current
                     val widthPx = with(density) { maxWidth.roundToPx() }
@@ -1316,6 +1444,7 @@ fun HistoryRunCard(route: SavedRoute, onDelete: () -> Unit, onTitleChanged: (Str
                 }
             }
             Column(modifier = Modifier.padding(16.dp)) {
+                BuddyRouteLegend(route, Modifier.padding(bottom = 8.dp))
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1384,8 +1513,10 @@ fun SummaryScreen(route: SavedRoute, steps: Int, activityLabel: String, onDone: 
             Text(S.complete(activityLabel), fontSize = 24.sp, fontWeight = FontWeight.Bold, color = c.onBackground)
             Text(dateStr, fontSize = 13.sp, color = c.textSecondary)
             Card(modifier = Modifier.fillMaxWidth().height(220.dp), elevation = 4.dp, shape = RoundedCornerShape(12.dp)) {
-                RouteMap(points = route.points, interactive = false, modifier = Modifier.fillMaxSize())
+                RouteMap(points = route.points, interactive = false, modifier = Modifier.fillMaxSize(),
+                    buddyPoints = route.buddyPoints)
             }
+            BuddyRouteLegend(route)
             Card(modifier = Modifier.fillMaxWidth(), elevation = 2.dp, shape = RoundedCornerShape(12.dp), backgroundColor = c.surface) {
                 Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                     SumRow("$routeActivityEmoji  ${S.activity}", routeActivityLabel); Divider(color = c.divider)
@@ -1413,6 +1544,18 @@ fun SummaryScreen(route: SavedRoute, steps: Int, activityLabel: String, onDone: 
                 }
             }
         }
+    }
+}
+
+/** "••• Ana's route" under a map that shows a run-together buddy's dotted line. */
+@Composable
+fun BuddyRouteLegend(route: SavedRoute, modifier: Modifier = Modifier) {
+    if ((route.buddyPoints?.size ?: 0) < 2) return
+    val S = LocalStrings.current
+    Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text("•••", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color(BuddyRouteOverlay.BUDDY_ROUTE_ARGB))
+        Text(S.buddyRouteLegend(route.buddyName.orEmpty().ifBlank { S.buddyBuddies }),
+            fontSize = 12.sp, color = JogginTheme.colors.textSecondary)
     }
 }
 
@@ -1451,13 +1594,15 @@ private fun configureOsmdroid(context: Context) {
  * (the card's upstream hasGpsData gate already shows the "no GPS data" placeholder).
  */
 @Composable
-fun RouteThumbnail(points: List<Point>, modifier: Modifier = Modifier) {
+fun RouteThumbnail(points: List<Point>, modifier: Modifier = Modifier, buddyPoints: List<Point>? = null) {
     val c = JogginTheme.colors
     val real = points.filter { !it.lat.isNaN() }
+    val buddy = buddyPoints.orEmpty().filter { !it.lat.isNaN() }
     Canvas(modifier = modifier.background(c.surfaceVariant)) {
         if (real.size >= 2) {
-            val minLat = real.minOf { it.lat }; val maxLat = real.maxOf { it.lat }
-            val minLon = real.minOf { it.lon }; val maxLon = real.maxOf { it.lon }
+            val framed = real + buddy
+            val minLat = framed.minOf { it.lat }; val maxLat = framed.maxOf { it.lat }
+            val minLon = framed.minOf { it.lon }; val maxLon = framed.maxOf { it.lon }
             val lonSpan = (maxLon - minLon).coerceAtLeast(1e-9)
             val latSpan = (maxLat - minLat).coerceAtLeast(1e-9)
 
@@ -1474,6 +1619,15 @@ fun RouteThumbnail(points: List<Point>, modifier: Modifier = Modifier) {
             fun mapY(lat: Double) = offY + ((maxLat - lat) * scale).toFloat()
 
             val strokePx = 4.dp.toPx()
+            if (buddy.size >= 2) {
+                val buddyPath = Path().apply {
+                    moveTo(mapX(buddy.first().lon), mapY(buddy.first().lat))
+                    for (i in 1 until buddy.size) lineTo(mapX(buddy[i].lon), mapY(buddy[i].lat))
+                }
+                drawPath(buddyPath, Color(BuddyRouteOverlay.BUDDY_ROUTE_ARGB), style = Stroke(
+                    width = strokePx * 0.8f, cap = StrokeCap.Round,
+                    pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(0.1f, strokePx * 2.2f))))
+            }
             val path = Path().apply {
                 moveTo(mapX(real.first().lon), mapY(real.first().lat))
                 for (i in 1 until real.size) lineTo(mapX(real[i].lon), mapY(real[i].lat))
@@ -1496,11 +1650,11 @@ fun RouteThumbnail(points: List<Point>, modifier: Modifier = Modifier) {
  * start/finish markers and frames the whole route.
  */
 @Composable
-fun RouteMap(points: List<Point>, interactive: Boolean, modifier: Modifier = Modifier) {
+fun RouteMap(points: List<Point>, interactive: Boolean, modifier: Modifier = Modifier, buddyPoints: List<Point>? = null) {
     val context = LocalContext.current
     // Route line tracks the active theme's activity hue; keyed so it rebuilds on theme change.
     val routeLineArgb = JogginTheme.colors.running.toArgb()
-    val mapView = remember(points, interactive, routeLineArgb) {
+    val mapView = remember(points, interactive, routeLineArgb, buddyPoints) {
         configureOsmdroid(context)
         org.osmdroid.views.MapView(context).apply {
             setTileSource(jogginTileSource())
@@ -1512,8 +1666,14 @@ fun RouteMap(points: List<Point>, interactive: Boolean, modifier: Modifier = Mod
                 setOnTouchListener { v, _ -> v.parent?.requestDisallowInterceptTouchEvent(true); false }
             }
             if (points.size >= 2) {
-                val minLat = points.minOf { it.lat }; val maxLat = points.maxOf { it.lat }
-                val minLon = points.minOf { it.lon }; val maxLon = points.maxOf { it.lon }
+                // Frame both routes, so a buddy who went further isn't cut off.
+                val buddy = buddyPoints.orEmpty().filter { !it.lat.isNaN() }
+                val framed = points + buddy
+                val minLat = framed.minOf { it.lat }; val maxLat = framed.maxOf { it.lat }
+                val minLon = framed.minOf { it.lon }; val maxLon = framed.maxOf { it.lon }
+                if (buddy.size >= 2) {
+                    overlays.add(BuddyRouteOverlay(buddy.map { org.osmdroid.util.GeoPoint(it.lat, it.lon) }))
+                }
                 val line = org.osmdroid.views.overlay.Polyline(this).apply {
                     outlinePaint.color = routeLineArgb
                     outlinePaint.strokeWidth = 10f
@@ -1894,6 +2054,25 @@ fun OptionsPaneContent(colorIdx: Int, savedRoutes: List<SavedRoute>, onColorSele
                 Text(S.exerciseTargets, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = c.onSecondary)
             }
             Text("›", fontSize = 24.sp, color = c.onSecondary.copy(alpha = 0.85f))
+        }
+        // Rings on the home card: on by default, the user can hide them (V1.71).
+        Spacer(Modifier.height(10.dp))
+        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(S.targetRingsHomeTitle, fontSize = 13.sp, color = c.onSecondary,
+                modifier = Modifier.weight(1f).padding(start = 24.dp, end = 8.dp))
+            val ringsOn = TargetRingsPref.shown(context)
+            com.example.joggingapp.ui.theme.AppToggle(
+                checked = ringsOn,
+                onToggle = {
+                    TargetRingsPref.set(context, !ringsOn)
+                    AppLogger.log(context, LogCategory.UI, "Home exercise rings ${if (!ringsOn) "shown" else "hidden"}")
+                },
+                onLabel = S.targetRingsHomeOn,
+                offLabel = S.targetRingsHomeOff,
+                onExplanation = S.targetRingsHomeExplain,
+                contentDescriptionText = S.targetRingsHomeTitle,
+            )
         }
 
         // (Sharing section moved: the "include map when sharing" toggle now lives on each

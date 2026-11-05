@@ -1,25 +1,10 @@
 package com.example.joggingapp
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * Pure JVM tests for [BuddyShareMode] and the [shouldAppendTrailPoint] write-gate
- * decision (design §5, §13). No Android/Firebase needed.
- */
+/** Pure JVM tests for [BuddyShareMode] wire parsing. No Android/Firebase needed. */
 class BuddyShareModeTest {
-
-    @Test
-    fun shouldAppendTrailPoint_pingIsCircleOnly() {
-        assertFalse(shouldAppendTrailPoint(BuddyShareMode.PING))
-    }
-
-    @Test
-    fun shouldAppendTrailPoint_routeAppendsTrail() {
-        assertTrue(shouldAppendTrailPoint(BuddyShareMode.ROUTE))
-    }
 
     @Test
     fun fromWire_knownValues() {

@@ -23,6 +23,7 @@ data class BuddyUser(
     val buddyEnabled: Boolean = false,
     val gpsOn: Boolean = false,
     val sharing: Boolean = false,
+    val shareMode: BuddyShareMode = BuddyShareMode.DEFAULT,
     val updatedAt: Long = 0L,
     val createdAt: Long = 0L        // account creation time ("member since"), server-set once
 )
@@ -63,7 +64,7 @@ data class BuddyCheer(
     val at: Long
 )
 
-/** A single sparse breadcrumb point in a buddy's recent trail (7-day retention). */
+/** A single breadcrumb point in a buddy's recent trail (7-day retention). */
 data class BuddyTrailPoint(
     val lat: Double,
     val lon: Double,

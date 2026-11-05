@@ -3,15 +3,24 @@ package com.example.joggingapp
 import android.content.Context
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.DocumentChange
+import com.google.firebase.firestore.DocumentReference
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.SetOptions
+import com.google.firebase.firestore.Source
+import com.google.android.gms.tasks.Tasks
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Firebase implementation of [BuddyRepository] (design §4, §9).
@@ -40,6 +49,9 @@ class FirebaseBuddyRepository(private val appContext: Context) : BuddyRepository
 
     private val auth: FirebaseAuth by lazy { FirebaseAuth.getInstance() }
     private val db: FirebaseFirestore by lazy { FirebaseFirestore.getInstance() }
+    private val sessionMutex = Mutex()
+    private val FRESH_WRITE_ATTEMPTS = 3
+    private val FRESH_WRITE_TIMEOUT_MS = 5_000L
 
     /** This device's App ID (own UUID). Present after ensureSession/first enable. */
     private val myAppId: String? get() = BuddyIdentity.getId(appContext)
@@ -70,12 +82,18 @@ class FirebaseBuddyRepository(private val appContext: Context) : BuddyRepository
 
     // ── Identity / session ──────────────────────────────────────────────────────
 
-    override suspend fun ensureSession(appId: String): BuddyResult<Unit> = runCatching {
+    // The controller and BuddyLocationService both get here on first enable, so run one at a
+    // time. Two parallel sign-ins make two users, and writes queued under the first then never
+    // complete. Two parallel profile creates clash on createdAt, which the rules make immutable.
+    override suspend fun ensureSession(appId: String): BuddyResult<Unit> = sessionMutex.withLock { runCatching {
+        val freshSignIn = auth.currentUser == null
         val user = auth.currentUser ?: auth.signInAnonymously().await().user
         val uid = user?.uid ?: return BuddyResult.Failure(BuddyResult.Reason.PERMISSION)
         // Write the resolver doc FIRST so security rules can map this caller (uid) to
         // their App ID before the user-doc create is evaluated (rules require it).
-        db.collection("authMap").document(uid).set(mapOf("appId" to appId)).await()
+        val authMapRef = db.collection("authMap").document(uid)
+        val authMapData = mapOf("appId" to appId)
+        if (freshSignIn) writeAfterSignIn(authMapRef, authMapData) else authMapRef.set(authMapData).await()
         // Write the owner-only private subdoc carrying authUid FIRST (design §3.5). This
         // must precede the public-doc merge in ALL cases: for a returning user the public
         // merge is an UPDATE gated by ownsUser(), which reads authUid from this subdoc.
@@ -107,7 +125,20 @@ class FirebaseBuddyRepository(private val appContext: Context) : BuddyRepository
         }
         userRef.set(sessionData, SetOptions.merge()).await()
         BuddyResult.Success(Unit)
-    }.getOrElse { mapError(it) }
+    }.getOrElse { mapError(it) } }
+
+    /**
+     * Firestore learns about a new sign-in asynchronously. If it's already running, a write
+     * made straight afterwards can be queued under the signed-out user and never complete, so
+     * re-issue it once that has had time to settle. Only for idempotent writes.
+     */
+    private suspend fun writeAfterSignIn(ref: DocumentReference, data: Map<String, Any>) {
+        repeat(FRESH_WRITE_ATTEMPTS - 1) {
+            if (withTimeoutOrNull(FRESH_WRITE_TIMEOUT_MS) { ref.set(data).await(); true } != null) return
+            AppLogger.log(appContext, LogCategory.SERVICE, "Buddy first write after sign-in stalled, retrying")
+        }
+        ref.set(data).await()
+    }
 
     override suspend fun updateMyUser(
         displayName: String?, photoRef: String?, buddyEnabled: Boolean?,
@@ -331,20 +362,50 @@ class FirebaseBuddyRepository(private val appContext: Context) : BuddyRepository
             trySend(views)
         }
 
+        // The rules deny a location read while either user's `sharing` is false, and a denied
+        // Firestore listener never fires again. Without re-attaching, the last fix would go
+        // stale ("location unavailable") until the app restarts. Runs on the main thread,
+        // like the snapshot callbacks that own these maps.
+        val locOutages = mutableSetOf<String>()
+        fun watchLocation(otherId: String) {
+            if (locRegs.containsKey(otherId)) return
+            locRegs[otherId] = db.collection("locations").document(otherId)
+                .addSnapshotListener { s, e ->
+                    if (e != null) {
+                        // Once per outage: retries repeat every 30s and the log only keeps 2000 lines.
+                        if (locOutages.add(otherId)) {
+                            AppLogger.log(appContext, LogCategory.ERROR, "Buddy location listener stopped: ${e.code} — will retry")
+                        }
+                        locRegs.remove(otherId)?.remove()
+                        launch(Dispatchers.Main) {
+                            delay(BuddyConstants.LISTENER_RETRY_MS)
+                            if (links.values.any { it.a == otherId || it.b == otherId }) watchLocation(otherId)
+                        }
+                        return@addSnapshotListener
+                    }
+                    // A cached snapshot can fire just before the server denies the read again.
+                    if (s?.metadata?.isFromCache == false && locOutages.remove(otherId)) {
+                        AppLogger.log(appContext, LogCategory.SERVICE, "Buddy location listener recovered")
+                    }
+                    val loc = s?.toBuddyLocation()
+                    if (loc != null) { locCache[otherId] = loc; emit() }
+                }
+        }
+
         fun watchOther(otherId: String) {
             if (!userRegs.containsKey(otherId)) {
                 userRegs[otherId] = db.collection("users").document(otherId)
                     .addSnapshotListener { s, _ ->
-                        if (s != null && s.exists()) { userCache[otherId] = s.toBuddyUser(otherId); emit() }
+                        if (s != null && s.exists()) {
+                            val user = s.toBuddyUser(otherId)
+                            userCache[otherId] = user
+                            // They just started sharing: don't wait for the retry delay.
+                            if (user.sharing) watchLocation(otherId)
+                            emit()
+                        }
                     }
             }
-            if (!locRegs.containsKey(otherId)) {
-                locRegs[otherId] = db.collection("locations").document(otherId)
-                    .addSnapshotListener { s, _ ->
-                        val loc = s?.toBuddyLocation()
-                        if (loc != null) { locCache[otherId] = loc; emit() }
-                    }
-            }
+            watchLocation(otherId)
         }
 
         val onLinks = { qs: com.google.firebase.firestore.QuerySnapshot? ->
@@ -381,17 +442,39 @@ class FirebaseBuddyRepository(private val appContext: Context) : BuddyRepository
     }
 
     override fun observeBuddyTrail(buddyAppId: String): Flow<List<BuddyTrailPoint>> = callbackFlow {
-        val reg = db.collection("locations").document(buddyAppId)
-            .collection("trail")
-            .orderBy("at", Query.Direction.ASCENDING)
-            .addSnapshotListener { qs, _ ->
-                trySend(qs?.documents?.mapNotNull { d ->
-                    val lat = d.getDouble("lat"); val lon = d.getDouble("lon")
-                    val at = d.getTimestamp("at")?.toDate()?.time ?: d.getLong("at")
-                    if (lat != null && lon != null && at != null) BuddyTrailPoint(lat, lon, at) else null
-                } ?: emptyList())
-            }
-        awaitClose { reg.remove() }
+        var reg: ListenerRegistration? = null
+        var trailOutage = false
+        // Old points are pruned by their owner's app, which may not have run lately.
+        val cutoff = com.google.firebase.Timestamp(
+            java.util.Date(System.currentTimeMillis() - BuddyConstants.RETENTION_MS)
+        )
+        fun attach() {
+            reg = db.collection("locations").document(buddyAppId)
+                .collection("trail")
+                .whereGreaterThan("at", cutoff)
+                .orderBy("at", Query.Direction.ASCENDING)
+                .limitToLast(BuddyConstants.TRAIL_QUERY_LIMIT)
+                .addSnapshotListener { qs, e ->
+                    if (e != null) {
+                        // A denied listener is dead for good, so re-attach (see observeBuddies).
+                        if (!trailOutage) {
+                            trailOutage = true
+                            AppLogger.log(appContext, LogCategory.ERROR, "Buddy trail listener stopped: ${e.code} — will retry")
+                        }
+                        reg?.remove(); reg = null
+                        launch(Dispatchers.Main) { delay(BuddyConstants.LISTENER_RETRY_MS); attach() }
+                        return@addSnapshotListener
+                    }
+                    if (qs?.metadata?.isFromCache == false) trailOutage = false
+                    if (qs != null) trySend(qs.documents.mapNotNull { d ->
+                        val lat = d.getDouble("lat"); val lon = d.getDouble("lon")
+                        val at = d.getTimestamp("at")?.toDate()?.time ?: d.getLong("at")
+                        if (lat != null && lon != null && at != null) BuddyTrailPoint(lat, lon, at) else null
+                    })
+                }
+        }
+        attach()
+        awaitClose { reg?.remove() }
     }
 
     override fun observeWatchers(): Flow<List<BuddyUser>> = callbackFlow {
@@ -458,21 +541,19 @@ class FirebaseBuddyRepository(private val appContext: Context) : BuddyRepository
     // ── Location ──────────────────────────────────────────────────────────────
 
     override suspend fun writeMyLocation(
-        lat: Double, lon: Double, atMs: Long, mode: BuddyShareMode
+        lat: Double, lon: Double, atMs: Long, appendTrail: Boolean
     ): BuddyResult<Unit> = runCatching {
         val me = myAppId ?: return BuddyResult.Failure(BuddyResult.Reason.NOT_FOUND)
         val expireAt = com.google.firebase.Timestamp(java.util.Date(atMs + BuddyConstants.RETENTION_MS))
         val at = com.google.firebase.Timestamp(java.util.Date(atMs))
         val locRef = db.collection("locations").document(me)
-        // Latest fix (the circle) — ALWAYS written in both modes.
-        locRef.set(mapOf("lat" to lat, "lon" to lon, "at" to at, "expireAt" to expireAt)).await()
-        // Sparse trail point (one per broadcast; TTL purges after 7 days) — only in
-        // ROUTE mode (write-gating, design §5). PING writes the circle only.
-        if (shouldAppendTrailPoint(mode)) {
-            locRef.collection("trail").add(
-                mapOf("lat" to lat, "lon" to lon, "at" to at, "expireAt" to expireAt)
-            ).await()
-        }
+        val payload = mapOf("lat" to lat, "lon" to lon, "at" to at, "expireAt" to expireAt)
+        // One batch, so a trail point queued offline isn't held back waiting for the fix
+        // write's server ack: Firestore persists both and syncs them on reconnect.
+        val batch = db.batch()
+        batch.set(locRef, payload)
+        if (appendTrail) batch.set(locRef.collection("trail").document(), payload)
+        batch.commit().await()
         BuddyResult.Success(Unit)
     }.getOrElse { mapError(it) }
 
@@ -543,6 +624,66 @@ class FirebaseBuddyRepository(private val appContext: Context) : BuddyRepository
                 qs?.documents?.forEach { it.reference.delete() }
             }
         awaitClose { reg.remove() }
+    }
+
+    // ── Run together ──────────────────────────────────────────────────────────
+
+    override suspend fun sendRunSignal(
+        buddyAppId: String, kind: RunSignalKind, inviteId: String, activityType: Int, fromName: String?
+    ): BuddyResult<Unit> = runCatching {
+        val me = myAppId ?: return BuddyResult.Failure(BuddyResult.Reason.NOT_FOUND)
+        val now = System.currentTimeMillis()
+        db.collection("runSignals").document(buddyAppId)
+            .collection("inbox").add(
+                mapOf(
+                    "from" to me,
+                    "fromName" to (fromName ?: ""),
+                    "kind" to kind.wire,
+                    "inviteId" to inviteId,
+                    "activityType" to activityType,
+                    "at" to com.google.firebase.Timestamp(java.util.Date(now)),
+                    "expireAt" to com.google.firebase.Timestamp(java.util.Date(now + BuddyConstants.CHEER_RETENTION_MS))
+                )
+            ).await()
+        BuddyResult.Success(Unit)
+    }.getOrElse { mapError(it) }
+
+    override fun observeRunSignals(): Flow<List<RunSignal>> = callbackFlow {
+        val me = myAppId
+        if (me == null) { trySend(emptyList()); awaitClose { }; return@callbackFlow }
+        var reg: ListenerRegistration? = null
+        var outage = false
+        fun attach() {
+            reg = db.collection("runSignals").document(me).collection("inbox")
+                .orderBy("at", Query.Direction.ASCENDING)
+                .addSnapshotListener { qs, e ->
+                    if (e != null) {
+                        // A denied listener is dead for good, so re-attach (see observeBuddies).
+                        if (!outage) {
+                            outage = true
+                            AppLogger.log(appContext, LogCategory.ERROR, "Run-together listener stopped: ${e.code} — will retry")
+                        }
+                        reg?.remove(); reg = null
+                        launch(Dispatchers.Main) { delay(BuddyConstants.LISTENER_RETRY_MS); attach() }
+                        return@addSnapshotListener
+                    }
+                    if (qs?.metadata?.isFromCache == false) outage = false
+                    val signals = qs?.documents?.mapNotNull { d ->
+                        val from = d.getString("from") ?: return@mapNotNull null
+                        val kind = RunSignalKind.fromWire(d.getString("kind")) ?: return@mapNotNull null
+                        val inviteId = d.getString("inviteId") ?: return@mapNotNull null
+                        val at = d.getTimestamp("at")?.toDate()?.time ?: return@mapNotNull null
+                        RunSignal(
+                            d.id, from, d.getString("fromName").orEmpty(), kind, inviteId,
+                            d.getLong("activityType")?.toInt() ?: 0, at
+                        )
+                    } ?: emptyList()
+                    trySend(signals)
+                    qs?.documents?.forEach { it.reference.delete() }
+                }
+        }
+        attach()
+        awaitClose { reg?.remove() }
     }
 
     // ── Live-tracking share link for non-app users (S2) ──────────────────────────
@@ -627,32 +768,45 @@ class FirebaseBuddyRepository(private val appContext: Context) : BuddyRepository
 
     override suspend fun deleteAllMyData(): BuddyResult<Unit> = runCatching {
         val me = myAppId ?: return BuddyResult.Failure(BuddyResult.Reason.NOT_FOUND)
-        // Delete location + trail, user doc + blocked, and any links I'm part of.
         val locRef = db.collection("locations").document(me)
-        runCatching {
-            val trail = locRef.collection("trail").get().await()
-            trail.documents.forEach { it.reference.delete().await() }
-        }
-        runCatching { locRef.delete().await() }
-        runCatching {
-            val blocked = db.collection("users").document(me).collection("blocked").get().await()
-            blocked.documents.forEach { it.reference.delete().await() }
-        }
-        runCatching {
-            val la = db.collection("links").whereEqualTo("a", me).get().await()
-            val lb = db.collection("links").whereEqualTo("b", me).get().await()
-            (la.documents + lb.documents).forEach { it.reference.delete().await() }
-        }
-        // Delete the owner-only private subdoc (design §3.5). Deleting the parent user doc
-        // does NOT cascade to subcollections, so without this the sensitive fields
-        // (authUid, fcmToken) would outlive "delete all my data".
-        runCatching {
-            db.collection("users").document(me)
-                .collection("private").document("self").delete().await()
-        }
-        db.collection("users").document(me).delete().await()
+        val userRef = db.collection("users").document(me)
+        // Any failure stops here and is reported, with ownership intact so a retry can finish.
+        deleteMatching(locRef.collection("trail"))
+        deleteMatching(locRef.collection("locReq"))
+        locRef.delete().await()
+        deleteMatching(db.collection("cheers").document(me).collection("inbox"))
+        deleteMatching(db.collection("runSignals").document(me).collection("inbox"))
+        deleteMatching(userRef.collection("blocked"))
+        deleteMatching(db.collection("links").whereEqualTo("a", me))
+        deleteMatching(db.collection("links").whereEqualTo("b", me))
+        userRef.delete().await()
+        // private/self and authMap prove ownership to the rules, so they must go last. A
+        // parent delete doesn't cascade, so both need removing explicitly.
+        userRef.collection("private").document("self").delete().await()
+        auth.currentUser?.uid?.let { db.collection("authMap").document(it).delete().await() }
         BuddyResult.Success(Unit)
     }.getOrElse { mapError(it) }
+
+    override suspend fun pruneMyTrail(olderThanMs: Long): BuddyResult<Int> = runCatching {
+        val me = myAppId ?: return BuddyResult.Failure(BuddyResult.Reason.NOT_FOUND)
+        val cutoff = com.google.firebase.Timestamp(java.util.Date(olderThanMs))
+        BuddyResult.Success(
+            deleteMatching(
+                db.collection("locations").document(me).collection("trail").whereLessThan("at", cutoff)
+            )
+        )
+    }.getOrElse { mapError(it) }
+
+    /** Deletes everything [query] matches, reading from the server so nothing is missed. */
+    private suspend fun deleteMatching(query: Query): Int {
+        var deleted = 0
+        while (true) {
+            val docs = query.limit(BuddyConstants.DELETE_PAGE_SIZE).get(Source.SERVER).await().documents
+            if (docs.isEmpty()) return deleted
+            Tasks.whenAll(docs.map { it.reference.delete() }).await()
+            deleted += docs.size
+        }
+    }
 
     // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -684,6 +838,7 @@ private fun com.google.firebase.firestore.DocumentSnapshot.toBuddyUser(appId: St
         buddyEnabled = getBoolean("buddyEnabled") ?: false,
         gpsOn = getBoolean("gpsOn") ?: false,
         sharing = getBoolean("sharing") ?: false,
+        shareMode = BuddyShareMode.fromWire(getString("shareMode")),
         updatedAt = getTimestamp("updatedAt")?.toDate()?.time ?: 0L,
         createdAt = getTimestamp("createdAt")?.toDate()?.time ?: 0L
     )

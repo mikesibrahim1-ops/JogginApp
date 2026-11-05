@@ -16,9 +16,9 @@ enum class BuddyShareMode(val wire: String) {
 }
 
 /**
- * Decide whether a broadcast in [mode] should append a trail breadcrumb.
- * PING -> false (latest-fix circle only); ROUTE -> true (circle + trail).
- * Pure; unit-tested in BuddyShareModeTest. The latest-fix write is unconditional —
- * only the trail append is gated.
+ * Decide whether a broadcast should append a trail breadcrumb: only in ROUTE mode while
+ * actually tracking, so the shared route is the workout itself (not idle or paused
+ * movement). Pure; unit-tested in BuddyLiveRouteTest. The latest-fix write is separate.
  */
-fun shouldAppendTrailPoint(mode: BuddyShareMode): Boolean = mode == BuddyShareMode.ROUTE
+fun shouldAppendTrailPoint(mode: BuddyShareMode, state: LiveActivityState): Boolean =
+    mode == BuddyShareMode.ROUTE && state == LiveActivityState.TRACKING
