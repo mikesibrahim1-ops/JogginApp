@@ -1236,6 +1236,28 @@ fun RunTogetherInviteDialog(invite: RunSignal, onAccept: () -> Unit, onDecline: 
 }
 
 /**
+ * SECURITY (2026-11-25): asks before a restore takes on the Buddy Link identity in a backup
+ * file, since a backup from someone else would bring their buddies (who then see you).
+ */
+@Composable
+fun RestoreBuddyIdentityDialog(appId: String, onAdopt: () -> Unit, onSkip: () -> Unit) {
+    val S = LocalStrings.current
+    androidx.compose.ui.window.Dialog(
+        onDismissRequest = onSkip,
+        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        BuddyDialog(
+            title = S.restoreBuddyTitle,
+            body = S.restoreBuddyBody(buddyShortId(appId)),
+            confirmLabel = S.restoreBuddyAdopt,
+            dismissLabel = S.restoreBuddySkip,
+            onConfirm = onAdopt,
+            onDismiss = onSkip
+        )
+    }
+}
+
+/**
  * A lightweight themed confirm/cancel dialog. Uses a plain overlay + card rather than
  * Material AlertDialog so it matches the app's custom theme colours.
  */

@@ -6,7 +6,7 @@
 # we can revert to a recent build if needed.
 #
 # Usage (from the project root):
-#   .\gradlew.bat assembleDebug
+#   .\gradlew.bat assembleSideloadPublish
 #   powershell -ExecutionPolicy Bypass -File .\archive-build.ps1
 #
 # Or just run archive-build.ps1 after any build.
@@ -14,13 +14,13 @@
 $ErrorActionPreference = 'Stop'
 
 $root      = Split-Path -Parent $MyInvocation.MyCommand.Path
-$apk       = Join-Path $root 'app\build\outputs\apk\debug\app-debug.apk'
+$apk       = Join-Path $root 'app\build\outputs\apk\sideload\publish\app-sideload-publish.apk'
 $buildsDir = Join-Path $root 'builds'
 $gradle    = Join-Path $root 'app\build.gradle'
 $keep      = 4   # how many versions to retain
 
 if (-not (Test-Path $apk)) {
-    Write-Error "No debug APK found at $apk. Build first with: .\gradlew.bat assembleDebug"
+    Write-Error "No publish APK found at $apk. Build first with: .\gradlew.bat assembleSideloadPublish"
     exit 1
 }
 

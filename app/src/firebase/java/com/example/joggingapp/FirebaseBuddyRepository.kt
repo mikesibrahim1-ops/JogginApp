@@ -38,7 +38,7 @@ import kotlinx.coroutines.withTimeoutOrNull
  * Firestore layout:
  *   users/{appId}                     displayName, photoRef, buddyEnabled, gpsOn,
  *                                     sharing, createdAt, updatedAt   (public profile)
- *   users/{appId}/private/self        authUid, fcmToken, updatedAt    (owner-only, §3)
+ *   users/{appId}/private/self        authUid, fcmToken, updatedAt, recoveryHash (owner-only, §3)
  *   users/{appId}/blocked/{otherId}   at
  *   links/{linkId}                    a, b, state, reqCount, reqWindowStart,
  *                                     createdAt, updatedAt   (linkId = sorted "a_b")
@@ -93,15 +93,40 @@ class FirebaseBuddyRepository(private val appContext: Context) : BuddyRepository
         // their App ID before the user-doc create is evaluated (rules require it).
         val authMapRef = db.collection("authMap").document(uid)
         val authMapData = mapOf("appId" to appId)
-        if (freshSignIn) writeAfterSignIn(authMapRef, authMapData) else authMapRef.set(authMapData).await()
+        val selfRef = db.collection("users").document(appId).collection("private").document("self")
+        // The rules (2026-11-24) only let this uid claim the App ID if it is unclaimed or
+        // already ours. A denial here means another sign-in owns it: a backup restored onto
+        // this install. Prove ownership with the backup's recovery key.
+        val claim = runCatching {
+            if (freshSignIn) writeAfterSignIn(authMapRef, authMapData) else authMapRef.set(authMapData).await()
+        }
+        claim.exceptionOrNull()?.let { e ->
+            if (!isPermissionDenied(e)) throw e
+            if (!recoverIdentity(appId, uid, authMapRef, selfRef)) {
+                // Only replace an ID that came from a backup: a transient denial must never
+                // wipe a working identity. The controller notices the new ID and retries.
+                if (BuddyIdentity.isRestorePending(appContext)) BuddyIdentity.replaceAfterFailedRestore(appContext)
+                throw e
+            }
+        }
         // Write the owner-only private subdoc carrying authUid FIRST (design §3.5). This
         // must precede the public-doc merge in ALL cases: for a returning user the public
         // merge is an UPDATE gated by ownsUser(), which reads authUid from this subdoc.
-        // Authorized on create via mappedToMe(appId) (authMap written above).
-        db.collection("users").document(appId)
-            .collection("private").document("self")
-            .set(mapOf("authUid" to uid, "updatedAt" to FieldValue.serverTimestamp()), SetOptions.merge())
-            .await()
+        // Authorized on create via mappedToMe(appId) (authMap written above). It also
+        // stores the hash of this install's recovery key (backfills existing users).
+        // A leftover pending key means a restore crashed after the server took its hash:
+        // keep the rotated key rather than reviving the one in the old backup file.
+        BuddyIdentity.promotePendingRecoveryKey(appContext)
+        val recoveryKey = BuddyIdentity.ensureRecoveryKey(appContext)
+        selfRef.set(
+            mapOf(
+                "authUid" to uid,
+                "recoveryHash" to BuddyIdentity.sha256Hex(recoveryKey),
+                "updatedAt" to FieldValue.serverTimestamp()
+            ),
+            SetOptions.merge()
+        ).await()
+        BuddyIdentity.clearRestorePending(appContext)
         // Upsert the user doc keyed by our App ID. authUid NO LONGER lives here (§3).
         // Write createdAt ("member since") create-if-absent only: read the doc first and
         // include a server timestamp when it does not yet exist OR has no createdAt, so an
@@ -132,6 +157,52 @@ class FirebaseBuddyRepository(private val appContext: Context) : BuddyRepository
      * made straight afterwards can be queued under the signed-out user and never complete, so
      * re-issue it once that has had time to settle. Only for idempotent writes.
      */
+    /**
+     * Restore onto a new install: claim [appId] with the recovery key from the backup, move
+     * ownership (authUid) to this sign-in and rotate the key in the same write (the rules
+     * require a new hash, so the key in the old backup file stops working). The new key is
+     * saved locally as "pending" before the write and promoted after, so a crash in between
+     * can still be recovered with either key. Returns false if no key proves ownership.
+     */
+    private suspend fun recoverIdentity(
+        appId: String, uid: String, authMapRef: DocumentReference, selfRef: DocumentReference
+    ): Boolean {
+        val candidates = listOfNotNull(
+            BuddyIdentity.getRecoveryKey(appContext), BuddyIdentity.pendingRecoveryKey(appContext)
+        ).distinct()
+        if (candidates.isEmpty()) {
+            AppLogger.log(appContext, LogCategory.PROFILE, "Buddy Link ID owned elsewhere and no recovery key to prove it")
+            return false
+        }
+        for (key in candidates) {
+            val ok = runCatching {
+                authMapRef.set(mapOf("appId" to appId, "recoveryKey" to key)).await()
+                val next = BuddyIdentity.newPendingRecoveryKey(appContext)
+                selfRef.set(
+                    mapOf(
+                        "authUid" to uid,
+                        "recoveryHash" to BuddyIdentity.sha256Hex(next),
+                        "updatedAt" to FieldValue.serverTimestamp()
+                    ),
+                    SetOptions.merge()
+                ).await()
+                BuddyIdentity.promotePendingRecoveryKey(appContext)
+                // Ownership moved; drop the key from the server copy.
+                authMapRef.set(mapOf("appId" to appId)).await()
+            }.isSuccess
+            if (ok) {
+                AppLogger.log(appContext, LogCategory.PROFILE, "Buddy Link identity restored with recovery key")
+                return true
+            }
+        }
+        AppLogger.log(appContext, LogCategory.PROFILE, "Buddy Link recovery key refused")
+        return false
+    }
+
+    private fun isPermissionDenied(t: Throwable): Boolean =
+        t is com.google.firebase.firestore.FirebaseFirestoreException &&
+            t.code == com.google.firebase.firestore.FirebaseFirestoreException.Code.PERMISSION_DENIED
+
     private suspend fun writeAfterSignIn(ref: DocumentReference, data: Map<String, Any>) {
         repeat(FRESH_WRITE_ATTEMPTS - 1) {
             if (withTimeoutOrNull(FRESH_WRITE_TIMEOUT_MS) { ref.set(data).await(); true } != null) return
@@ -758,9 +829,10 @@ class FirebaseBuddyRepository(private val appContext: Context) : BuddyRepository
             remove(BuddyConstants.PREFS_ACTIVE_SHARE_LABEL)
             apply()
         }
-        // Best-effort cleanup of the control + owner docs.
+        // Best-effort cleanup of the control doc. SECURITY (2026-11-25): shareOwners/{token}
+        // is KEPT as a tombstone, so nobody holding the old URL can register the same token
+        // as theirs and show a fake position on a link people trust.
         runCatching { db.collection("shares").document(token).delete().await() }
-        runCatching { db.collection("shareOwners").document(token).delete().await() }
         BuddyResult.Success(Unit)
     }.getOrElse { mapError(it) }
 

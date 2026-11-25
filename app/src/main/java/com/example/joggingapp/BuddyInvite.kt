@@ -33,7 +33,10 @@ object BuddyInvite {
     /** Builds the https fallback link (tappable even before the app is installed). */
     fun buildHttpsFallback(appId: String, nowMs: Long = System.currentTimeMillis()): String {
         val exp = nowMs + BuddyConstants.INVITE_EXPIRY_MS
-        return "${BuddyConstants.INVITE_HTTPS_FALLBACK}?id=$appId&exp=$exp"
+        // "&app=play" from the Play build tells the /buddy page to open the Play app and,
+        // without it installed, send the friend to the Play Store instead of the APK page.
+        val app = if (BuildConfig.INVITE_APP_TAG.isNotEmpty()) "&app=${BuildConfig.INVITE_APP_TAG}" else ""
+        return "${BuddyConstants.INVITE_HTTPS_FALLBACK}?id=$appId&exp=$exp$app"
     }
 
     /**

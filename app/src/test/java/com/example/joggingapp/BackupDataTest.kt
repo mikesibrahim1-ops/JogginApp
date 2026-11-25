@@ -122,4 +122,59 @@ class BackupDataTest {
         assertEquals(1, ExerciseTargetStorage.loadCompleted(ctx).size)
         ExerciseTargetStorage.clearCompleted(ctx)
     }
+
+    // ── Recovery key (2026-11-24) ────────────────────────────────────────────
+
+    @Test
+    fun backup_roundtrip_keepsRecoveryKey_andOldBackupsHaveNone() {
+        val key = "a".repeat(64)
+        val json = BackupData.toJson(listOf(sampleRoute("r1")), "appid1", emptyList(), emptyList(), emptyList(), key)
+        assertEquals(key, BackupData.parse(json)!!.buddyRecoveryKey)
+        val old = BackupData.toJson(listOf(sampleRoute("r1")), "appid1")
+        assertNull(BackupData.parse(old)!!.buddyRecoveryKey)
+    }
+
+    @Test
+    fun sha256Hex_matchesKnownVector_lowercase() {
+        // Must equal the rules' hashing.sha256(key).toHexString().lower().
+        assertEquals(
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+            BuddyIdentity.sha256Hex("abc")
+        )
+    }
+
+    @Test
+    fun recoveryKey_lifecycle_restoreRotateReplace() {
+        val ctx = ApplicationProvider.getApplicationContext<Context>()
+        BuddyIdentity.reset(ctx)
+        val key = BuddyIdentity.ensureRecoveryKey(ctx)
+        assertTrue(BuddyIdentity.isValidKey(key))
+        assertEquals(key, BuddyIdentity.ensureRecoveryKey(ctx))
+
+        // Restore with a key: ID + key adopted, restore flagged until proven.
+        BuddyIdentity.adoptId(ctx, "restoredid", key)
+        assertEquals("restoredid", BuddyIdentity.getId(ctx))
+        assertEquals(key, BuddyIdentity.getRecoveryKey(ctx))
+        assertTrue(BuddyIdentity.isRestorePending(ctx))
+
+        // Rotation: pending becomes current only when promoted.
+        val next = BuddyIdentity.newPendingRecoveryKey(ctx)
+        assertNotEquals(key, next)
+        assertEquals(key, BuddyIdentity.getRecoveryKey(ctx))
+        BuddyIdentity.promotePendingRecoveryKey(ctx)
+        assertEquals(next, BuddyIdentity.getRecoveryKey(ctx))
+        assertNull(BuddyIdentity.pendingRecoveryKey(ctx))
+
+        // Restore without a (valid) key, then refused: fresh ID, no key, flag cleared.
+        BuddyIdentity.adoptId(ctx, "oldbackupid", "not-a-key")
+        assertNull(BuddyIdentity.getRecoveryKey(ctx))
+        val fresh = BuddyIdentity.replaceAfterFailedRestore(ctx)
+        assertEquals(fresh, BuddyIdentity.getId(ctx))
+        assertNotEquals("oldbackupid", fresh)
+        assertFalse(BuddyIdentity.isRestorePending(ctx))
+
+        BuddyIdentity.reset(ctx)
+        assertNull(BuddyIdentity.getId(ctx))
+        assertNull(BuddyIdentity.getRecoveryKey(ctx))
+    }
 }

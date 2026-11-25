@@ -25,11 +25,34 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Caller's App ID, resolved from their auth uid.
+    // Owner-only private doc of an App ID (authUid, recoveryHash).
+    function selfDoc(appId) {
+      return get(/databases/$(database)/documents/users/$(appId)/private/self).data;
+    }
+    // Caller's App ID, resolved from their auth uid. SECURITY (2026-11-24): the mapping only
+    // counts while this uid still OWNS the App ID (private/self.authUid). After a restore
+    // moves the identity to a new sign-in, the old device's stale authMap matches nothing.
     function myAppId() {
-      return get(/databases/$(database)/documents/authMap/$(request.auth.uid)).data.appId;
+      let id = get(/databases/$(database)/documents/authMap/$(request.auth.uid)).data.appId;
+      return selfDoc(id).authUid == request.auth.uid ? id : '!none';
+    }
+    // Restore proof: `key` is the 64-hex recovery key from the user's backup file, and its
+    // SHA-256 matches the hash stored in private/self. Only the hash is ever stored.
+    function recoveryMatches(appId, key) {
+      return key is string && key.size() == 64
+        && hashing.sha256(key).toHexString().lower() == selfDoc(appId).recoveryHash;
     }
     function signedIn() { return request.auth != null; }
+    // Real App IDs are UUIDs without dashes: 32 lowercase hex (BuddyIdentity.generateId).
+    function validId(appId) { return appId is string && appId.matches('^[0-9a-f]{32}$'); }
+    // SECURITY (2026-11-25): an App ID with no private/self is only "unclaimed" if it has no
+    // profile at all (brand-new), or its pre-V1.52 profile still names this caller as authUid
+    // (a legacy owner migrating). Otherwise a stranger who knows the App ID from an invite link
+    // could claim an unmigrated or abandoned account and read its buddies' locations.
+    function legacyUnclaimed(appId) {
+      return !exists(/databases/$(database)/documents/users/$(appId))
+        || userDoc(appId).get('authUid', '') == request.auth.uid;
+    }
 
     function userDoc(appId) {
       return get(/databases/$(database)/documents/users/$(appId)).data;
@@ -46,16 +69,28 @@ service cloud.firestore {
     function linkId(x, y) {
       return x < y ? (x + '_' + y) : (y + '_' + x);
     }
+    // SECURITY (2026-11-25): '_' joins are not injective for arbitrary strings, so a link
+    // only counts if its stored parties ARE this pair (and validId() keeps '_' out of IDs).
+    function linkIsPair(x, y) {
+      let l = get(/databases/$(database)/documents/links/$(linkId(x, y))).data;
+      return (l.a == x && l.b == y) || (l.a == y && l.b == x);
+    }
     function acceptedLink(x, y) {
       return exists(/databases/$(database)/documents/links/$(linkId(x, y)))
+        && linkIsPair(x, y)
         && get(/databases/$(database)/documents/links/$(linkId(x, y))).data.state == 'accepted';
     }
     // Any link (pending OR accepted) exists between the pair. Needed so a party can
     // read the counterpart's user doc to show "User X" on a PENDING invite, before
     // acceptance. Reading the user doc exposes only displayName/status, not location
     // (locations stay gated by acceptedLink + mutual sharing below).
+    // SECURITY (2026-11-25): only a LIVE link (pending/accepted) counts, and a block either way
+    // ends it, so declined, removed or blocked people stop seeing the profile/presence.
     function linkedEitherState(x, y) {
-      return exists(/databases/$(database)/documents/links/$(linkId(x, y)));
+      return exists(/databases/$(database)/documents/links/$(linkId(x, y)))
+        && linkIsPair(x, y)
+        && get(/databases/$(database)/documents/links/$(linkId(x, y))).data.state in ['pending', 'accepted']
+        && !hasBlocked(x, y) && !hasBlocked(y, x);
     }
     function hasBlocked(ownerAppId, otherAppId) {
       return exists(/databases/$(database)/documents/users/$(ownerAppId)/blocked/$(otherAppId));
@@ -64,8 +99,17 @@ service cloud.firestore {
     // authMap: a caller may only create/read the mapping for their own uid.
     match /authMap/{uid} {
       allow read: if signedIn() && request.auth.uid == uid;
+      // SECURITY (2026-11-24): an App ID can only be claimed if it is unclaimed (no
+      // private/self yet), already owned by this uid, or the caller proves the recovery key
+      // from the backup file (restore onto a new install). Without this, any caller could
+      // map their uid to a victim's App ID and act as them (accept links, read locations).
       allow write: if signedIn() && request.auth.uid == uid
-                   && request.resource.data.appId is string;
+                   && request.resource.data.keys().hasOnly(['appId', 'recoveryKey'])
+                   && validId(request.resource.data.appId)
+                   && ((!exists(/databases/$(database)/documents/users/$(request.resource.data.appId)/private/self)
+                        && legacyUnclaimed(request.resource.data.appId))
+                       || selfDoc(request.resource.data.appId).authUid == request.auth.uid
+                       || recoveryMatches(request.resource.data.appId, request.resource.data.recoveryKey));
       allow delete: if signedIn() && request.auth.uid == uid;
     }
 
@@ -88,7 +132,8 @@ service cloud.firestore {
       allow create: if mappedToMe(appId)
                     && request.resource.data.keys().hasOnly(
                          ['displayName','photoRef','buddyEnabled','gpsOn','sharing','shareMode','createdAt','updatedAt'])
-                    && (!('displayName' in request.resource.data) || request.resource.data.displayName is string)
+                    && (!('displayName' in request.resource.data)
+                        || (request.resource.data.displayName is string && request.resource.data.displayName.size() <= 200))
                     && (!('photoRef' in request.resource.data) || request.resource.data.photoRef is string)
                     && (!('buddyEnabled' in request.resource.data) || request.resource.data.buddyEnabled is bool)
                     && (!('gpsOn' in request.resource.data) || request.resource.data.gpsOn is bool)
@@ -105,7 +150,8 @@ service cloud.firestore {
       allow update: if ownsUser(appId)
                     && request.resource.data.keys().hasOnly(
                          ['displayName','photoRef','buddyEnabled','gpsOn','sharing','shareMode','createdAt','updatedAt'])
-                    && (!('displayName' in request.resource.data) || request.resource.data.displayName is string)
+                    && (!('displayName' in request.resource.data)
+                        || (request.resource.data.displayName is string && request.resource.data.displayName.size() <= 200))
                     && (!('photoRef' in request.resource.data) || request.resource.data.photoRef is string)
                     && (!('buddyEnabled' in request.resource.data) || request.resource.data.buddyEnabled is bool)
                     && (!('gpsOn' in request.resource.data) || request.resource.data.gpsOn is bool)
@@ -133,17 +179,27 @@ service cloud.firestore {
         allow create: if mappedToMe(appId)
                       && docId == 'self'
                       && request.resource.data.authUid == request.auth.uid
-                      && request.resource.data.keys().hasOnly(['authUid', 'fcmToken', 'updatedAt'])
+                      && request.resource.data.keys().hasOnly(['authUid', 'fcmToken', 'updatedAt', 'recoveryHash'])
                       && request.resource.data.authUid is string
                       && (!('fcmToken' in request.resource.data) || request.resource.data.fcmToken is string)
-                      && request.resource.size() < 4;
-        allow update: if ownsUser(appId)
-                      && docId == 'self'
+                      && (!('recoveryHash' in request.resource.data)
+                          || (request.resource.data.recoveryHash is string && request.resource.data.recoveryHash.size() == 64))
+                      && request.resource.size() < 5;
+        // Owner update, OR a restore: the caller's authMap carries the recovery key, and the
+        // update moves authUid to the caller AND rotates recoveryHash, so the key in the old
+        // backup file stops working once it has been used.
+        allow update: if docId == 'self'
                       && request.resource.data.authUid == request.auth.uid
-                      && request.resource.data.keys().hasOnly(['authUid', 'fcmToken', 'updatedAt'])
+                      && request.resource.data.keys().hasOnly(['authUid', 'fcmToken', 'updatedAt', 'recoveryHash'])
                       && request.resource.data.authUid is string
                       && (!('fcmToken' in request.resource.data) || request.resource.data.fcmToken is string)
-                      && request.resource.size() < 4;
+                      && (!('recoveryHash' in request.resource.data)
+                          || (request.resource.data.recoveryHash is string && request.resource.data.recoveryHash.size() == 64))
+                      && request.resource.size() < 5
+                      && (ownsUser(appId)
+                          || (mappedToMe(appId)
+                              && recoveryMatches(appId, get(/databases/$(database)/documents/authMap/$(request.auth.uid)).data.recoveryKey)
+                              && request.resource.data.recoveryHash != resource.data.recoveryHash));
         allow delete: if ownsUser(appId);
       }
     }
@@ -161,8 +217,11 @@ service cloud.firestore {
       // Single-doc read: a MISSING doc (resource == null) reveals nothing, and must be
       // readable so the creator's transaction can tx.get() it before creating (V1.49).
       allow get: if signedIn()
+        // SECURITY (2026-11-25): a missing doc is only readable by a party named in its id,
+        // otherwise allowed/denied would tell strangers whether two people have a link.
         && (resource == null
-            || myAppId() == resource.data.a || myAppId() == resource.data.b);
+            ? myAppId() in lid.split('_')
+            : (myAppId() == resource.data.a || myAppId() == resource.data.b));
       // Queries (observeBuddies / observePendingRequests / deleteAllMyData) must be
       // constrained to links where I'm a party.
       allow list: if signedIn()
@@ -176,12 +235,26 @@ service cloud.firestore {
         // SECURITY: a link is always born PENDING; it can't be created already accepted.
         && request.resource.data.state == 'pending'
         // The target must exist (replaces the removed client-side users/{b} precheck).
-        && exists(/databases/$(database)/documents/users/$(request.resource.data.b));
+        && exists(/databases/$(database)/documents/users/$(request.resource.data.b))
+        // SECURITY (2026-11-25): someone the recipient has blocked cannot send a request
+        // (a rule exists() reads the doc directly; the creator's read access doesn't matter).
+        && !hasBlocked(request.resource.data.b, request.resource.data.a)
+        // SECURITY (2026-11-25): fixed field set, the alert counter starts at 1, bounded name.
+        && request.resource.data.keys().hasOnly(
+             ['a','b','state','reqCount','reqWindowStart','fromName','createdAt','updatedAt'])
+        && (!('reqCount' in request.resource.data) || request.resource.data.reqCount == 1)
+        && (!('reqWindowStart' in request.resource.data) || request.resource.data.reqWindowStart is int)
+        && (!('fromName' in request.resource.data)
+            || (request.resource.data.fromName is string && request.resource.data.fromName.size() <= 200));
       allow update: if signedIn()
         && (myAppId() == resource.data.a || myAppId() == resource.data.b)
         // The parties of a link are immutable.
         && request.resource.data.a == resource.data.a
         && request.resource.data.b == resource.data.b
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['state','reqCount','reqWindowStart','fromName','updatedAt'])
+        && (!('fromName' in request.resource.data)
+            || (request.resource.data.fromName is string && request.resource.data.fromName.size() <= 200))
         // State: unchanged (re-request counter bump), or either party declines/removes,
         // or ONLY the recipient (side b) accepts a PENDING link.
         && (request.resource.data.state == resource.data.state
@@ -283,7 +356,8 @@ service cloud.firestore {
         && !hasBlocked(myAppId(), recipientAppId)
         && request.resource.data.from == myAppId()
         && request.resource.data.keys().hasOnly(['from', 'fromName', 'kind', 'inviteId', 'activityType', 'at', 'expireAt'])
-        && (!('fromName' in request.resource.data) || request.resource.data.fromName is string)
+        && (!('fromName' in request.resource.data)
+            || (request.resource.data.fromName is string && request.resource.data.fromName.size() <= 200))
         && request.resource.data.kind in ['invite', 'accept', 'decline', 'cancel']
         && request.resource.data.inviteId is string
         && request.resource.data.inviteId.size() <= 64
@@ -308,7 +382,8 @@ service cloud.firestore {
         && request.resource.data.from == myAppId()
         && request.resource.data.keys().hasOnly(['from', 'fromName', 'at', 'expireAt'])
         && request.resource.data.from is string
-        && (!('fromName' in request.resource.data) || request.resource.data.fromName is string)
+        && (!('fromName' in request.resource.data)
+            || (request.resource.data.fromName is string && request.resource.data.fromName.size() <= 200))
         && request.resource.data.at is timestamp
         && request.resource.data.expireAt is timestamp
         && request.resource.size() < 6;
@@ -381,6 +456,8 @@ service cloud.firestore {
         && request.resource.data.expiresAt is timestamp
         && request.resource.data.expiresAt == resource.data.expiresAt   // write-once
         && request.resource.data.revoked is bool
+        // SECURITY (2026-11-25): once revoked, a link stays revoked.
+        && (resource.data.revoked == false || request.resource.data.revoked == true)
         && (!('lat' in request.resource.data)
             || (request.resource.data.lat is number
                 && request.resource.data.lat >= -90 && request.resource.data.lat <= 90))

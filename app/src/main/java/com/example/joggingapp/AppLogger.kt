@@ -122,7 +122,7 @@ object AppLogger {
             src.copyTo(dest, overwrite = true)
 
             val uri = FileProvider.getUriForFile(
-                context, "com.example.joggingapp.fileprovider", dest)
+                context, context.packageName + ".fileprovider", dest)
 
             val deviceInfo = buildString {
                 appendLine("=== Device Info ===")

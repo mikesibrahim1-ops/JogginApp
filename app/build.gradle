@@ -19,18 +19,44 @@ if (firebaseEnabled) {
 }
 
 android {
-    compileSdk 34
+    compileSdk 36
     namespace 'com.example.joggingapp'
 
     defaultConfig {
         applicationId "com.example.joggingapp"
         minSdk 24
-        targetSdk 34
+        targetSdk 36
         versionCode 71
         versionName "1.71"
         // Runtime flag so app code (BuddyRepositoryProvider) knows whether the
         // Firebase backend is compiled in, without hard-referencing Firebase classes.
         buildConfigField "boolean", "FIREBASE_ENABLED", "${firebaseEnabled}"
+    }
+
+    // Two builds of the same app:
+    //   sideload: the GitHub APK. Keeps the old package name so existing installs update,
+    //             and keeps the in-app "update available" check against GitHub releases.
+    //   play:     the Google Play build. Its own package name (Play refuses com.example.*)
+    //             and NO self-update check (Play policy: apps may only update through Play).
+    // Both package names are registered in the Firebase project (google-services.json).
+    flavorDimensions "store"
+    productFlavors {
+        sideload {
+            dimension "store"
+            applicationId "com.example.joggingapp"
+            buildConfigField "boolean", "SELF_UPDATE", "true"
+            // Share App link: the Firebase-hosted APK install page.
+            buildConfigField "String", "DOWNLOAD_URL", "\"https://joggin-a69a7.web.app/get\""
+            // Added to Buddy invite https links so the /buddy page opens the right app.
+            buildConfigField "String", "INVITE_APP_TAG", "\"\""
+        }
+        play {
+            dimension "store"
+            applicationId "uk.mariasmarket.joggin"
+            buildConfigField "boolean", "SELF_UPDATE", "false"
+            buildConfigField "String", "DOWNLOAD_URL", "\"https://play.google.com/store/apps/details?id=uk.mariasmarket.joggin\""
+            buildConfigField "String", "INVITE_APP_TAG", "\"play\""
+        }
     }
 
     // The FirebaseBuddyRepository lives in a separate source root that is ONLY added
@@ -94,6 +120,14 @@ android {
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
+        }
+        // SECURITY (2026-11-25): the build that goes on GitHub for self-update. Same signing
+        // key as debug (so it installs over existing sideload installs) but NOT debuggable,
+        // so a computer with adb access can't read the app's private data (run-as).
+        publish {
+            initWith debug
+            debuggable false
+            matchingFallbacks = ['debug']
         }
         release {
             // Only attach the release signing config when a keystore was resolved above.

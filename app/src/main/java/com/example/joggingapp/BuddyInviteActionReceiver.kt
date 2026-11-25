@@ -27,7 +27,9 @@ class BuddyInviteActionReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val action = intent.action
         val linkId = intent.getStringExtra(EXTRA_LINK_ID)
-        if (linkId.isNullOrBlank() || (action != ACTION_ACCEPT && action != ACTION_IGNORE)) {
+        // SECURITY (2026-11-25): Accept no longer comes here (it opens the app so the phone
+        // must be unlocked, see BuddyNotifier.acceptAction). Refuse a stale Accept intent.
+        if (linkId.isNullOrBlank() || action != ACTION_IGNORE) {
             // Nothing actionable — don't start async work. (No early return inside a
             // Compose lambda here; this is a plain receiver, so a guard return is fine.)
             return

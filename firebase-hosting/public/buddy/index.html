@@ -105,9 +105,15 @@
   // PRIMARY (robust on Chrome/Android): an Android intent:// URI that targets the
   // installed app by package and carries a browser_fallback_url to the install page,
   // so users WITHOUT the app land on /get instead of seeing an error.
-  var fallback = 'https://joggin-a69a7.web.app/get';
+  // Invites from the Google Play build carry app=play: open the Play app, and send
+  // friends without it to the Play Store. Others: the GitHub build and the APK page.
+  var fromPlay = params.get('app') === 'play';
+  var pkg = fromPlay ? 'uk.mariasmarket.joggin' : 'com.example.joggingapp';
+  var fallback = fromPlay
+    ? 'https://play.google.com/store/apps/details?id=uk.mariasmarket.joggin'
+    : 'https://joggin-a69a7.web.app/get';
   var intentUri = 'intent://' + invitePath +
-    '#Intent;scheme=joggin;package=com.example.joggingapp;' +
+    '#Intent;scheme=joggin;package=' + pkg + ';' +
     'S.browser_fallback_url=' + encodeURIComponent(fallback) + ';end';
 
   // SECONDARY: the raw custom-scheme link (for browsers that don't honour intent://).

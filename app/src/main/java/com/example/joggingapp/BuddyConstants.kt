@@ -35,6 +35,13 @@ object BuddyConstants {
     const val ON_DEMAND_REQUEST_COOLDOWN_MS: Long = 2 * 60 * 1000L
 
     /**
+     * SECURITY (2026-11-25): the responding phone takes at most one on-demand fix per minute,
+     * whoever asks. The requester-side cooldown above lives in the requester's app, which a
+     * modified client can skip.
+     */
+    const val ON_DEMAND_RESPONSE_MIN_INTERVAL_MS: Long = 60 * 1000L
+
+    /**
      * Minimum spacing between successive Live Cheers (S1) to the SAME buddy
      * (client-side anti-spam). Mirrors [ON_DEMAND_REQUEST_COOLDOWN_MS] but tighter —
      * a cheer is a low-stakes social ping, so 30s balances "send again soon" against

@@ -69,6 +69,10 @@ class BuddyLocationService : Service() {
     private var lastLiveTrail: Location? = null
     private var liveUpdatesOn = false
     private var lastLiveFailure: BuddyResult.Reason? = null
+    // Counts for the "live sharing stopped" log line (V1.72 diagnostics); written from writeFix.
+    private val liveFixesSent = java.util.concurrent.atomic.AtomicInteger()
+    private val liveTrailSent = java.util.concurrent.atomic.AtomicInteger()
+    private val liveFailed = java.util.concurrent.atomic.AtomicInteger()
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     @Volatile private var offline = false
     private val liveCallback = object : LocationCallback() {
@@ -220,7 +224,8 @@ class BuddyLocationService : Service() {
         try {
             fusedClient.requestLocationUpdates(request, liveCallback, Looper.getMainLooper())
             liveUpdatesOn = true
-            AppLogger.log(this, LogCategory.SERVICE, "Buddy live sharing started")
+            liveFixesSent.set(0); liveTrailSent.set(0); liveFailed.set(0)
+            AppLogger.log(this, LogCategory.SERVICE, "Buddy live sharing started — mode=${currentShareMode().wire}")
         } catch (e: SecurityException) {
             AppLogger.log(this, LogCategory.ERROR, "Buddy live sharing SecurityException: ${e.message}")
         }
@@ -233,7 +238,8 @@ class BuddyLocationService : Service() {
         lastLiveFix = null
         lastLiveTrail = null
         lastLiveFailure = null
-        AppLogger.log(this, LogCategory.SERVICE, "Buddy live sharing stopped")
+        AppLogger.log(this, LogCategory.SERVICE, "Buddy live sharing stopped — sent ${liveFixesSent.get()} fixes, " +
+            "${liveTrailSent.get()} trail points, ${liveFailed.get()} failed; mode now=${currentShareMode().wire}")
     }
 
     private fun onLiveFix(loc: Location) {
@@ -279,10 +285,17 @@ class BuddyLocationService : Service() {
      * Reacts to buddies asking for a fresh fix now. Emits the requesters' ids; when
      * non-empty we push a fix immediately (outside the cadence). Req 6.1b, §8.
      */
+    private var lastOnDemandFixAt = 0L
+
     private fun observeOnDemandRequests() {
         repo.observeLocationRequests()
             .onEach { requesters ->
-                if (requesters.isNotEmpty()) {
+                val now = System.currentTimeMillis()
+                if (requesters.isNotEmpty() && now - lastOnDemandFixAt < BuddyConstants.ON_DEMAND_RESPONSE_MIN_INTERVAL_MS) {
+                    AppLogger.log(this, LogCategory.SERVICE,
+                        "On-demand location request (${requesters.size}) skipped — last on-demand fix was under a minute ago")
+                } else if (requesters.isNotEmpty()) {
+                    lastOnDemandFixAt = now
                     AppLogger.log(this, LogCategory.SERVICE,
                         "On-demand location request received (${requesters.size}) — pushing fresh fix")
                     pushFreshFix(reason = "on-demand")
@@ -332,8 +345,11 @@ class BuddyLocationService : Service() {
             when (res) {
                 is BuddyResult.Success -> {
                     // Live fixes arrive every ~10s, so log only the failures below.
-                    if (live) lastLiveFailure = null
-                    else AppLogger.log(this@BuddyLocationService, LogCategory.SERVICE,
+                    if (live) {
+                        lastLiveFailure = null
+                        liveFixesSent.incrementAndGet()
+                        if (appendTrail) liveTrailSent.incrementAndGet()
+                    } else AppLogger.log(this@BuddyLocationService, LogCategory.SERVICE,
                         "Buddy fix broadcast ($reason) — lat=${"%.4f".format(loc.latitude)} lon=${"%.4f".format(loc.longitude)}")
                 }
                 is BuddyResult.Failure -> {
@@ -343,7 +359,7 @@ class BuddyLocationService : Service() {
                         AppLogger.log(this@BuddyLocationService, LogCategory.SERVICE,
                             "Buddy fix ($reason) not sent — backend ${res.reason}")
                     }
-                    if (live) lastLiveFailure = res.reason
+                    if (live) { lastLiveFailure = res.reason; liveFailed.incrementAndGet() }
                 }
             }
 

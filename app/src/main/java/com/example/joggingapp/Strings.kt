@@ -127,6 +127,11 @@ class AppStrings {
     var restoredCount: (Int) -> String = { _ -> "" }    // "Restored N run(s)"
     var restoredWithExercise: (Int, Int) -> String = { _, _ -> "" }  // "Restored N run(s) + M exercise item(s)"
     var restoreFailed: String = ""
+    // Restore: confirm before taking on the Buddy Link identity in a backup (2026-11-25)
+    var restoreBuddyTitle: String = ""
+    var restoreBuddyBody: (String) -> String = { _ -> "" }
+    var restoreBuddyAdopt: String = ""
+    var restoreBuddySkip: String = ""
     // Route colour names
     var colorLightGreen: String = ""
     var colorBlue: String = ""
@@ -346,25 +351,6 @@ class AppStrings {
     var coachMinutesSeconds: (Int, Int) -> String = { _, _ -> "" }
     var coachHoursMinutes: (Int, Int) -> String = { _, _ -> "" }
     // Safety alert (stopped-moving SMS)
-    var safetyTitle: String = ""
-    var safetyOn: String = ""
-    var safetyOff: String = ""
-    var safetyExplain: String = ""
-    var safetyPickContact: String = ""
-    var safetyChangeContact: String = ""
-    var safetyNoContact: String = ""
-    var safetySendTest: String = ""
-    var safetyTestSent: String = ""
-    var safetyTestFailed: String = ""
-    var safetyPermissionNeeded: String = ""
-    var safetyChannelName: String = ""
-    var safetyPromptTitle: String = ""
-    var safetyPromptBody: String = ""
-    var safetyImOk: String = ""
-    var safetySomeone: String = ""
-    var safetyNoLocation: String = ""
-    var safetySmsBody: (String, String) -> String = { _, _ -> "" }    // (user name, map link or no-location text)
-    var safetyTestSmsBody: (String) -> String = { _ -> "" }
     var exerciseTargetsSubtitle: String = ""   // options-pane row subtitle
     var exerciseTargetsEmpty: String = ""      // empty-state message
     var exTypeSitups: String = ""
@@ -521,6 +507,10 @@ private fun buildEnglishStrings(): AppStrings = AppStrings().apply {
     restoredCount = { n -> "Restored $n run(s)" }
     restoredWithExercise = { runs, exercise -> "Restored $runs run(s) + $exercise exercise item(s)" }
     restoreFailed = "Failed to restore — invalid file"
+    restoreBuddyTitle = "Restore Buddy Link too?"
+    restoreBuddyBody = { id -> "This backup also holds a Buddy Link account ($id). Restoring it brings back that account's buddies, and they will see your location whenever you share. Only do this if the backup is your own." }
+    restoreBuddyAdopt = "Restore buddies"
+    restoreBuddySkip = "Runs only"
     colorLightGreen = "Light Green"
     colorBlue = "Blue"
     colorOrange = "Orange"
@@ -668,7 +658,7 @@ private fun buildEnglishStrings(): AppStrings = AppStrings().apply {
         2 -> "Join a ride together with: $name"
         else -> "Join a walk together with: $name"
     } }
-    runTogetherSendBody = { name -> "$name gets an invite. If they accept, the activity starts on both phones. $name sees your route live on their map until your activity ends, and their phone keeps a copy of it with that activity in their history." }
+    runTogetherSendBody = { name -> "$name gets an invite. If they accept, the activity starts on both phones. $name sees your route live on their map until your activity ends, and their phone keeps a copy of it with that activity in their history. Buddies who already see your location can also see this route while the activity lasts." }
     runTogetherChoose = { type -> when (type) {
         1 -> "Join a run together…"
         2 -> "Join a ride together…"
@@ -692,7 +682,7 @@ private fun buildEnglishStrings(): AppStrings = AppStrings().apply {
         2 -> "$name wants to ride together"
         else -> "$name wants to walk together"
     } }
-    runTogetherInviteBody = { name -> "If you accept, your activity starts now. $name sees your route live on their map until your activity ends, and their phone keeps a copy of it with that activity in their history." }
+    runTogetherInviteBody = { name -> "If you accept, your activity starts now. $name sees your route live on their map until your activity ends, and their phone keeps a copy of it with that activity in their history. Buddies who already see your location can also see this route while the activity lasts." }
     runTogetherAccept = "Accept and start"
     runTogetherNotNow = "Not now"
     runTogetherWaiting = { name -> "Waiting for $name…" }
@@ -752,25 +742,6 @@ private fun buildEnglishStrings(): AppStrings = AppStrings().apply {
         val secs = if (s == 1) "1 second" else "$s seconds"
         if (m == 0) secs else if (s == 0) mins else "$mins $secs"
     }
-    safetyTitle = "Safety alert"
-    safetyOn = "On"
-    safetyOff = "Off"
-    safetyExplain = "If you stop moving for 3 minutes during an activity, Joggin asks if you're OK. No answer within 1 minute texts your contact your location."
-    safetyPickContact = "Choose contact"
-    safetyChangeContact = "Change"
-    safetyNoContact = "No contact chosen"
-    safetySendTest = "Send test text"
-    safetyTestSent = "Test text sent"
-    safetyTestFailed = "Couldn't send the text"
-    safetyPermissionNeeded = "Joggin needs permission to send texts for safety alerts."
-    safetyChannelName = "Safety alerts"
-    safetyPromptTitle = "Are you OK?"
-    safetyPromptBody = "You've stopped moving. Tap I'm OK within 1 minute, or your safety contact will be texted your location."
-    safetyImOk = "I'm OK"
-    safetySomeone = "A Joggin user"
-    safetyNoLocation = "(location unavailable)"
-    safetySmsBody = { name, link -> "Joggin safety alert: $name stopped moving during an activity and didn't respond. Last location: $link" }
-    safetyTestSmsBody = { name -> "Joggin test: $name added you as their safety contact. You'll get a text with their location if they stop moving and don't respond." }
     coachHoursMinutes = { h, m ->
         val hrs = if (h == 1) "1 hour" else "$h hours"
         if (m == 0) hrs else "$hrs ${if (m == 1) "1 minute" else "$m minutes"}"
@@ -931,6 +902,10 @@ private fun buildGreekStrings(): AppStrings = AppStrings().apply {
     restoredCount = { n -> "Επαναφέρθηκαν $n δραστηριότητες" }
     restoredWithExercise = { runs, exercise -> "Επαναφέρθηκαν $runs δραστηριότητες + $exercise στοιχεία άσκησης" }
     restoreFailed = "Η επαναφορά απέτυχε — μη έγκυρο αρχείο"
+    restoreBuddyTitle = "Επαναφορά και του Buddy Link;"
+    restoreBuddyBody = { id -> "Αυτό το αντίγραφο περιέχει και λογαριασμό Buddy Link ($id). Με την επαναφορά επιστρέφουν οι φίλοι αυτού του λογαριασμού και θα βλέπουν την τοποθεσία σας όποτε τη μοιράζεστε. Κάντε το μόνο αν το αντίγραφο είναι δικό σας." }
+    restoreBuddyAdopt = "Επαναφορά φίλων"
+    restoreBuddySkip = "Μόνο δραστηριότητες"
     colorLightGreen = "Ανοιχτό Πράσινο"
     colorBlue = "Μπλε"
     colorOrange = "Πορτοκαλί"
@@ -1071,7 +1046,7 @@ private fun buildGreekStrings(): AppStrings = AppStrings().apply {
         2 -> "Κοινή ποδηλασία με: $name"
         else -> "Κοινό περπάτημα με: $name"
     } }
-    runTogetherSendBody = { name -> "Ο/Η $name θα λάβει πρόσκληση. Αν την αποδεχτεί, η δραστηριότητα ξεκινά και στα δύο τηλέφωνα. Ο/Η $name βλέπει τη διαδρομή σας ζωντανά στον χάρτη μέχρι να τελειώσει η δραστηριότητά σας, και το τηλέφωνό του/της κρατά ένα αντίγραφό της με εκείνη τη δραστηριότητα στο ιστορικό." }
+    runTogetherSendBody = { name -> "Ο/Η $name θα λάβει πρόσκληση. Αν την αποδεχτεί, η δραστηριότητα ξεκινά και στα δύο τηλέφωνα. Ο/Η $name βλέπει τη διαδρομή σας ζωντανά στον χάρτη μέχρι να τελειώσει η δραστηριότητά σας, και το τηλέφωνό του/της κρατά ένα αντίγραφό της με εκείνη τη δραστηριότητα στο ιστορικό. Όσοι φίλοι βλέπουν ήδη την τοποθεσία σας μπορούν επίσης να δουν αυτή τη διαδρομή όσο διαρκεί η δραστηριότητα." }
     runTogetherChoose = { type -> when (type) {
         1 -> "Κοινό τρέξιμο…"
         2 -> "Κοινή ποδηλασία…"
@@ -1095,7 +1070,7 @@ private fun buildGreekStrings(): AppStrings = AppStrings().apply {
         2 -> "Ο/Η $name θέλει να κάνετε ποδήλατο μαζί"
         else -> "Ο/Η $name θέλει να περπατήσετε μαζί"
     } }
-    runTogetherInviteBody = { name -> "Αν αποδεχτείτε, η δραστηριότητά σας ξεκινά τώρα. Ο/Η $name βλέπει τη διαδρομή σας ζωντανά στον χάρτη μέχρι να τελειώσει η δραστηριότητά σας, και το τηλέφωνό του/της κρατά ένα αντίγραφό της με εκείνη τη δραστηριότητα στο ιστορικό." }
+    runTogetherInviteBody = { name -> "Αν αποδεχτείτε, η δραστηριότητά σας ξεκινά τώρα. Ο/Η $name βλέπει τη διαδρομή σας ζωντανά στον χάρτη μέχρι να τελειώσει η δραστηριότητά σας, και το τηλέφωνό του/της κρατά ένα αντίγραφό της με εκείνη τη δραστηριότητα στο ιστορικό. Όσοι φίλοι βλέπουν ήδη την τοποθεσία σας μπορούν επίσης να δουν αυτή τη διαδρομή όσο διαρκεί η δραστηριότητα." }
     runTogetherAccept = "Αποδοχή και έναρξη"
     runTogetherNotNow = "Όχι τώρα"
     runTogetherWaiting = { name -> "Αναμονή για τον/την $name…" }
@@ -1155,25 +1130,6 @@ private fun buildGreekStrings(): AppStrings = AppStrings().apply {
         val secs = if (s == 1) "1 δευτερόλεπτο" else "$s δευτερόλεπτα"
         if (m == 0) secs else if (s == 0) mins else "$mins $secs"
     }
-    safetyTitle = "Ειδοποίηση ασφαλείας"
-    safetyOn = "Ενεργή"
-    safetyOff = "Ανενεργή"
-    safetyExplain = "Αν σταματήσεις να κινείσαι για 3 λεπτά κατά τη δραστηριότητα, το Joggin σε ρωτά αν είσαι καλά. Χωρίς απάντηση σε 1 λεπτό, στέλνει SMS με την τοποθεσία σου στην επαφή σου."
-    safetyPickContact = "Επιλογή επαφής"
-    safetyChangeContact = "Αλλαγή"
-    safetyNoContact = "Δεν έχει επιλεγεί επαφή"
-    safetySendTest = "Δοκιμαστικό SMS"
-    safetyTestSent = "Το δοκιμαστικό SMS στάλθηκε"
-    safetyTestFailed = "Δεν ήταν δυνατή η αποστολή του SMS"
-    safetyPermissionNeeded = "Το Joggin χρειάζεται άδεια αποστολής SMS για τις ειδοποιήσεις ασφαλείας."
-    safetyChannelName = "Ειδοποιήσεις ασφαλείας"
-    safetyPromptTitle = "Είσαι καλά;"
-    safetyPromptBody = "Σταμάτησες να κινείσαι. Πάτησε «Είμαι καλά» μέσα σε 1 λεπτό, αλλιώς η επαφή ασφαλείας σου θα λάβει SMS με την τοποθεσία σου."
-    safetyImOk = "Είμαι καλά"
-    safetySomeone = "Ένας χρήστης του Joggin"
-    safetyNoLocation = "(η τοποθεσία δεν είναι διαθέσιμη)"
-    safetySmsBody = { name, link -> "Ειδοποίηση ασφαλείας Joggin: ο/η $name σταμάτησε να κινείται κατά τη δραστηριότητα και δεν απάντησε. Τελευταία τοποθεσία: $link" }
-    safetyTestSmsBody = { name -> "Δοκιμή Joggin: ο/η $name σε όρισε επαφή ασφαλείας. Θα λάβεις SMS με την τοποθεσία του/της αν σταματήσει να κινείται και δεν απαντήσει." }
     coachHoursMinutes = { h, m ->
         val hrs = if (h == 1) "1 ώρα" else "$h ώρες"
         if (m == 0) hrs else "$hrs ${if (m == 1) "1 λεπτό" else "$m λεπτά"}"

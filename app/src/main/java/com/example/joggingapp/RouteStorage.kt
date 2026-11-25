@@ -40,7 +40,9 @@ data class BackupData(
     val routes: List<SavedRoute> = emptyList(),
     val exerciseTargets: List<ExerciseTarget> = emptyList(),
     val repLog: List<RepLogEntry> = emptyList(),
-    val completedTargets: List<CompletedTarget> = emptyList()
+    val completedTargets: List<CompletedTarget> = emptyList(),
+    // Proof of ownership for buddyAppId on restore (2026-11-24). Absent in older backups.
+    val buddyRecoveryKey: String? = null
 ) {
     companion object {
         const val CURRENT_VERSION = 3
@@ -58,10 +60,11 @@ data class BackupData(
             buddyAppId: String?,
             exerciseTargets: List<ExerciseTarget>,
             repLog: List<RepLogEntry>,
-            completedTargets: List<CompletedTarget>
+            completedTargets: List<CompletedTarget>,
+            buddyRecoveryKey: String? = null
         ): String =
             Gson().toJson(
-                BackupData(CURRENT_VERSION, buddyAppId, routes, exerciseTargets, repLog, completedTargets)
+                BackupData(CURRENT_VERSION, buddyAppId, routes, exerciseTargets, repLog, completedTargets, buddyRecoveryKey)
             )
 
         /**

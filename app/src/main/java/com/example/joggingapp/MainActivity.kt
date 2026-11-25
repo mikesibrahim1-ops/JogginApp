@@ -96,6 +96,20 @@ const val DATE_FMT_FULL = "dd MMM yyyy • HH:mm"
 const val DATE_FMT_DATE = "dd MMM yyyy"
 const val DATE_FMT_DAY  = "yyyyMMdd"
 
+/** The Safety alert was removed (V1.72). Clear what older versions saved for it. */
+private fun removeOldSafetyAlert(context: Context) {
+    val p = context.getSharedPreferences("jog_prefs", Context.MODE_PRIVATE)
+    if (p.contains("safety_alert_enabled") || p.contains("safety_contact_number") || p.contains("safety_contact_name")) {
+        p.edit().remove("safety_alert_enabled").remove("safety_contact_number").remove("safety_contact_name").apply()
+    }
+    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+        try {
+            (context.getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager)
+                .deleteNotificationChannel("joggin_safety")
+        } catch (_: Exception) {}
+    }
+}
+
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -107,11 +121,22 @@ class MainActivity : ComponentActivity() {
         handleBuddyInviteIntent(intent)
         // Capture a "focus buddy on the map" request if launched by a buddy-online notif.
         handleBuddyFocusIntent(intent)
+        if (savedInstanceState == null) handleBuddyAcceptIntent(intent)
         AppLogger.log(this, LogCategory.UI, "App launched — " +
             "recreated=${savedInstanceState != null} " +
             "device=${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL} " +
             "Android ${android.os.Build.VERSION.RELEASE} (API ${android.os.Build.VERSION.SDK_INT})")
-        setContent { JogApp(this) }
+        // targetSdk 35+ always draws the app edge to edge (under the status and navigation
+        // bars). Pad the whole app inside the safe area, with a black band behind the bars,
+        // so nothing is hidden behind them or the keyboard.
+        removeOldSafetyAlert(this)
+        setContent {
+            androidx.compose.foundation.layout.Box(
+                androidx.compose.ui.Modifier.fillMaxSize()
+                    .background(androidx.compose.ui.graphics.Color.Black)
+                    .safeDrawingPadding()
+            ) { JogApp(this@MainActivity) }
+        }
 
     }
 
@@ -128,6 +153,7 @@ class MainActivity : ComponentActivity() {
         setIntent(intent)
         handleBuddyInviteIntent(intent)
         handleBuddyFocusIntent(intent)
+        handleBuddyAcceptIntent(intent)
     }
 
     // Track foreground state so FCM push notifications don't double up with the in-app
@@ -151,6 +177,23 @@ class MainActivity : ComponentActivity() {
         if (looksLikeInvite) {
             AppLogger.log(this, LogCategory.UI, "Buddy Link invite intent received")
             BuddyInviteBus.pending = data.toString()
+        }
+    }
+
+    /**
+     * Accept tapped on a buddy-request notification. It arrives as an activity launch, so the
+     * phone is unlocked by the time we get here (see BuddyNotifier.acceptAction).
+     */
+    private fun handleBuddyAcceptIntent(intent: Intent?) {
+        val linkId = intent?.getStringExtra(BuddyNotifier.EXTRA_ACCEPT_LINK_ID) ?: return
+        intent.removeExtra(BuddyNotifier.EXTRA_ACCEPT_LINK_ID)
+        if (linkId.isBlank()) return
+        val appContext = applicationContext
+        androidx.core.app.NotificationManagerCompat.from(appContext).cancel(BuddyNotifier.NOTIF_ID_REQUEST)
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO).launch {
+            runCatching { BuddyRepositoryProvider.get(appContext).acceptLink(linkId) }
+                .onSuccess { AppLogger.log(appContext, LogCategory.PROFILE, "Buddy invite accept from notification: ${it::class.simpleName}") }
+                .onFailure { AppLogger.log(appContext, LogCategory.ERROR, "Buddy invite accept failed: ${it.message}") }
         }
     }
 
@@ -594,19 +637,8 @@ fun JogApp(context: Context) {
         }
     }
 
-    // Report the device's GPS/location-enabled state so CONDITION-1
-    // (sharing = enabled && gpsOn) stays accurate. Polls while composed.
-    LaunchedEffect(Unit) {
-        val lm = context.getSystemService(Context.LOCATION_SERVICE) as? android.location.LocationManager
-        while (true) {
-            val on = try {
-                lm?.isProviderEnabled(android.location.LocationManager.GPS_PROVIDER) == true ||
-                    lm?.isProviderEnabled(android.location.LocationManager.NETWORK_PROVIDER) == true
-            } catch (_: Exception) { false }
-            buddyController.updateGpsState(on && hasFine())
-            delay(5000L)
-        }
-    }
+    // GPS/location-enabled state for CONDITION-1 is polled by BuddyLinkController itself
+    // (2026-11-25), so it doesn't stop when this screen does.
 
     // Consume an incoming invite deep link (set by MainActivity). Parses + validates,
     // then either fires a link request or surfaces a localized error (Req 3.5b).
@@ -1081,7 +1113,7 @@ fun JogApp(context: Context) {
             // ── Auto update-check on launch (throttled ~once/day) ─────────────
             // Fails silently: no UI on network/parse/rate-limit errors, just skips.
             LaunchedEffect(Unit) {
-                if (UpdateChecker.isAutoCheckDue(context)) {
+                if (BuildConfig.SELF_UPDATE && UpdateChecker.isAutoCheckDue(context)) {
                     val result = UpdateChecker.checkLatest(context, BuildConfig.VERSION_NAME)
                     if (result.updateAvailable && result.latestVersion != null) {
                         updatePromptVersion = result.latestVersion
@@ -1169,7 +1201,7 @@ fun JogApp(context: Context) {
             buddyController.incomingRun?.let { invite ->
                 RunTogetherInviteDialog(
                     invite = invite,
-                    onAccept = { buddyController.acceptRunInvite() },
+                    onAccept = { buddyController.acceptRunInvite(invite.inviteId) },
                     onDecline = { buddyController.declineRunInvite() }
                 )
             }
@@ -1895,6 +1927,22 @@ fun OptionsPaneContent(colorIdx: Int, savedRoutes: List<SavedRoute>, onColorSele
     // composable leaves and re-enters composition (i.e. each time the pane is opened).
     var restoreMessage by remember { mutableStateOf<String?>(null) }
     var restoreSuccess by remember { mutableStateOf(false) }
+    // Buddy identity found in a restored backup, waiting for the user to confirm it's theirs.
+    var pendingBuddyAdopt by remember { mutableStateOf<Pair<String, String?>?>(null) }
+    pendingBuddyAdopt?.let { (adoptId, adoptKey) ->
+        RestoreBuddyIdentityDialog(
+            appId = adoptId,
+            onAdopt = {
+                if (!BuddyIdentity.hasId(context)) BuddyIdentity.adoptId(context, adoptId, adoptKey)
+                AppLogger.log(context, LogCategory.BACKUP, "Restore: buddy identity adopted after confirmation")
+                pendingBuddyAdopt = null
+            },
+            onSkip = {
+                AppLogger.log(context, LogCategory.BACKUP, "Restore: buddy identity skipped")
+                pendingBuddyAdopt = null
+            }
+        )
+    }
     val restoreLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri == null) {
             AppLogger.log(context, LogCategory.BACKUP, "Restore cancelled — no file selected")
@@ -1917,8 +1965,9 @@ fun OptionsPaneContent(colorIdx: Int, savedRoutes: List<SavedRoute>, onColorSele
             // Restore Buddy Link identity ONLY if this install has none yet, so we never
             // clobber an already-provisioned local identity (Req 2.3, D4).
             backup.buddyAppId?.takeIf { it.isNotBlank() }?.let { restoredId ->
+                // SECURITY (2026-11-25): ask first; see RestoreBuddyIdentityDialog.
                 if (!BuddyIdentity.hasId(context)) {
-                    BuddyIdentity.adoptId(context, restoredId)
+                    pendingBuddyAdopt = restoredId to backup.buddyRecoveryKey
                 }
             }
             // Exercise data (v3+). For older backups these lists are empty, so nothing is
@@ -2031,11 +2080,6 @@ fun OptionsPaneContent(colorIdx: Int, savedRoutes: List<SavedRoute>, onColorSele
                     contentDescriptionText = S.voiceCoachTitle,
                 )
             }
-        }
-
-        // ── Safety alert (stopped-moving SMS; detection in ForegroundLocationService) ──
-        CollapsibleSection(title = S.safetyTitle, leadingEmoji = "🆘") {
-            SafetyAlertSection()
         }
 
         // ── Exercise Targets (opens a full screen) ────────────────────────────
@@ -2233,7 +2277,8 @@ fun OptionsPaneContent(colorIdx: Int, savedRoutes: List<SavedRoute>, onColorSele
                 // the equal-weight spacers either side; min 48dp gives a ≥48dp touch target.
                 // NOTE: no `color`/tint on the glyphs — a solid tint flattens a colour-emoji
                 // to a blank box on this device's font (other emoji here also set no colour).
-                Column(
+                // Sideload build only: the Play build updates through Play, so no 🔄 here.
+                if (BuildConfig.SELF_UPDATE) Column(
                     modifier = Modifier
                         .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
                         .clip(RoundedCornerShape(10.dp))
@@ -2700,7 +2745,7 @@ fun generateRouteBitmap(context: Context, points: List<Point>, routeColorArgb: I
         val file = java.io.File(context.cacheDir, "share_route.png")
         file.outputStream().use { bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 90, it) }
         bmp.recycle()
-        androidx.core.content.FileProvider.getUriForFile(context, "com.example.joggingapp.fileprovider", file)
+        androidx.core.content.FileProvider.getUriForFile(context, context.packageName + ".fileprovider", file)
     } catch (_: Exception) { null }
 }
 
@@ -2758,7 +2803,8 @@ private fun downloadTileBitmap(centerLat: Double, centerLon: Double, zoom: Int, 
 // Public download page (Firebase Hosting). Sharing a LINK — not the raw .apk file —
 // avoids messaging apps (WhatsApp, etc.) corrupting/blocking the attachment, which was
 // causing "App not installed" on the receiving phone.
-const val JOGGIN_DOWNLOAD_URL = "https://joggin-a69a7.web.app/get"
+// Play build: the Play Store page. GitHub build: the Firebase-hosted APK install page.
+val JOGGIN_DOWNLOAD_URL: String = BuildConfig.DOWNLOAD_URL
 
 fun shareApp(context: Context, userName: String = "") {
     val greeting = if (userName.isNotBlank())
@@ -2771,8 +2817,8 @@ fun shareApp(context: Context, userName: String = "") {
     else
         "Someone is sharing the Joggin' app with you"
 
-    // Share a clean download LINK rather than attaching the APK. The link opens the
-    // Firebase-hosted install page, which serves the APK over HTTPS (no corruption).
+    // Share a clean download LINK rather than attaching the APK. Play build: the Play
+    // Store page. GitHub build: the Firebase-hosted install page serving the APK.
     val message = "$greeting\n\n" +
         "Joggin' is a free GPS fitness tracker for walking, running & cycling. " +
         "Track your routes, earn achievements, and stay active together!\n\n" +
@@ -2810,16 +2856,22 @@ fun backupRuns(context: Context) {
         // Backup format v3: versioned envelope carrying the routes, the Buddy Link App ID
         // (if provisioned, so identity/links survive reinstall or a new device), and the
         // user's exercise data (targets + rep log + completed targets).
-        val json = BackupData.toJson(routes, BuddyIdentity.getId(context), targets, repLog, completed)
+        // The recovery key lets a restore prove it owns the App ID (only when one exists).
+        val buddyId = BuddyIdentity.getId(context)
+        val recoveryKey = buddyId?.let { BuddyIdentity.ensureRecoveryKey(context) }
+        val json = BackupData.toJson(routes, buddyId, targets, repLog, completed, recoveryKey)
 
-        // Write to app-private external files (no permission needed on any API level)
-        val dir = context.getExternalFilesDir(null) ?: context.filesDir
-        val file = java.io.File(dir, "joggin_backup.json")
+        // SECURITY (2026-11-25): the file holds the live recovery key, so stage it in the
+        // private cache (never readable by other apps; served via the cache-path provider
+        // entry) instead of external files, which other apps could read on Android 7-10.
+        // Also remove the copy older versions left in external storage.
+        runCatching { context.getExternalFilesDir(null)?.let { java.io.File(it, "joggin_backup.json").delete() } }
+        val file = java.io.File(context.cacheDir, "joggin_backup.json")
         file.writeText(json)
 
         // Share via intent so the user can save it wherever they like (Drive, Files, etc.)
         val uri = androidx.core.content.FileProvider.getUriForFile(
-            context, "com.example.joggingapp.fileprovider", file)
+            context, context.packageName + ".fileprovider", file)
         val intent = Intent(Intent.ACTION_SEND).apply {
             type = "application/json"
             putExtra(Intent.EXTRA_STREAM, uri)

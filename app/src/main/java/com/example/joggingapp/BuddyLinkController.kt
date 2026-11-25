@@ -195,18 +195,54 @@ class BuddyLinkController(private val appContext: Context) {
      * out of scope; the tap-to-locate reason strings keep that case honest.
      */
     private fun refreshSharingOnLaunch() {
+        val (providerOn, fine) = readGpsState()
+        updateGpsState(providerOn && fine)
+    }
+
+    /** (location switched on, fine-location permission granted) right now. */
+    private fun readGpsState(): Pair<Boolean, Boolean> {
         val lm = appContext.getSystemService(Context.LOCATION_SERVICE)
             as? android.location.LocationManager
         val providerOn = try {
-            lm?.isProviderEnabled(android.location.LocationManager.GPS_PROVIDER) == true ||
-                lm?.isProviderEnabled(android.location.LocationManager.NETWORK_PROVIDER) == true
+            lm != null && (androidx.core.location.LocationManagerCompat.isLocationEnabled(lm) ||
+                lm.isProviderEnabled(android.location.LocationManager.GPS_PROVIDER) ||
+                lm.isProviderEnabled(android.location.LocationManager.NETWORK_PROVIDER))
         } catch (_: Exception) {
             false
         }
         val fine = ContextCompat.checkSelfPermission(
             appContext, Manifest.permission.ACCESS_FINE_LOCATION
         ) == PackageManager.PERMISSION_GRANTED
-        updateGpsState(providerOn && fine)
+        return providerOn to fine
+    }
+
+    /**
+     * 2026-11-25: the GPS-state poll lives here, not in a screen, so it keeps running whatever
+     * the UI shows (a UI-bound poll left sharing OFF for 15 min after one bad reading, which
+     * froze the buddy's position: the rules hide it unless BOTH sides share). Turning sharing
+     * OFF needs [GPS_OFF_READINGS] off readings in a row; turning it ON is immediate.
+     */
+    private var gpsPollJob: Job? = null
+    private var gpsOffStreak = 0
+    private fun startGpsPoll() {
+        if (gpsPollJob != null) return
+        gpsPollJob = scope.launch {
+            while (true) {
+                val (providerOn, fine) = readGpsState()
+                if (providerOn && fine) {
+                    gpsOffStreak = 0
+                    updateGpsState(true)
+                } else if (gpsOn) {
+                    gpsOffStreak++
+                    if (gpsOffStreak >= GPS_OFF_READINGS) {
+                        AppLogger.log(appContext, LogCategory.SERVICE,
+                            "Buddy GPS state off for $gpsOffStreak readings — locationOn=$providerOn finePermission=$fine")
+                        updateGpsState(false)
+                    }
+                }
+                delay(GPS_POLL_MS)
+            }
+        }
     }
 
     /**
@@ -263,13 +299,23 @@ class BuddyLinkController(private val appContext: Context) {
      * Calls [BuddyRepository.ensureSession] up to [BuddySessionRetry.MAX_ATTEMPTS] times
      * with a growing delay. Suspends (never blocks the UI). Returns true on success.
      */
-    private suspend fun ensureSessionWithRetry(id: String): Boolean {
+    private suspend fun ensureSessionWithRetry(startId: String): Boolean {
+        var id = startId
         var attempt = 1
         while (true) {
             val ok = repo.ensureSession(id) is BuddyResult.Success
             if (ok) {
                 AppLogger.log(appContext, LogCategory.PROFILE, "Buddy Link session established (attempt $attempt)")
                 return true
+            }
+            // A restored ID the server refused (no/old recovery key) is replaced with a fresh
+            // one by the repository. Switch to it and try again straight away, once.
+            val current = BuddyIdentity.getId(appContext)
+            if (current != null && current != id) {
+                AppLogger.log(appContext, LogCategory.PROFILE, "Buddy Link switched to a new identity after a refused restore")
+                id = current
+                appId = current
+                continue
             }
             AppLogger.log(appContext, LogCategory.ERROR, "Buddy Link session attempt $attempt failed")
             if (!BuddySessionRetry.shouldRetry(attempt, ok, repo.needsSession())) return false
@@ -329,6 +375,7 @@ class BuddyLinkController(private val appContext: Context) {
         // refresh reactively. Tied to this observing session's lifecycle (cancelled in
         // disable()/dispose()) so it can't leak. Only re-reads in-memory state — not a
         // network poll; the Firestore listeners above remain push-based.
+        startGpsPoll()
         if (livenessTickJob == null) {
             livenessTickJob = scope.launch {
                 while (true) {
@@ -392,6 +439,10 @@ class BuddyLinkController(private val appContext: Context) {
     private fun refreshTrailSubscription() {
         val id = primaryBuddyView?.user?.takeIf { it.shareMode == BuddyShareMode.ROUTE }?.appId
         if (id == trailBuddyId) return
+        val partner = runPartnerId
+        if (partner != null && (id == partner || trailBuddyId == partner)) {
+            runLog(if (id == partner) "reading partner trail" else "stopped reading partner trail")
+        }
         trailBuddyId = id
         trailJob?.cancel(); trailJob = null
         buddyTrail = emptyList()
@@ -471,6 +522,7 @@ class BuddyLinkController(private val appContext: Context) {
         // re-enable re-attaches a fresh set (no duplicate listeners / doubled diffs).
         observeJobs.forEach { it.cancel() }; observeJobs.clear(); observing = false
         livenessTickJob?.cancel(); livenessTickJob = null
+        gpsPollJob?.cancel(); gpsPollJob = null; gpsOffStreak = 0
         // Clear observed lists so the UI doesn't show stale buddies while off.
         buddies = emptyList(); pending = emptyList(); watchers = emptyList()
         trailJob?.cancel(); trailJob = null; trailBuddyId = null; buddyTrail = emptyList()
@@ -680,8 +732,13 @@ class BuddyLinkController(private val appContext: Context) {
         sendRunSignal(invite.buddyAppId, RunSignalKind.CANCEL, invite.inviteId, invite.activityType)
     }
 
-    fun acceptRunInvite() {
+    /** [inviteId]: the invite the user was shown, so a newer one can't be accepted by mistake. */
+    fun acceptRunInvite(inviteId: String? = null) {
         val invite = incomingRun ?: return
+        if (inviteId != null && invite.inviteId != inviteId) {
+            runLog("accept ignored: shown invite ${inviteId.take(8)} is no longer the open one")
+            return
+        }
         runLog("invite ${invite.inviteId.take(8)} accepted by me")
         closeIncoming()
         sendRunSignal(invite.fromAppId, RunSignalKind.ACCEPT, invite.inviteId, invite.activityType)
@@ -708,7 +765,7 @@ class BuddyLinkController(private val appContext: Context) {
                 RunTogether.Action.ACCEPT_CROSSED_INVITE -> {
                     closeOutgoing()
                     sendRunSignal(signal.fromAppId, RunSignalKind.ACCEPT, signal.inviteId, signal.activityType)
-                    beginRunTogether(outgoing?.activityType ?: signal.activityType, signal.fromAppId, signal.fromName)
+                    beginRunTogether(outgoing?.activityType ?: signal.activityType, signal.fromAppId, trustedBuddyName(signal.fromAppId))
                 }
                 RunTogether.Action.OUTGOING_ACCEPTED -> {
                     closeOutgoing()
@@ -727,10 +784,25 @@ class BuddyLinkController(private val appContext: Context) {
         }
     }
 
+    /**
+     * SECURITY (2026-11-25): the name a run-together invite shows comes from MY buddy list,
+     * never from the sender-written fromName, so a buddy can't pose as another buddy.
+     */
+    private fun trustedBuddyName(appId: String): String =
+        buddies.firstOrNull { it.user.appId == appId }?.user?.displayName?.ifBlank { null }
+            ?: buddyShortId(appId)
+
     private fun showIncomingInvite(signal: RunSignal) {
+        // SECURITY (2026-11-25): an open invite from one buddy is never swapped for another
+        // buddy's while the user is looking at it.
+        val open = incomingRun
+        if (open != null && open.fromAppId != signal.fromAppId) {
+            runLog("invite ${signal.inviteId.take(8)} ignored: invite ${open.inviteId.take(8)} from another buddy is open")
+            return
+        }
         closeIncoming()
-        incomingRun = signal
-        val name = signal.fromName.ifBlank { buddyShortId(signal.fromAppId) }
+        val name = trustedBuddyName(signal.fromAppId)
+        incomingRun = signal.copy(fromName = name)
         val background = !AppForeground.isForeground
         if (background) BuddyNotifier.notifyRunInvite(appContext, name, signal.activityType)
         runLog("invite ${signal.inviteId.take(8)} shown " + if (background) "as a notification" else "in the app")
@@ -788,14 +860,22 @@ class BuddyLinkController(private val appContext: Context) {
             runLog("Route already on — nothing to turn on for this run")
             return
         }
-        enableRouteMode()
-        prefs.edit().putBoolean(BuddyConstants.PREFS_RUN_ROUTE_TEMPORARY, true).apply()
-        runLog("Route turned on for this run only")
+        // SECURITY (2026-11-25): delete my earlier trail points first, so turning Route on for
+        // this run shows buddies this run only, not up to 7 days of older routes.
+        scope.launch {
+            val cleared = repo.pruneMyTrail(System.currentTimeMillis())
+            runLog("old trail cleared before this run: $cleared")
+            enableRouteMode()
+            prefs.edit().putBoolean(BuddyConstants.PREFS_RUN_ROUTE_TEMPORARY, true).apply()
+            runLog("Route turned on for this run only")
+        }
     }
 
     private fun restoreRunRoute() {
         if (prefs.getBoolean(BuddyConstants.PREFS_RUN_ROUTE_TEMPORARY, false)) {
             disableRouteMode()
+            // The run's points were only shared for this run: remove them from the server.
+            scope.launch { runLog("run trail cleared: ${repo.pruneMyTrail(System.currentTimeMillis() + 60_000L)}") }
             runLog("run over — Route turned back off")
         }
     }
@@ -950,13 +1030,15 @@ class BuddyLinkController(private val appContext: Context) {
         return BuddyInvite.buildShareText(id, userName, messageBuilder)
     }
 
-    fun dispose() { livenessTickJob?.cancel(); livenessTickJob = null; scope.cancel() }
+    fun dispose() { livenessTickJob?.cancel(); livenessTickJob = null; gpsPollJob?.cancel(); gpsPollJob = null; scope.cancel() }
 
     companion object {
         private const val KEY_ENABLED = "buddy_enabled"
         // Interval for the Compose-observable liveness tick. 3s keeps the perceived
         // latency for a buddy appearing low while costing only in-memory re-reads.
         private const val LIVENESS_TICK_MS = 3000L
+        private const val GPS_POLL_MS = 5000L
+        private const val GPS_OFF_READINGS = 3
         private const val DELETE_TIMEOUT_MS = 60_000L
         // A partner fix written just before my tracking started still belongs to the run.
         private const val RUN_PARTNER_SAVE_SLACK_MS = 60_000L

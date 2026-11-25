@@ -50,6 +50,7 @@ object BuddyNotifier {
     /** Intent extra carrying the appId of the buddy to focus on the map when a
      *  "buddy online" notification is tapped. Read by MainActivity.handleIntent. */
     const val EXTRA_FOCUS_BUDDY_ID = "com.example.joggingapp.extra.FOCUS_BUDDY_ID"
+    const val EXTRA_ACCEPT_LINK_ID = "com.example.joggingapp.extra.ACCEPT_LINK_ID"
 
     /**
      * A link request was received. When a [linkId] is supplied the notification carries
@@ -67,14 +68,31 @@ object BuddyNotifier {
         }
         val actions = if (linkId != null) {
             listOf(
-                action(context, BuddyInviteActionReceiver.ACTION_ACCEPT, linkId, s.buddyInviteAccept),
+                acceptAction(context, linkId, s.buddyInviteAccept),
                 action(context, BuddyInviteActionReceiver.ACTION_IGNORE, linkId, s.buddyInviteIgnore)
             )
         } else emptyList()
         post(context, NOTIF_ID_REQUEST, title, s.buddyNotifRequestBody, actions = actions)
     }
 
-    /** Build an explicit-intent broadcast action for the Accept/Ignore buttons. */
+    /**
+     * SECURITY (2026-11-25): Accept opens the app (an activity), never a background broadcast.
+     * Android asks for the unlock before it starts an activity from the lock screen, so a
+     * request can't be accepted by someone holding a locked phone. Ignore stays one-tap.
+     */
+    private fun acceptAction(context: Context, linkId: String, label: String): NotificationCompat.Action {
+        val intent = Intent(context, MainActivity::class.java).apply {
+            putExtra(EXTRA_ACCEPT_LINK_ID, linkId)
+            addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        }
+        val pending = PendingIntent.getActivity(
+            context, ("accept".hashCode() * 31) xor linkId.hashCode(), intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        return NotificationCompat.Action.Builder(0, label, pending).build()
+    }
+
+    /** Build an explicit-intent broadcast action for the Ignore button. */
     private fun action(
         context: Context, intentAction: String, linkId: String, label: String
     ): NotificationCompat.Action {
